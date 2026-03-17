@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Tenant (loja) ─────────────────────────────────────────────
+model Tenant {
+  id              String     @id @default(uuid())
+  name            String
+  active          Boolean    @default(true)
+
+  // WhatsApp Cloud API
+  waToken         String
+  waPhoneNumberId String     @unique
+  waWabaId        String?
+
+  // CardápioWeb (banco externo de cardápio)
+  cwBaseUrl       String     @default("https://integracao.cardapioweb.com")
+  cwApiKey        String
+  cwPartnerKey    String
+  cwStoreId       String?
+
+  // Config da loja
+  city            String?
+  webhookToken    String?    // verify_token específico do tenant (opcional)
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  customers       Customer[]
+  orders          Order[]
+
+  @@map("tenants")
+}
+
+// ── Customer (cliente por tenant) ────────────────────────────
+model Customer {
+  id               String    @id @default(uuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+
+  phone            String    // E.164 sem "+": 5511987654321
+  name             String?
+
+  // Endereço mais recente
+  lastAddress      String?
+  lastStreet       String?
+  lastNumber       String?
+  lastNeighborhood String?
+  lastComplement   String?
+  lastCity         String?
+  lastLat          Float?
+  lastLng          Float?
+
+  // Estado do bot
+  handoff          Boolean   @default(false)
+  handoffAt        DateTime?
+
+  // Histórico
+  visitCount       Int       @default(0)
+  lastInteraction  DateTime  @default(now())
+  lastOrderSummary String?
+  preferredPayment String?
+
+  createdAt        DateTime  @default(now())
+  orders           Order[]
+
+  @@unique([tenantId, phone], name: "tenantId_phone")
+  @@map("customers")
+}
+
+// ── Order (pedido) ────────────────────────────────────────────
+model Order {
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  customerId       String
+  customer         Customer @relation(fields: [customerId], references: [id])
+
+  // Req 3 — Idempotência
+  idempotencyKey   String
+
+  // Status
+  status           String   @default("waiting_confirmation")
+
+  // Financeiro
+  total            Float
+  deliveryFee      Float    @default(0)
+  discount         Float    @default(0)
+  totalValidated   Boolean  @default(false)
+  totalExpected    Float?
+
+  // Fulfillment
+  fulfillment      String   // "delivery" | "takeout"
+
+  // Pagamento
+  paymentMethodId  String?
+  paymentMethodName String?
+
+  // Req 5 — Snapshot completo dos itens
+  itemsSnapshot    String   // JSON dos itens no momento do pedido
+  addressSnapshot  String?  // JSON do endereço no momento do pedido
+
+  // CardápioWeb
+  cwOrderId        String?  @unique
+  cwPayload        String?  // JSON enviado ao CW
+  cwResponse       String?  // JSON recebido do CW
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  statusLogs       OrderStatusLog[]
+
+  @@unique([tenantId, idempotencyKey], name: "tenantId_idempotencyKey")
+  @@index([tenantId, status])
+  @@index([customerId])
+  @@map("orders")
+}
+
+// ── OrderStatusLog (auditoria de status) ─────────────────────
+model OrderStatusLog {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  status    String
+  source    String   @default("system") // bot | human | webhook | system
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_status_logs")
+}
+
+// ── Config (chave-valor global) ───────────────────────────────
+model Config {
+  id    Int    @id @default(1)
+  key   String @unique
+  value String
+
+  @@map("configs")
+}
