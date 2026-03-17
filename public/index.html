@@ -174,6 +174,52 @@
     .step{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:600;color:#888;background:#f5f5f5;cursor:pointer;transition:.2s}
     .step.active{background:var(--purple);color:#fff}
 
+    /* ── FILA DE ESPERA ── */
+    .col-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+    .col-tab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:#888;transition:.2s;background:#fff}
+    .col-tab.active{color:var(--purple);border-bottom-color:var(--purple)}
+    .queue-list{overflow-y:auto;flex:1}
+    .queue-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
+    .queue-item:hover{background:#fff8f5}
+    .queue-item.claimed-mine{background:#fff3ed;border-left:3px solid var(--purple)}
+    .queue-item.claimed-other{background:#f5f5f5;opacity:.6}
+    .queue-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;white-space:nowrap}
+    .qb-waiting{background:#fff3cd;color:#856404}
+    .qb-mine{background:#fde8d8;color:#c04400}
+    .qb-other{background:#e8e8e8;color:#666}
+    .btn-claim{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.2s}
+    .btn-claim:hover{background:var(--purple-d)}
+    .btn-release{background:#f5f5f5;color:#666;border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;transition:.2s}
+    .btn-release:hover{background:#e8e8e8}
+    .queue-wait{font-size:10px;color:#aaa;margin-top:2px}
+
+    /* ── OPTIONS OVERLAY ── */
+    .options-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
+    .options-modal{background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3)}
+    .options-head{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .options-head h4{font-size:15px;font-weight:700;margin:0}
+    .options-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1}
+    .options-body{overflow-y:auto;flex:1;padding:14px}
+    .og-section{margin-bottom:16px}
+    .og-title{font-size:13px;font-weight:700;color:#333;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .og-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600}
+    .og-required{background:#fde8d8;color:#c04400}
+    .og-optional{background:#f0f0f0;color:#666}
+    .og-option{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:6px;transition:.15s}
+    .og-option:hover{border-color:var(--purple)}
+    .og-option.selected{border-color:var(--purple);background:var(--purple-ll)}
+    .og-option input{accent-color:var(--purple);flex-shrink:0}
+    .og-option-info{flex:1}
+    .og-option-name{font-size:13px;font-weight:500;color:#1a1a1a}
+    .og-option-price{font-size:12px;color:var(--purple);font-weight:600}
+    .options-foot{padding:12px 14px;border-top:1px solid var(--border);background:#fafafa;display:flex;gap:8px;flex-shrink:0}
+    .options-foot button{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:.2s}
+    /* promo price */
+    .prod-promo{font-size:11px;color:#aaa;text-decoration:line-through}
+    .prod-price-promo{font-size:13px;font-weight:700;color:#e55a20}
+    /* option indicator */
+    .has-options-badge{font-size:10px;background:#fff3ed;color:#c04400;padding:2px 6px;border-radius:8px;font-weight:600;margin-top:2px}
+
     /* scrollbars */
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:transparent}
@@ -188,9 +234,10 @@
     <div class="logo">🍕</div>
     <h1>Pappi Atendente</h1>
     <p>Painel de Atendimento</p>
+    <input id="loginName" type="text" placeholder="Seu nome (atendente)" autocomplete="off"/>
     <input id="loginKey" type="password" placeholder="Chave de acesso" autocomplete="off"/>
     <button onclick="doLogin()">Entrar</button>
-    <div id="loginErr" class="login-err" style="display:none">Chave inválida. Tente novamente.</div>
+    <div id="loginErr" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
   </div>
 </div>
 
@@ -208,16 +255,24 @@
 <div id="app">
   <div class="layout">
 
-    <!-- COL 1: CONVERSAS -->
+    <!-- COL 1: CONVERSAS + FILA -->
     <div class="col-conv">
-      <div class="col-header">
-        <h2>Conversas</h2>
-        <div class="search-box">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input id="searchInput" placeholder="Pesquisar por nome ou número..." oninput="filterConv()"/>
-        </div>
+      <div class="col-tabs">
+        <div class="col-tab active" id="tabConv" onclick="switchTab('conv')">💬 Conversas</div>
+        <div class="col-tab" id="tabQueue" onclick="switchTab('queue')">🙋 Fila <span id="queueBadgeCount" style="display:none;background:var(--purple);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">0</span></div>
       </div>
-      <div class="conv-list" id="convList"></div>
+      <div id="panelConv" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+        <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--purple-ll)">
+          <div class="search-box">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input id="searchInput" placeholder="Pesquisar por nome ou número..." oninput="filterConv()"/>
+          </div>
+        </div>
+        <div class="conv-list" id="convList"></div>
+      </div>
+      <div id="panelQueue" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <div class="queue-list" id="queueList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Carregando fila...</div></div>
+      </div>
     </div>
 
     <!-- COL 2: CENTRO -->
@@ -258,6 +313,21 @@
   </div>
 </div>
 
+<!-- OVERLAY: OPÇÕES DO PRODUTO -->
+<div class="options-overlay" id="optionsOverlay" style="display:none" onclick="if(event.target===this)closeOptionsOverlay()">
+  <div class="options-modal">
+    <div class="options-head">
+      <h4 id="optProdName">Configurar produto</h4>
+      <button onclick="closeOptionsOverlay()">×</button>
+    </div>
+    <div class="options-body" id="optionsBody"></div>
+    <div class="options-foot">
+      <button class="btn-cancel" onclick="closeOptionsOverlay()">Cancelar</button>
+      <button class="btn-confirm" id="btnAddOpt" onclick="confirmAddWithOptions()">Adicionar ao carrinho</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const TENANT = "tenant-pappi-001";
 let API_KEY = "";
@@ -266,7 +336,12 @@ let selectedCustomer = null;
 let catalog = null;
 let payments = [];
 let cart = [];
+let allCatalogProducts = []; // cache global dos produtos com option_groups
+let pendingProduct = null;   // produto sendo configurado no overlay de options
+let pendingSelections = {};  // { optionGroupId: [optionId, ...] }
 let orderStep = 1;
+let ATTENDANT_NAME = "";
+let currentTab = "conv"; // "conv" | "queue"
 let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
@@ -274,9 +349,11 @@ let refreshTimer = null;
 
 // ── LOGIN ──────────────────────────────────────────────────────
 async function doLogin() {
+  const name = document.getElementById("loginName").value.trim();
   const key = document.getElementById("loginKey").value.trim();
-  if (!key) return;
+  if (!key || !name) { document.getElementById("loginErr").style.display = "block"; return; }
   API_KEY = key;
+  ATTENDANT_NAME = name;
   const ok = await fetchStats();
   if (ok) {
     document.getElementById("login").style.display = "none";
@@ -290,6 +367,7 @@ async function doLogin() {
   }
 }
 document.getElementById("loginKey").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKey").focus(); });
 
 // ── API ───────────────────────────────────────────────────────
 async function api(path, opts={}) {
@@ -411,6 +489,7 @@ function renderRight(c) {
           <span class="slider"></span>
         </label>
       </div>
+      ${c.handoff ? handoffBar(c) : ""}
       <div class="orders-section">
         <div class="orders-header">
           <h3>Pedidos</h3>
@@ -558,6 +637,9 @@ function renderCatalogStep(body) {
     });
   }
 
+  // Cache global com option_groups para lookup no overlay
+  allCatalogProducts = allProducts;
+
   const activeCat = window._activeCat || "Todos";
   const filtered = activeCat === "Todos" ? allProducts : allProducts.filter(p=>p._cat===activeCat);
   const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
@@ -573,17 +655,21 @@ function renderCatalogStep(body) {
     </div>
     <div class="prod-list" id="prodList">
       ${filtered.map(p=>{
-        const price = parseFloat(p.price||p.value||p.min_price||0);
+        const hasPromo = p.promotional_price_active && p.promotional_price > 0;
+        const price = hasPromo ? parseFloat(p.promotional_price) : parseFloat(p.price||p.value||p.min_price||0);
+        const origPrice = parseFloat(p.price||0);
+        const hasOptions = (p.option_groups||[]).filter(og=>og.status!=="INACTIVE").length > 0;
         const inCart = cart.find(c=>c.id===String(p.id||p.product_id));
         return `
-        <div class="prod-item" onclick="addToCart('${String(p.id||p.product_id)}','${esc(p.name)}',${price})">
-          <div class="prod-img">${p.image_url?`<img src="${p.image_url}" style="width:50px;height:50px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">`:"🍕"}</div>
+        <div class="prod-item" onclick="selectProduct('${String(p.id||p.product_id)}')">
+          <div class="prod-img">${(p.image?.thumbnail_url||p.image_url)?`<img src="${p.image?.thumbnail_url||p.image_url}" style="width:50px;height:50px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">`:"🍕"}</div>
           <div class="prod-info">
             <div class="prod-name">${esc(p.name)}</div>
             ${p.description?`<div class="prod-desc">${esc(p.description)}</div>`:""}
+            ${hasOptions?`<div class="has-options-badge">+ Complementos</div>`:""}
           </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-            <span class="prod-price">${price>0?"R$ "+price.toFixed(2):"Variável"}</span>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            ${hasPromo?`<span class="prod-promo">R$ ${origPrice.toFixed(2)}</span><span class="prod-price-promo">R$ ${price.toFixed(2)}</span>`:`<span class="prod-price">${price>0?"R$ "+price.toFixed(2):"Variável"}</span>`}
             ${inCart?`<span style="font-size:11px;color:var(--purple);font-weight:700">${inCart.quantity} no carrinho</span>`:""}
           </div>
         </div>`;
@@ -595,7 +681,10 @@ function renderCatalogStep(body) {
       <h4>🛒 Carrinho (${cart.reduce((s,i)=>s+i.quantity,0)} itens)</h4>
       ${cart.map(i=>`
         <div class="cart-item">
-          <div class="ci-name">${esc(i.name)}</div>
+          <div class="ci-name">
+            ${esc(i.name)}
+            ${(i.options||[]).length?`<div style="font-size:10px;color:#888;margin-top:2px">${i.options.map(o=>esc(o.name)).join(", ")}</div>`:""}
+          </div>
           <div class="ci-qty">
             <button onclick="event.stopPropagation();changeQty('${i.id}',-1)">−</button>
             <span>${i.quantity}</span>
@@ -618,11 +707,124 @@ function filterProds(q) {
     el.style.display = name.includes(q.toLowerCase()) ? "" : "none";
   });
 }
-function addToCart(id, name, price) {
-  const ex = cart.find(i=>i.id===id);
-  if (ex) { ex.quantity++; } else { cart.push({id, name, unit_price: price, quantity:1}); }
+
+// ── SELECIONA PRODUTO (abre overlay se tiver option_groups) ──
+function selectProduct(id) {
+  const prod = allCatalogProducts.find(p => String(p.id||p.product_id) === String(id));
+  if (!prod) return;
+  const groups = (prod.option_groups||[]).filter(og => og.status !== "INACTIVE" && og.options?.length);
+  if (!groups.length) {
+    // sem complementos: adiciona direto
+    const hasPromo = prod.promotional_price_active && prod.promotional_price > 0;
+    const price = hasPromo ? parseFloat(prod.promotional_price) : parseFloat(prod.price||0);
+    addToCartDirect(String(prod.id||prod.product_id), prod.name, price, []);
+    return;
+  }
+  openOptionsOverlay(prod);
+}
+
+function addToCartDirect(id, name, price, options) {
+  const ex = cart.find(i => i.id === id && JSON.stringify(i.options||[]) === JSON.stringify(options));
+  if (ex && !options.length) { ex.quantity++; }
+  else { cart.push({ id, name, unit_price: price, quantity: 1, options }); }
   renderStep();
 }
+
+// ── OVERLAY DE OPÇÕES ─────────────────────────────────────────
+function openOptionsOverlay(prod) {
+  pendingProduct = prod;
+  pendingSelections = {};
+  document.getElementById("optProdName").textContent = prod.name;
+  renderOptionsBody();
+  document.getElementById("optionsOverlay").style.display = "flex";
+}
+
+function closeOptionsOverlay() {
+  document.getElementById("optionsOverlay").style.display = "none";
+  pendingProduct = null;
+  pendingSelections = {};
+}
+
+function renderOptionsBody() {
+  const body = document.getElementById("optionsBody");
+  const groups = (pendingProduct.option_groups||[]).filter(og => og.status !== "INACTIVE" && og.options?.length);
+  body.innerHTML = groups.map(og => {
+    const isSingle = og.choice_type === "SINGLE" || og.maximum_quantity === 1;
+    const required = og.minimum_quantity > 0;
+    const selected = pendingSelections[og.id] || [];
+    return `
+      <div class="og-section">
+        <div class="og-title">
+          ${esc(og.name)}
+          <span class="og-badge ${required?"og-required":"og-optional"}">${required?"Obrigatório":"Opcional"}</span>
+          ${!isSingle?`<span style="font-size:10px;color:#888">Máx: ${og.maximum_quantity}</span>`:""}
+        </div>
+        ${og.options.filter(o=>o.status!=="INACTIVE").map(opt => {
+          const isSelected = selected.includes(opt.id);
+          return `
+          <div class="og-option${isSelected?" selected":""}" onclick="toggleOption(${og.id},${opt.id},${isSingle},${og.maximum_quantity})">
+            <input type="${isSingle?"radio":"checkbox"}" ${isSelected?"checked":""} style="accent-color:var(--purple)" onclick="event.stopPropagation()"/>
+            <div class="og-option-info">
+              <div class="og-option-name">${esc(opt.name)}</div>
+              ${opt.description?`<div style="font-size:11px;color:#888">${esc(opt.description)}</div>`:""}
+            </div>
+            ${opt.price>0?`<span class="og-option-price">+R$ ${parseFloat(opt.price).toFixed(2)}</span>`:""}
+          </div>`;
+        }).join("")}
+      </div>`;
+  }).join("");
+}
+
+function toggleOption(groupId, optionId, isSingle, maxQty) {
+  if (!pendingSelections[groupId]) pendingSelections[groupId] = [];
+  const sel = pendingSelections[groupId];
+  const idx = sel.indexOf(optionId);
+  if (isSingle) {
+    pendingSelections[groupId] = idx >= 0 ? [] : [optionId];
+  } else {
+    if (idx >= 0) { sel.splice(idx, 1); }
+    else if (sel.length < maxQty) { sel.push(optionId); }
+  }
+  renderOptionsBody();
+}
+
+function confirmAddWithOptions() {
+  if (!pendingProduct) return;
+  const groups = (pendingProduct.option_groups||[]).filter(og => og.status !== "INACTIVE" && og.options?.length);
+  // Valida obrigatórios
+  for (const og of groups) {
+    if (og.minimum_quantity > 0) {
+      const sel = pendingSelections[og.id] || [];
+      if (sel.length < og.minimum_quantity) {
+        alert(`Selecione pelo menos ${og.minimum_quantity} opção em "${og.name}"`);
+        return;
+      }
+    }
+  }
+  // Monta opções selecionadas
+  const options = [];
+  let extraPrice = 0;
+  for (const og of groups) {
+    const sel = pendingSelections[og.id] || [];
+    for (const optId of sel) {
+      const opt = og.options.find(o => o.id === optId);
+      if (opt) {
+        options.push({ option_group_id: og.id, option_id: opt.id, name: opt.name, price: parseFloat(opt.price||0) });
+        extraPrice += parseFloat(opt.price||0);
+      }
+    }
+  }
+  const hasPromo = pendingProduct.promotional_price_active && pendingProduct.promotional_price > 0;
+  const basePrice = hasPromo ? parseFloat(pendingProduct.promotional_price) : parseFloat(pendingProduct.price||0);
+  addToCartDirect(
+    String(pendingProduct.id||pendingProduct.product_id),
+    pendingProduct.name,
+    basePrice + extraPrice,
+    options
+  );
+  closeOptionsOverlay();
+}
+
 function changeQty(id, delta) {
   const ex = cart.find(i=>i.id===id);
   if (!ex) return;
@@ -716,7 +918,18 @@ async function confirmOrder() {
   const body = {
     tenantId: TENANT,
     customerId: selectedCustomer.id,
-    items: cart,
+    items: cart.map(i => ({
+      id: i.id,
+      name: i.name,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      note: i.note || "",
+      options: (i.options||[]).map(o => ({
+        option_group_id: o.option_group_id,
+        option_id: o.option_id,
+        quantity: 1,
+      })),
+    })),
     fulfillment: orderFulfillment,
     address: orderFulfillment === "delivery" ? orderAddress : null,
     paymentMethodId: orderPayment.id,
@@ -741,14 +954,112 @@ async function confirmOrder() {
   }
 }
 
+// ── ABAS CONVERSAS / FILA ─────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById("tabConv").className = "col-tab" + (tab==="conv"?" active":"");
+  document.getElementById("tabQueue").className = "col-tab" + (tab==="queue"?" active":"");
+  document.getElementById("panelConv").style.display = tab==="conv" ? "flex" : "none";
+  document.getElementById("panelQueue").style.display = tab==="queue" ? "flex" : "none";
+  if (tab === "queue") fetchQueue();
+}
+
+// ── FILA DE ATENDIMENTO ───────────────────────────────────────
+async function fetchQueue() {
+  const d = await api(`/queue?attendant=${encodeURIComponent(ATTENDANT_NAME)}`);
+  if (!d) return;
+
+  // Atualiza badge de contagem
+  const unclaimed = d.filter(c => c.isUnclaimed).length;
+  const badge = document.getElementById("queueBadgeCount");
+  if (unclaimed > 0) { badge.style.display = ""; badge.textContent = unclaimed; }
+  else { badge.style.display = "none"; }
+
+  const el = document.getElementById("queueList");
+  if (!d.length) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum cliente na fila</div>'; return; }
+
+  el.innerHTML = d.map(c => {
+    const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
+    let badge, btn;
+    if (c.isMine) {
+      badge = `<span class="queue-badge qb-mine">🎯 Meu</span>`;
+      btn = `<button class="btn-release" onclick="releaseCustomer('${c.id}')">Encerrar</button>`;
+    } else if (c.isUnclaimed) {
+      badge = `<span class="queue-badge qb-waiting">⏳ Aguardando</span>`;
+      btn = `<button class="btn-claim" onclick="claimCustomer('${c.id}')">Assumir</button>`;
+    } else {
+      badge = `<span class="queue-badge qb-other">👤 ${esc(c.claimedBy)}</span>`;
+      btn = "";
+    }
+    return `
+      <div class="queue-item${c.isMine?" claimed-mine":c.claimedBy?" claimed-other":""}">
+        <div class="avatar${c.isMine?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+        <div class="conv-info">
+          <div class="conv-name">${esc(c.name)}</div>
+          <div class="conv-sub">${esc(c.phoneFormatted)}</div>
+          <div class="queue-wait">Aguardando há ${wait}min</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          ${badge}
+          ${btn}
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function claimCustomer(customerId) {
+  const r = await api("/queue/claim", {
+    method: "POST",
+    body: JSON.stringify({ customerId, attendant: ATTENDANT_NAME, tenantId: TENANT }),
+  });
+  if (r?.ok) { fetchQueue(); fetchConvs(); }
+  else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+async function releaseCustomer(customerId) {
+  if (!confirm("Encerrar atendimento? O cliente voltará ao bot automaticamente.")) return;
+  const r = await api("/queue/release", {
+    method: "POST",
+    body: JSON.stringify({ customerId, tenantId: TENANT }),
+  });
+  if (r?.ok) {
+    fetchQueue();
+    fetchConvs();
+    if (selectedCustomer?.id === customerId) {
+      selectedCustomer = null;
+      document.getElementById("colCenter").innerHTML = `<div class="empty-center"><div class="icon">💬</div><p>Selecione uma conversa</p></div>`;
+      document.getElementById("colRight").innerHTML = `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:#bbb;font-size:13px">Selecione uma conversa</div>`;
+    }
+  } else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
 // ── REFRESH ──────────────────────────────────────────────────
 function startRefresh() {
   fetchConvs();
   fetchStats();
-  refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); }, 5000);
+  fetchQueue();
+  refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); fetchQueue(); }, 5000);
 }
 
 // ── HELPERS ──────────────────────────────────────────────────
+function handoffBar(c) {
+  const isMine = c.claimedBy && c.claimedBy === ATTENDANT_NAME;
+  const isTaken = c.claimedBy && !isMine;
+  const label = isMine
+    ? "🎯 Você está atendendo"
+    : isTaken
+    ? "👤 " + esc(c.claimedBy) + " está atendendo"
+    : "⏳ Na fila de espera";
+  const btn = isMine
+    ? "<button class='btn-release' onclick=\"releaseCustomer('" + c.id + "')\">Encerrar</button>"
+    : !c.claimedBy
+    ? "<button class='btn-claim' onclick=\"claimCustomer('" + c.id + "')\">Assumir</button>"
+    : "";
+  return "<div style='padding:8px 14px;border-bottom:1px solid var(--border);background:#fff8f5;display:flex;align-items:center;justify-content:space-between;gap:8px'>"
+    + "<span style='font-size:12px;color:#c04400;font-weight:600'>" + label + "</span>"
+    + btn + "</div>";
+}
+
 function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function statusLabel(s) {
   return {

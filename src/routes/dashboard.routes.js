@@ -2,7 +2,7 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
 const { requireAttendantKey } = require("../middleware/auth.middleware");
-const { setHandoff } = require("../services/customer.service");
+const { setHandoff, claimFromQueue, releaseHandoff } = require("../services/customer.service");
 const { getClients } = require("../services/tenant.service");
 const { createWithIdempotency } = require("../services/order.service");
 const { validate: validateTotal } = require("../calculators/OrderCalculator");
@@ -146,6 +146,94 @@ router.get("/orders", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/queue ───────────────────────────────────────────
+// Retorna fila de espera: não reclamados + reclamados pelo atendente atual
+router.get("/queue", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const attendant = req.query.attendant || null;
+
+    const customers = await prisma.customer.findMany({
+      where: {
+        tenantId,
+        handoff: true,
+        queuedAt: { not: null },
+      },
+      orderBy: { queuedAt: "asc" },
+      include: {
+        orders: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+
+    res.json(customers.map(c => ({
+      id: c.id,
+      phone: c.phone,
+      phoneFormatted: PhoneNormalizer.format(c.phone),
+      name: c.name || "Sem nome",
+      queuedAt: c.queuedAt,
+      claimedBy: c.claimedBy,
+      isMine: attendant && c.claimedBy === attendant,
+      isUnclaimed: !c.claimedBy,
+      lastOrder: c.orders[0] ? {
+        status: c.orders[0].status,
+        total: c.orders[0].total,
+      } : null,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/queue/claim ─────────────────────────────────────
+router.post("/queue/claim", authDash, async (req, res) => {
+  try {
+    const { customerId, attendant, tenantId = "tenant-pappi-001" } = req.body;
+    if (!customerId || !attendant) return res.status(400).json({ error: "customerId e attendant obrigatórios" });
+
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
+    if (customer.claimedBy && customer.claimedBy !== attendant) {
+      return res.status(409).json({ error: `Já assumido por ${customer.claimedBy}` });
+    }
+
+    const updated = await claimFromQueue(customerId, attendant);
+
+    // Notifica o cliente
+    try {
+      const { wa } = await getClients(tenantId);
+      await wa.sendText(customer.phone, `👨‍💼 *${attendant}* está te atendendo agora. Como posso te ajudar?`);
+    } catch { /* ignora */ }
+
+    res.json({ ok: true, claimedBy: updated.claimedBy });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/queue/release ──────────────────────────────────
+// Encerra atendimento humano e volta ao fluxo do bot
+router.post("/queue/release", authDash, async (req, res) => {
+  try {
+    const { customerId, tenantId = "tenant-pappi-001" } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
+
+    await releaseHandoff(customerId);
+
+    // Avisa o cliente que voltou ao bot
+    try {
+      const { wa } = await getClients(tenantId);
+      await wa.sendText(customer.phone, "✅ Atendimento encerrado. Se precisar de algo, é só chamar! 😊");
+    } catch { /* ignora */ }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PUT /dash/handoff ─────────────────────────────────────────
 router.put("/handoff", authDash, async (req, res) => {
   try {
@@ -254,7 +342,11 @@ router.post("/order", authDash, async (req, res) => {
         product_id: i.id,
         quantity: i.quantity,
         note: i.note || "",
-        addons: i.addons || [],
+        options: (i.options || i.addons || []).map(o => ({
+          option_group_id: o.option_group_id,
+          option_id: o.option_id || o.id,
+          quantity: o.quantity || 1,
+        })),
       })),
       fulfillment,
       payment_method: paymentMethodId,

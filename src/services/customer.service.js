@@ -57,11 +57,37 @@ async function touchInteraction(customerId, addressData = null) {
 
 /**
  * Ativa/desativa o modo handoff (humano assumiu a conversa).
+ * Ao ativar, entra na fila. Ao desativar, sai da fila e libera o atendente.
  */
 async function setHandoff(customerId, enabled) {
   return prisma.customer.update({
     where: { id: customerId },
-    data: { handoff: enabled, handoffAt: enabled ? new Date() : null },
+    data: {
+      handoff: enabled,
+      handoffAt: enabled ? new Date() : null,
+      queuedAt: enabled ? new Date() : null,
+      claimedBy: enabled ? undefined : null,
+    },
+  });
+}
+
+/**
+ * Atendente assume um cliente da fila.
+ */
+async function claimFromQueue(customerId, attendantName) {
+  return prisma.customer.update({
+    where: { id: customerId },
+    data: { claimedBy: attendantName },
+  });
+}
+
+/**
+ * Encerra o atendimento humano: volta ao bot e remove da fila.
+ */
+async function releaseHandoff(customerId) {
+  return prisma.customer.update({
+    where: { id: customerId },
+    data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
   });
 }
 
@@ -90,4 +116,4 @@ async function findByPhone(tenantId, rawPhone) {
   });
 }
 
-module.exports = { findOrCreate, touchInteraction, setHandoff, recordOrder, findByPhone };
+module.exports = { findOrCreate, touchInteraction, setHandoff, claimFromQueue, releaseHandoff, recordOrder, findByPhone };

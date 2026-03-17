@@ -5,6 +5,7 @@ const { getClients } = require("../services/tenant.service");
 const { findByCustomer } = require("../services/order.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
 const AddressNormalizer = require("../normalizers/AddressNormalizer");
+const Gemini = require("../services/gemini.service");
 
 // Estado de conversa em memória (simples; para produção use Redis)
 // tenantId:phone → { step, cart, address, payment, ... }
@@ -88,9 +89,24 @@ async function sendMainMenu(wa, phone, customer) {
 }
 
 async function handleMenu(wa, cw, phone, text, t, session, customer, tenant) {
-  if (t.includes("pedido") || t === "pedido" || text === "PEDIDO") {
+  // Matching rápido via palavras-chave
+  let intent = null;
+  if (t.includes("pedido") || text === "PEDIDO" || t === "pedir" || t.includes("quero pedir")) intent = "PEDIDO";
+  else if (t.includes("status") || text === "STATUS") intent = "STATUS";
+  else if (t.includes("cardapio") || text === "CARDAPIO") intent = "CARDAPIO";
+
+  // Fallback: Gemini classifica a intenção quando matching simples falha
+  if (!intent) {
+    intent = await Gemini.classifyIntent(text);
+  }
+
+  if (intent === "PEDIDO") {
     session.step = "CHOOSING_ITEMS";
-    const catalog = await cw.getCatalog();
+    // Pré-carrega métodos de pagamento em paralelo para ter no cache antes do step PAYMENT
+    const [catalog] = await Promise.all([
+      cw.getCatalog(),
+      cw.getPaymentMethods(),
+    ]);
     const categories = extractCategories(catalog);
     if (!categories.length) {
       await wa.sendText(phone, "Cardápio indisponível no momento. Tente novamente em instantes.");
@@ -104,7 +120,7 @@ async function handleMenu(wa, cw, phone, text, t, session, customer, tenant) {
     return;
   }
 
-  if (t.includes("status") || text === "STATUS") {
+  if (intent === "STATUS") {
     const orders = await findByCustomer(customer.id, 3);
     if (!orders.length) {
       await wa.sendText(phone, "Você ainda não tem pedidos registrados.");
@@ -117,11 +133,28 @@ async function handleMenu(wa, cw, phone, text, t, session, customer, tenant) {
     return;
   }
 
-  if (t.includes("cardapio") || text === "CARDAPIO") {
+  if (intent === "CARDAPIO") {
     const catalog = await cw.getCatalog();
-    const text2 = formatCatalogText(catalog);
-    await wa.sendText(phone, text2 || "Cardápio indisponível no momento.");
+    const catalogText = formatCatalogText(catalog);
+    await wa.sendText(phone, catalogText || "Cardápio indisponível no momento.");
     return;
+  }
+
+  if (intent === "HANDOFF") {
+    const { setHandoff } = require("../services/customer.service");
+    await setHandoff(customer.id, true);
+    await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
+    return;
+  }
+
+  // OUTRO: Gemini responde perguntas gerais
+  if (intent === "OUTRO") {
+    const merchant = await cw.getMerchant().catch(() => null);
+    const reply = await Gemini.answerQuestion(text, merchant?.name || tenant.name || "Pappi");
+    if (reply) {
+      await wa.sendText(phone, reply);
+      return;
+    }
   }
 
   await sendMainMenu(wa, phone, customer);
@@ -219,23 +252,39 @@ async function handleFulfillment(wa, phone, text, t, session, tenant) {
 }
 
 async function handleAddress(wa, phone, text, session, tenant) {
-  const extracted = AddressNormalizer.fromText(text);
-  const result    = AddressNormalizer.normalize({ ...extracted, city: tenant.city || "" });
+  // Tenta Gemini primeiro (mais preciso com texto livre)
+  let addr = await Gemini.extractAddress(text, tenant.city || "Campinas");
 
-  if (!result.ok) {
+  // Fallback: AddressNormalizer
+  if (!addr) {
+    const extracted = AddressNormalizer.fromText(text);
+    const result    = AddressNormalizer.normalize({ ...extracted, city: tenant.city || "" });
+    if (result.ok) addr = result.address;
+  }
+
+  if (!addr || !addr.street || !addr.number) {
     await wa.sendText(
       phone,
-      `⚠️ Endereço incompleto. Informe: *rua, número, bairro*\n\nEx: _Av. Brasil, 456, Jardim das Rosas_`
+      `⚠️ Endereço incompleto. Informe: *rua, número e bairro*\n\nEx: _Av. Brasil, 456, Jardim das Rosas_`
     );
     return;
   }
 
-  session.address = result.address;
+  const formatted = [
+    `${addr.street}, ${addr.number}`,
+    addr.complement,
+    addr.neighborhood,
+    addr.city,
+    addr.state,
+  ].filter(Boolean).join(" - ");
+
+  addr.formatted = addr.formatted || formatted;
+  session.address = addr;
   session.step    = "PAYMENT";
 
   await wa.sendText(
     phone,
-    `✅ Endereço: *${result.address.formatted}*\n\n💳 *Forma de pagamento:*\n\n${listPayments(tenant.id)}\n\nDigite o nome do método:`
+    `✅ Endereço: *${addr.formatted}*\n\n💳 *Forma de pagamento:*\n\n${listPayments(tenant.id)}\n\nDigite o nome do método:`
   );
 }
 
