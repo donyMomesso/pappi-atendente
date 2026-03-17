@@ -1,294 +1,761 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pappi Atendente — Painel</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Pappi Atendente</title>
   <style>
-    body { background: #0f172a; }
-    .card { background: #1e293b; border: 1px solid #334155; }
-    .badge-waiting   { background:#854d0e; color:#fef08a; }
-    .badge-confirmed { background:#14532d; color:#86efac; }
-    .badge-cancelled { background:#7f1d1d; color:#fca5a5; }
-    .badge-delivered { background:#1e3a5f; color:#93c5fd; }
-    .badge-handoff   { background:#4c1d95; color:#c4b5fd; }
-    .pulse { animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-    ::-webkit-scrollbar { width:6px; }
-    ::-webkit-scrollbar-track { background:#1e293b; }
-    ::-webkit-scrollbar-thumb { background:#475569; border-radius:3px; }
-    input, textarea { background:#0f172a; border:1px solid #334155; color:#f1f5f9; }
-    input:focus, textarea:focus { outline:none; border-color:#6366f1; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+    :root{--purple:#FF6B35;--purple-d:#e55a20;--purple-l:#fde8d8;--purple-ll:#fff3ed;--green:#25d366;--red:#e53935;--gray:#757575;--border:#e0e0e0}
+
+    /* ── LOGIN ── */
+    #login{position:fixed;inset:0;background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);display:flex;align-items:center;justify-content:center;z-index:100}
+    .login-box{background:#fff;border-radius:16px;padding:40px;width:340px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+    .login-box .logo{font-size:48px;margin-bottom:8px}
+    .login-box h1{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
+    .login-box p{color:#888;font-size:13px;margin-bottom:24px}
+    .login-box input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:12px 14px;font-size:14px;margin-bottom:12px;outline:none;transition:.2s}
+    .login-box input:focus{border-color:var(--purple)}
+    .login-box button{width:100%;background:var(--purple);color:#fff;border:none;border-radius:8px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:.2s}
+    .login-box button:hover{background:var(--purple-d)}
+    .login-err{color:var(--red);font-size:12px;margin-top:8px}
+
+    /* ── HEADER ── */
+    header{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+    header .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
+    header .brand span{font-size:22px}
+    header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
+    header .stat{display:flex;align-items:center;gap:4px}
+    header .stat strong{font-size:15px;font-weight:700}
+
+    /* ── MAIN ── */
+    #app{display:none;flex:1;overflow:hidden}
+    .layout{display:grid;grid-template-columns:280px 1fr 320px;height:100%;overflow:hidden}
+
+    /* ── COL 1: CONVERSAS ── */
+    .col-conv{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--purple-ll)}
+    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--purple);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+    .search-box{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:6px 10px;border:1px solid var(--border)}
+    .search-box input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
+    .search-box svg{color:#aaa;flex-shrink:0}
+    .conv-list{overflow-y:auto;flex:1}
+    .conv-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
+    .conv-item:hover{background:var(--purple-ll)}
+    .conv-item.active{background:var(--purple-l);border-left:3px solid var(--purple)}
+    .conv-item.handoff{background:#fff3e0;border-left:3px solid #ff9800}
+    .avatar{width:40px;height:40px;border-radius:50%;background:var(--purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
+    .avatar.orange{background:#ff9800}
+    .conv-info{flex:1;min-width:0}
+    .conv-name{font-size:14px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .conv-sub{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+    .conv-badge{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+    .badge-handoff{background:#ff9800;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
+    .badge-bot{background:var(--purple);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
+
+    /* ── COL 2: CENTRO ── */
+    .col-center{background:#ece5dd;display:flex;flex-direction:column;overflow:hidden;position:relative}
+    .empty-center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#aaa;gap:8px}
+    .empty-center .icon{font-size:64px;opacity:.4}
+    .empty-center p{font-size:14px}
+    .chat-header{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .chat-header .name{font-weight:700;font-size:15px}
+    .chat-header .phone{font-size:12px;opacity:.85}
+    .chat-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
+    .msg{max-width:70%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.4;word-break:break-word}
+    .msg.in{background:#fff;align-self:flex-start;border-bottom-left-radius:4px}
+    .msg.out{background:#dcf8c6;align-self:flex-end;border-bottom-right-radius:4px}
+    .msg .time{font-size:10px;color:#aaa;margin-top:4px;text-align:right}
+    .chat-input{background:#f0f0f0;padding:10px 12px;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)}
+    .chat-input textarea{flex:1;border:none;background:#fff;border-radius:20px;padding:8px 14px;font-size:13px;resize:none;outline:none;max-height:80px}
+    .chat-input button{background:var(--purple);color:#fff;border:none;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
+    .chat-input button:hover{background:var(--purple-d)}
+
+    /* ── COL 3: PAINEL DIREITO ── */
+    .col-right{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--purple-ll)}
+    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+    .client-info{font-size:13px}
+    .client-info .cname{font-weight:700;font-size:15px;color:#1a1a1a}
+    .client-info .cphone{color:#888;font-size:12px;margin-top:2px}
+
+    /* toggle bot */
+    .bot-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:#fafafa}
+    .bot-row label{font-size:13px;font-weight:600;color:#444;display:flex;align-items:center;gap:6px}
+    .toggle{position:relative;width:42px;height:24px}
+    .toggle input{opacity:0;width:0;height:0}
+    .slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:.3s}
+    .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+    input:checked+.slider{background:var(--purple)}
+    input:checked+.slider:before{transform:translateX(18px)}
+
+    /* pedidos */
+    .orders-section{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+    .orders-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)}
+    .orders-header h3{font-size:13px;font-weight:700;color:#333}
+    .btn-new-order{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:.2s}
+    .btn-new-order:hover{background:var(--purple-d)}
+    .order-card{margin:8px 10px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+    .order-card .oc-head{background:var(--purple-ll);padding:8px 12px;display:flex;align-items:center;justify-content:space-between}
+    .order-card .oc-num{font-size:12px;font-weight:700;color:var(--purple)}
+    .order-card .oc-total{font-size:13px;font-weight:700;color:#1a1a1a}
+    .order-card .oc-body{padding:8px 12px;font-size:12px;color:#555}
+    .order-card .oc-body .oc-items{margin-top:4px;color:#888}
+    .status-pill{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
+    .s-waiting{background:#fff3cd;color:#856404}
+    .s-confirmed{background:#d1e7dd;color:#0f5132}
+    .s-cancelled{background:#f8d7da;color:#842029}
+    .s-delivered{background:#cfe2ff;color:#084298}
+    .s-preparing{background:#fde8d8;color:#8a4300}
+    .no-orders{text-align:center;padding:32px 16px;color:#aaa;font-size:13px}
+
+    /* ── MODAL PEDIDO ── */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+    .modal{background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.25)}
+    .modal-head{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .modal-head h3{font-size:16px;font-weight:700}
+    .modal-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;opacity:.8;line-height:1}
+    .modal-head button:hover{opacity:1}
+    .modal-body{overflow-y:auto;flex:1;padding:16px}
+    .modal-foot{padding:12px 16px;border-top:1px solid var(--border);background:#fafafa;display:flex;gap:8px;flex-shrink:0}
+    .modal-foot button{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:.2s}
+    .btn-cancel{background:#f5f5f5;color:#666}
+    .btn-cancel:hover{background:#e8e8e8}
+    .btn-confirm{background:var(--purple);color:#fff}
+    .btn-confirm:hover{background:var(--purple-d)}
+    .btn-pay{background:var(--purple);color:#fff;width:100%;padding:14px;font-size:15px;border-radius:10px;border:none;cursor:pointer;font-weight:700;transition:.2s}
+    .btn-pay:hover{background:var(--purple-d)}
+
+    /* catálogo */
+    .cat-search{display:flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:8px;padding:8px 12px;margin-bottom:12px;border:1px solid var(--border)}
+    .cat-search input{border:none;background:transparent;font-size:13px;outline:none;width:100%}
+    .cat-tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:4px}
+    .cat-tab{background:#f5f5f5;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;color:#555;transition:.2s;flex-shrink:0}
+    .cat-tab.active{background:var(--purple);color:#fff}
+    .prod-list{display:flex;flex-direction:column;gap:8px}
+    .prod-item{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.15s}
+    .prod-item:hover{border-color:var(--purple);background:var(--purple-ll)}
+    .prod-img{width:50px;height:50px;border-radius:8px;object-fit:cover;background:#f0e8ff;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px}
+    .prod-info{flex:1;min-width:0}
+    .prod-name{font-size:13px;font-weight:600;color:#1a1a1a}
+    .prod-desc{font-size:11px;color:#888;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .prod-price{font-size:13px;font-weight:700;color:var(--purple);white-space:nowrap}
+
+    /* carrinho */
+    .cart-section{margin-top:16px}
+    .cart-section h4{font-size:13px;font-weight:700;color:#333;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+    .cart-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f5f5f5}
+    .cart-item .ci-name{flex:1;font-size:13px;color:#333}
+    .cart-item .ci-qty{display:flex;align-items:center;gap:6px}
+    .ci-qty button{background:#f0e8ff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:14px;font-weight:700;color:var(--purple);line-height:1}
+    .ci-qty span{font-size:13px;font-weight:600;min-width:16px;text-align:center}
+    .cart-item .ci-price{font-size:13px;font-weight:700;color:var(--purple);min-width:60px;text-align:right}
+    .cart-item .ci-remove{background:none;border:none;color:#ccc;cursor:pointer;font-size:16px;padding:0 4px}
+    .cart-item .ci-remove:hover{color:var(--red)}
+    .cart-total{display:flex;justify-content:space-between;align-items:center;padding:12px 0 8px;font-weight:700;font-size:15px}
+    .cart-empty{text-align:center;color:#bbb;padding:24px;font-size:13px}
+
+    /* form fields */
+    .field-group{margin-bottom:12px}
+    .field-group label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px}
+    .field-group input,.field-group select,.field-group textarea{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:.2s;background:#fff}
+    .field-group input:focus,.field-group select:focus{border-color:var(--purple)}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .payment-list{display:flex;flex-direction:column;gap:6px}
+    .pay-option{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:.15s}
+    .pay-option:hover{border-color:var(--purple)}
+    .pay-option.selected{border-color:var(--purple);background:var(--purple-ll)}
+    .pay-option input{accent-color:var(--purple)}
+    .pay-option label{font-size:13px;font-weight:500;cursor:pointer;flex:1}
+
+    /* steps */
+    .steps{display:flex;gap:0;margin-bottom:16px;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+    .step{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:600;color:#888;background:#f5f5f5;cursor:pointer;transition:.2s}
+    .step.active{background:var(--purple);color:#fff}
+
+    /* scrollbars */
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px}
   </style>
 </head>
-<body class="text-slate-100 min-h-screen">
+<body>
 
-  <!-- Login -->
-  <div id="login" class="fixed inset-0 flex items-center justify-center z-50" style="background:#0f172a">
-    <div class="card rounded-2xl p-8 w-96 text-center">
-      <div class="text-4xl mb-2">🍕</div>
-      <h1 class="text-2xl font-bold mb-1">Pappi Atendente</h1>
-      <p class="text-slate-400 text-sm mb-6">Painel de Atendimento</p>
-      <input id="apiKey" type="password" placeholder="Chave de acesso"
-        class="w-full rounded-lg px-4 py-3 mb-4 text-sm" />
-      <button onclick="doLogin()"
-        class="w-full bg-indigo-600 hover:bg-indigo-500 rounded-lg py-3 font-semibold transition">
-        Entrar
-      </button>
-      <p id="loginErr" class="text-red-400 text-sm mt-3 hidden">Chave inválida</p>
-    </div>
+<!-- LOGIN -->
+<div id="login">
+  <div class="login-box">
+    <div class="logo">🍕</div>
+    <h1>Pappi Atendente</h1>
+    <p>Painel de Atendimento</p>
+    <input id="loginKey" type="password" placeholder="Chave de acesso" autocomplete="off"/>
+    <button onclick="doLogin()">Entrar</button>
+    <div id="loginErr" class="login-err" style="display:none">Chave inválida. Tente novamente.</div>
   </div>
+</div>
 
-  <!-- App -->
-  <div id="app" class="hidden">
+<!-- HEADER -->
+<header id="header" style="display:none">
+  <div class="brand"><span>🍕</span> Pappi Atendente</div>
+  <div class="stats">
+    <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
+    <div class="stat">💰 <strong id="h-revenue">R$0</strong> hoje</div>
+    <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
+  </div>
+</header>
 
-    <!-- Header -->
-    <header class="border-b border-slate-700 px-6 py-4 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <span class="text-2xl">🍕</span>
-        <div>
-          <h1 class="font-bold text-lg leading-none">Pappi Atendente</h1>
-          <p class="text-slate-400 text-xs">Painel de Atendimento</p>
+<!-- APP -->
+<div id="app">
+  <div class="layout">
+
+    <!-- COL 1: CONVERSAS -->
+    <div class="col-conv">
+      <div class="col-header">
+        <h2>Conversas</h2>
+        <div class="search-box">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input id="searchInput" placeholder="Pesquisar por nome ou número..." oninput="filterConv()"/>
         </div>
       </div>
-      <div class="flex items-center gap-4">
-        <div id="storeStatus" class="text-xs px-3 py-1 rounded-full bg-slate-700">Carregando...</div>
-        <div id="lastUpdate" class="text-slate-500 text-xs"></div>
-        <button onclick="logout()" class="text-slate-400 hover:text-white text-sm transition">Sair</button>
-      </div>
-    </header>
+      <div class="conv-list" id="convList"></div>
+    </div>
 
-    <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 p-6 pb-0">
-      <div class="card rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Pedidos hoje</p>
-        <p id="st-orders" class="text-3xl font-bold">—</p>
-      </div>
-      <div class="card rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Faturamento hoje</p>
-        <p id="st-revenue" class="text-3xl font-bold text-green-400">—</p>
-      </div>
-      <div class="card rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Clientes</p>
-        <p id="st-customers" class="text-3xl font-bold">—</p>
-      </div>
-      <div class="card rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Aguardando humano</p>
-        <p id="st-handoff" class="text-3xl font-bold text-violet-400">—</p>
-      </div>
-      <div class="card rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Total pedidos</p>
-        <p id="st-total" class="text-3xl font-bold text-slate-300">—</p>
+    <!-- COL 2: CENTRO -->
+    <div class="col-center" id="colCenter">
+      <div class="empty-center">
+        <div class="icon">💬</div>
+        <p>Selecione uma conversa</p>
       </div>
     </div>
 
-    <!-- Main -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
-
-      <!-- Conversas -->
-      <div class="card rounded-xl flex flex-col" style="max-height:70vh">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <h2 class="font-semibold">💬 Conversas</h2>
-          <span id="conv-count" class="text-xs text-slate-400"></span>
-        </div>
-        <div id="conv-list" class="overflow-y-auto flex-1 divide-y divide-slate-700/50"></div>
+    <!-- COL 3: PAINEL DIREITO -->
+    <div class="col-right" id="colRight">
+      <div class="col-right" style="align-items:center;justify-content:center;display:flex;flex:1;color:#bbb;font-size:13px">
+        Selecione uma conversa
       </div>
+    </div>
 
-      <!-- Pedidos do dia -->
-      <div class="card rounded-xl flex flex-col" style="max-height:70vh">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <h2 class="font-semibold">📦 Pedidos de hoje</h2>
-          <span id="orders-count" class="text-xs text-slate-400"></span>
-        </div>
-        <div id="orders-list" class="overflow-y-auto flex-1 divide-y divide-slate-700/50"></div>
-      </div>
+  </div>
+</div>
 
+<!-- MODAL: NOVO PEDIDO -->
+<div class="modal-bg" id="modalOrder" style="display:none" onclick="if(event.target===this)closeOrder()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Novo Pedido</h3>
+      <button onclick="closeOrder()">×</button>
+    </div>
+    <div class="steps" style="margin:12px 16px 0;border-radius:10px">
+      <div class="step active" id="step1" onclick="goStep(1)">1. Produtos</div>
+      <div class="step" id="step2" onclick="goStep(2)">2. Entrega</div>
+      <div class="step" id="step3" onclick="goStep(3)">3. Pagamento</div>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="modal-foot btn-cancel" onclick="closeOrder()">Cancelar</button>
+      <button class="modal-foot btn-confirm" id="btnNext" onclick="nextStep()">Próximo →</button>
     </div>
   </div>
-
-  <!-- Modal enviar mensagem -->
-  <div id="modal-send" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 hidden">
-    <div class="card rounded-2xl p-6 w-full max-w-md mx-4">
-      <h3 class="font-semibold mb-1">Enviar mensagem</h3>
-      <p id="modal-phone-label" class="text-slate-400 text-sm mb-4"></p>
-      <input id="modal-phone" type="hidden" />
-      <textarea id="modal-text" rows="3" placeholder="Digite a mensagem..."
-        class="w-full rounded-lg px-4 py-3 mb-4 text-sm resize-none"></textarea>
-      <div class="flex gap-3">
-        <button onclick="closeSend()" class="flex-1 bg-slate-700 hover:bg-slate-600 rounded-lg py-2 text-sm transition">Cancelar</button>
-        <button onclick="sendMsg()" class="flex-1 bg-indigo-600 hover:bg-indigo-500 rounded-lg py-2 text-sm font-semibold transition">Enviar</button>
-      </div>
-    </div>
-  </div>
+</div>
 
 <script>
 const TENANT = "tenant-pappi-001";
 let API_KEY = "";
+let allConvs = [];
+let selectedCustomer = null;
+let catalog = null;
+let payments = [];
+let cart = [];
+let orderStep = 1;
+let orderFulfillment = "delivery";
+let orderAddress = {};
+let orderPayment = null;
 let refreshTimer = null;
 
-function doLogin() {
-  const key = document.getElementById("apiKey").value.trim();
+// ── LOGIN ──────────────────────────────────────────────────────
+async function doLogin() {
+  const key = document.getElementById("loginKey").value.trim();
   if (!key) return;
   API_KEY = key;
-  fetchStats().then(ok => {
-    if (ok) {
-      document.getElementById("login").classList.add("hidden");
-      document.getElementById("app").classList.remove("hidden");
-      startRefresh();
-    } else {
-      document.getElementById("loginErr").classList.remove("hidden");
-      API_KEY = "";
-    }
+  const ok = await fetchStats();
+  if (ok) {
+    document.getElementById("login").style.display = "none";
+    document.getElementById("header").style.display = "flex";
+    document.getElementById("app").style.display = "block";
+    startRefresh();
+    loadCatalog();
+  } else {
+    document.getElementById("loginErr").style.display = "block";
+    API_KEY = "";
+  }
+}
+document.getElementById("loginKey").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+
+// ── API ───────────────────────────────────────────────────────
+async function api(path, opts={}) {
+  const sep = path.includes("?") ? "&" : "?";
+  const r = await fetch(`/dash${path}${sep}tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`, {
+    headers: {"Content-Type":"application/json","x-api-key": API_KEY},
+    ...opts
   });
-}
-
-function logout() {
-  API_KEY = "";
-  clearInterval(refreshTimer);
-  document.getElementById("app").classList.add("hidden");
-  document.getElementById("login").classList.remove("hidden");
-}
-
-document.getElementById("apiKey").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
-
-async function apiFetch(path) {
-  const r = await fetch(`/dash${path}?tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`);
   if (!r.ok) return null;
   return r.json();
 }
 
+// ── STATS ────────────────────────────────────────────────────
 async function fetchStats() {
-  const data = await apiFetch("/stats");
-  if (!data) return false;
-  document.getElementById("st-orders").textContent    = data.ordersToday;
-  document.getElementById("st-revenue").textContent   = "R$ " + data.revenueToday.toFixed(2);
-  document.getElementById("st-customers").textContent = data.customersTotal;
-  document.getElementById("st-handoff").textContent   = data.handoffActive;
-  document.getElementById("st-total").textContent     = data.ordersTotal;
-  document.getElementById("lastUpdate").textContent   = "Atualizado " + new Date().toLocaleTimeString("pt-BR");
+  const d = await api("/stats");
+  if (!d) return false;
+  document.getElementById("h-orders").textContent = d.ordersToday;
+  document.getElementById("h-revenue").textContent = "R$"+d.revenueToday.toFixed(0);
+  if (d.handoffActive > 0) {
+    document.getElementById("h-handoff-stat").style.display = "flex";
+    document.getElementById("h-handoff").textContent = d.handoffActive;
+  }
   return true;
 }
 
-async function fetchConversations() {
-  const data = await apiFetch("/conversations");
-  if (!data) return;
-  document.getElementById("conv-count").textContent = data.length + " clientes";
-  const list = document.getElementById("conv-list");
-  list.innerHTML = data.map(c => `
-    <div class="px-5 py-4 hover:bg-slate-700/30 transition">
-      <div class="flex items-start justify-between gap-2">
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="font-medium truncate">${esc(c.name)}</span>
-            ${c.handoff ? '<span class="badge-handoff text-xs px-2 py-0.5 rounded-full pulse">🙋 Humano</span>' : ''}
-          </div>
-          <p class="text-slate-400 text-xs">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</p>
-          ${c.lastAddress ? `<p class="text-slate-500 text-xs truncate mt-0.5">📍 ${esc(c.lastAddress)}</p>` : ''}
-          ${c.lastOrder ? `<p class="text-xs mt-1 ${statusColor(c.lastOrder.status)}">Último pedido: ${statusLabel(c.lastOrder.status)} · R$ ${c.lastOrder.total.toFixed(2)}</p>` : ''}
-        </div>
-        <div class="flex flex-col gap-1 shrink-0">
-          <button onclick="toggleHandoff('${c.id}',${!c.handoff},'${c.phone}')"
-            class="text-xs px-3 py-1 rounded-lg transition ${c.handoff ? 'bg-green-800 hover:bg-green-700 text-green-200' : 'bg-violet-800 hover:bg-violet-700 text-violet-200'}">
-            ${c.handoff ? '🤖 Devolver bot' : '👨‍💼 Assumir'}
-          </button>
-          <button onclick="openSend('${c.phone}','${esc(c.name)}')"
-            class="text-xs px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 transition">
-            ✉️ Mensagem
-          </button>
-        </div>
+// ── CONVERSAS ────────────────────────────────────────────────
+async function fetchConvs() {
+  const d = await api("/conversations");
+  if (!d) return;
+  allConvs = d;
+  renderConvs(d);
+}
+
+function renderConvs(list) {
+  const el = document.getElementById("convList");
+  if (!list.length) { el.innerHTML = '<p style="text-align:center;padding:24px;color:#bbb;font-size:13px">Nenhuma conversa ainda</p>'; return; }
+  el.innerHTML = list.map(c => `
+    <div class="conv-item${c.handoff?" handoff":""}${selectedCustomer?.id===c.id?" active":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
+      <div class="avatar${c.handoff?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+      <div class="conv-info">
+        <div class="conv-name">${esc(c.name)}</div>
+        <div class="conv-sub">${esc(c.phoneFormatted)}${c.lastOrder?" · "+statusLabel(c.lastOrder.status):""}</div>
+      </div>
+      <div class="conv-badge">
+        ${c.handoff?'<span class="badge-handoff">🙋 Humano</span>':'<span class="badge-bot">🤖 Bot</span>'}
       </div>
     </div>
   `).join("");
 }
 
-async function fetchOrders() {
-  const data = await apiFetch("/orders");
-  if (!data) return;
-  document.getElementById("orders-count").textContent = data.length + " pedidos";
-  const list = document.getElementById("orders-list");
-  list.innerHTML = data.length === 0
-    ? '<p class="text-slate-500 text-sm text-center py-8">Nenhum pedido hoje</p>'
-    : data.map(o => `
-    <div class="px-5 py-4">
-      <div class="flex items-start justify-between gap-2 mb-2">
-        <div>
-          <div class="flex items-center gap-2">
-            <span class="font-medium text-sm">${esc(o.customer.name)}</span>
-            <span class="badge-${o.status.includes('cancel') ? 'cancelled' : o.status.includes('deliver') ? 'delivered' : o.status.includes('confirm') ? 'confirmed' : 'waiting'} text-xs px-2 py-0.5 rounded-full">${statusLabel(o.status)}</span>
-          </div>
-          <p class="text-slate-400 text-xs">${esc(o.customer.phone)} · ${o.fulfillment === 'delivery' ? '🛵 Entrega' : '🏪 Retirada'} · ${esc(o.paymentMethodName || '—')}</p>
+function filterConv() {
+  const q = document.getElementById("searchInput").value.toLowerCase();
+  renderConvs(allConvs.filter(c =>
+    (c.name||"").toLowerCase().includes(q) || (c.phoneFormatted||"").includes(q)
+  ));
+}
+
+// ── SELECIONA CLIENTE ────────────────────────────────────────
+async function selectCustomer(c) {
+  selectedCustomer = c;
+  renderConvs(allConvs); // re-render com active
+  renderCenter(c);
+  renderRight(c);
+  // Carrega pedidos do cliente
+  const orders = await api(`/customer/${c.id}/orders`);
+  if (orders) renderOrders(orders);
+}
+
+function renderCenter(c) {
+  const el = document.getElementById("colCenter");
+  el.innerHTML = `
+    <div class="chat-header">
+      <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${(c.name||"?")[0].toUpperCase()}</div>
+      <div>
+        <div class="name">${esc(c.name)}</div>
+        <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
+      </div>
+    </div>
+    <div class="chat-body" id="chatBody">
+      <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">
+        Histórico de conversa aparecerá aqui quando o webhook estiver ativo
+      </div>
+      ${c.lastOrder?`
+        <div class="msg in">
+          Último pedido: <strong>${statusLabel(c.lastOrder.status)}</strong><br/>
+          Total: R$ ${c.lastOrder.total.toFixed(2)}
+          <div class="time">${new Date(c.lastOrder.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
         </div>
-        <div class="text-right shrink-0">
-          <p class="font-bold text-green-400">R$ ${o.total.toFixed(2)}</p>
-          <p class="text-slate-500 text-xs">${new Date(o.createdAt).toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit"})}</p>
+      `:""}
+    </div>
+    <div class="chat-input">
+      <textarea id="msgText" rows="1" placeholder="Digite uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+      <button onclick="sendMsg()" title="Enviar">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+function renderRight(c) {
+  const el = document.getElementById("colRight");
+  el.innerHTML = `
+    <div class="col-right" style="display:flex;flex-direction:column;overflow:hidden;flex:1">
+      <div class="panel-header">
+        <h2>Cliente</h2>
+        <div class="client-info">
+          <div class="cname">${esc(c.name)}</div>
+          <div class="cphone">${esc(c.phoneFormatted)}</div>
+          ${c.lastAddress?`<div style="font-size:11px;color:#888;margin-top:3px">📍 ${esc(c.lastAddress)}</div>`:""}
         </div>
       </div>
-      <div class="text-xs text-slate-400 space-y-0.5">
-        ${o.items.slice(0,3).map(i => `<span class="inline-block bg-slate-700 rounded px-2 py-0.5 mr-1">${i.quantity}x ${esc(i.name)}</span>`).join('')}
-        ${o.items.length > 3 ? `<span class="text-slate-500">+${o.items.length-3} itens</span>` : ''}
+      <div class="bot-row">
+        <label>
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
+          ChatBot
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="botToggle" ${!c.handoff?"checked":""} onchange="toggleHandoff(this.checked)"/>
+          <span class="slider"></span>
+        </label>
       </div>
-      ${o.address ? `<p class="text-slate-500 text-xs mt-1 truncate">📍 ${esc(o.address.formatted || '')}</p>` : ''}
+      <div class="orders-section">
+        <div class="orders-header">
+          <h3>Pedidos</h3>
+          <button class="btn-new-order" onclick="openOrder()">+ Adicionar</button>
+        </div>
+        <div id="ordersList"><div class="no-orders">Carregando...</div></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderOrders(orders) {
+  const el = document.getElementById("ordersList");
+  if (!el) return;
+  if (!orders.length) { el.innerHTML = '<div class="no-orders">Nenhum pedido ainda</div>'; return; }
+  el.innerHTML = orders.map((o,i) => `
+    <div class="order-card">
+      <div class="oc-head">
+        <span class="oc-num">Pedido #${orders.length - i}</span>
+        <span class="status-pill s-${o.status.includes("cancel")?"cancelled":o.status.includes("deliver")?"delivered":o.status.includes("confirm")?"confirmed":o.status.includes("prepar")?"preparing":"waiting"}">${statusLabel(o.status)}</span>
+        <span class="oc-total">R$ ${o.total.toFixed(2)}</span>
+      </div>
+      <div class="oc-body">
+        <div>${o.fulfillment==="delivery"?"🛵 Entrega":"🏪 Retirada"} · ${esc(o.paymentMethodName||"—")}</div>
+        <div class="oc-items">${o.items.slice(0,3).map(i=>`${i.quantity}x ${esc(i.name)}`).join(", ")}${o.items.length>3?` +${o.items.length-3} itens`:""}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:3px">${new Date(o.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
+      </div>
     </div>
   `).join("");
 }
 
-async function toggleHandoff(customerId, enabled, phone) {
-  await fetch(`/dash/handoff?key=${encodeURIComponent(API_KEY)}`, {
+// ── HANDOFF TOGGLE ───────────────────────────────────────────
+async function toggleHandoff(botEnabled) {
+  if (!selectedCustomer) return;
+  // botEnabled=true → handoff=false (bot ativo)
+  // botEnabled=false → handoff=true (humano ativo)
+  const handoff = !botEnabled;
+  await api("/handoff", {
     method: "PUT",
-    headers: {"Content-Type":"application/json","x-api-key":API_KEY},
-    body: JSON.stringify({ customerId, enabled, tenantId: TENANT })
+    body: JSON.stringify({ customerId: selectedCustomer.id, enabled: handoff, tenantId: TENANT })
   });
-  refreshAll();
+  selectedCustomer.handoff = handoff;
+  allConvs = allConvs.map(c => c.id === selectedCustomer.id ? {...c, handoff} : c);
+  renderConvs(allConvs);
 }
 
-function openSend(phone, name) {
-  document.getElementById("modal-phone").value = phone;
-  document.getElementById("modal-phone-label").textContent = "Para: " + name + " (" + phone + ")";
-  document.getElementById("modal-text").value = "";
-  document.getElementById("modal-send").classList.remove("hidden");
-  document.getElementById("modal-text").focus();
-}
-
-function closeSend() {
-  document.getElementById("modal-send").classList.add("hidden");
-}
-
+// ── ENVIAR MENSAGEM ──────────────────────────────────────────
 async function sendMsg() {
-  const phone = document.getElementById("modal-phone").value;
-  const text  = document.getElementById("modal-text").value.trim();
-  if (!text) return;
-  await fetch(`/dash/send?key=${encodeURIComponent(API_KEY)}`, {
+  const el = document.getElementById("msgText");
+  const text = el?.value?.trim();
+  if (!text || !selectedCustomer) return;
+  await api("/send", {
     method: "POST",
-    headers: {"Content-Type":"application/json","x-api-key":API_KEY},
-    body: JSON.stringify({ phone, text, tenantId: TENANT })
+    body: JSON.stringify({ phone: selectedCustomer.phone, text, tenantId: TENANT })
   });
-  closeSend();
+  el.value = "";
+  // Adiciona mensagem na tela
+  const body = document.getElementById("chatBody");
+  if (body) {
+    const div = document.createElement("div");
+    div.className = "msg out";
+    div.innerHTML = `${esc(text)}<div class="time">${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>`;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  }
 }
 
-function refreshAll() {
-  Promise.all([fetchStats(), fetchConversations(), fetchOrders()]);
+// ── NOVO PEDIDO ──────────────────────────────────────────────
+function openOrder() {
+  cart = [];
+  orderStep = 1;
+  orderFulfillment = "delivery";
+  orderAddress = selectedCustomer?.lastAddress ? {
+    street: selectedCustomer.lastStreet||"",
+    number: selectedCustomer.lastNumber||"",
+    neighborhood: selectedCustomer.lastNeighborhood||"",
+    complement: selectedCustomer.lastComplement||"",
+    city: selectedCustomer.lastCity||"Campinas",
+    state: "SP"
+  } : {};
+  orderPayment = null;
+  document.getElementById("modalOrder").style.display = "flex";
+  renderStep();
 }
 
+function closeOrder() {
+  document.getElementById("modalOrder").style.display = "none";
+}
+
+async function loadCatalog() {
+  const d = await api("/catalog");
+  if (d) { catalog = d.catalog; payments = d.payments || []; }
+}
+
+function goStep(n) {
+  orderStep = n;
+  renderStep();
+}
+
+function nextStep() {
+  if (orderStep === 1) {
+    if (!cart.length) { alert("Adicione pelo menos um item"); return; }
+    orderStep = 2;
+  } else if (orderStep === 2) {
+    orderStep = 3;
+  } else {
+    confirmOrder();
+    return;
+  }
+  renderStep();
+}
+
+function renderStep() {
+  [1,2,3].forEach(i => {
+    const el = document.getElementById("step"+i);
+    if (el) el.className = "step" + (i===orderStep?" active":"");
+  });
+  const body = document.getElementById("modalBody");
+  const btn = document.getElementById("btnNext");
+  if (orderStep === 1) {
+    btn.textContent = "Próximo →";
+    renderCatalogStep(body);
+  } else if (orderStep === 2) {
+    btn.textContent = "Próximo →";
+    renderAddressStep(body);
+  } else {
+    btn.textContent = "✅ Confirmar Pedido";
+    renderPaymentStep(body);
+  }
+}
+
+function renderCatalogStep(body) {
+  if (!catalog) { body.innerHTML = '<p style="text-align:center;padding:32px;color:#aaa">Carregando cardápio...</p>'; return; }
+
+  // Extrai categorias
+  const cats = catalog.categories || catalog.sections || catalog.items || [];
+  let catList = [];
+  let allProducts = [];
+
+  if (Array.isArray(cats)) {
+    cats.forEach(cat => {
+      const name = cat.name || cat.title || cat.category || "";
+      const prods = cat.products || cat.items || [];
+      if (prods.length) { catList.push(name); allProducts.push(...prods.map(p=>({...p,_cat:name}))); }
+    });
+  }
+
+  const activeCat = window._activeCat || "Todos";
+  const filtered = activeCat === "Todos" ? allProducts : allProducts.filter(p=>p._cat===activeCat);
+  const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
+
+  body.innerHTML = `
+    <div class="cat-search">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input placeholder="Pesquisar produto..." oninput="filterProds(this.value)" id="prodSearch"/>
+    </div>
+    <div class="cat-tabs">
+      <button class="cat-tab${activeCat==="Todos"?" active":""}" onclick="setCat('Todos')">Todos</button>
+      ${catList.map(c=>`<button class="cat-tab${activeCat===c?" active":""}" onclick="setCat('${esc(c)}')">${esc(c)}</button>`).join("")}
+    </div>
+    <div class="prod-list" id="prodList">
+      ${filtered.map(p=>{
+        const price = parseFloat(p.price||p.value||p.min_price||0);
+        const inCart = cart.find(c=>c.id===String(p.id||p.product_id));
+        return `
+        <div class="prod-item" onclick="addToCart('${String(p.id||p.product_id)}','${esc(p.name)}',${price})">
+          <div class="prod-img">${p.image_url?`<img src="${p.image_url}" style="width:50px;height:50px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">`:"🍕"}</div>
+          <div class="prod-info">
+            <div class="prod-name">${esc(p.name)}</div>
+            ${p.description?`<div class="prod-desc">${esc(p.description)}</div>`:""}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <span class="prod-price">${price>0?"R$ "+price.toFixed(2):"Variável"}</span>
+            ${inCart?`<span style="font-size:11px;color:var(--purple);font-weight:700">${inCart.quantity} no carrinho</span>`:""}
+          </div>
+        </div>`;
+      }).join("")}
+      ${filtered.length===0?'<p style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum produto encontrado</p>':""}
+    </div>
+    ${cart.length?`
+    <div class="cart-section">
+      <h4>🛒 Carrinho (${cart.reduce((s,i)=>s+i.quantity,0)} itens)</h4>
+      ${cart.map(i=>`
+        <div class="cart-item">
+          <div class="ci-name">${esc(i.name)}</div>
+          <div class="ci-qty">
+            <button onclick="event.stopPropagation();changeQty('${i.id}',-1)">−</button>
+            <span>${i.quantity}</span>
+            <button onclick="event.stopPropagation();changeQty('${i.id}',1)">+</button>
+          </div>
+          <div class="ci-price">R$ ${(i.unit_price*i.quantity).toFixed(2)}</div>
+          <button class="ci-remove" onclick="event.stopPropagation();removeFromCart('${i.id}')">×</button>
+        </div>
+      `).join("")}
+      <div class="cart-total"><span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span></div>
+    </div>`:""}
+  `;
+}
+
+function setCat(cat) { window._activeCat = cat; renderStep(); }
+function filterProds(q) {
+  const items = document.querySelectorAll(".prod-item");
+  items.forEach(el => {
+    const name = el.querySelector(".prod-name")?.textContent?.toLowerCase()||"";
+    el.style.display = name.includes(q.toLowerCase()) ? "" : "none";
+  });
+}
+function addToCart(id, name, price) {
+  const ex = cart.find(i=>i.id===id);
+  if (ex) { ex.quantity++; } else { cart.push({id, name, unit_price: price, quantity:1}); }
+  renderStep();
+}
+function changeQty(id, delta) {
+  const ex = cart.find(i=>i.id===id);
+  if (!ex) return;
+  ex.quantity += delta;
+  if (ex.quantity <= 0) cart = cart.filter(i=>i.id!==id);
+  renderStep();
+}
+function removeFromCart(id) { cart = cart.filter(i=>i.id!==id); renderStep(); }
+
+function renderAddressStep(body) {
+  body.innerHTML = `
+    <div class="field-group">
+      <label>Tipo de entrega</label>
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid ${orderFulfillment==='delivery'?'var(--purple)':'var(--border)'};border-radius:8px;cursor:pointer;background:${orderFulfillment==='delivery'?'var(--purple-ll)':'#fff'}" onclick="setFulfillment('delivery')">
+          <input type="radio" ${orderFulfillment==='delivery'?'checked':''} style="accent-color:var(--purple)"/> 🛵 Entrega
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid ${orderFulfillment==='takeout'?'var(--purple)':'var(--border)'};border-radius:8px;cursor:pointer;background:${orderFulfillment==='takeout'?'var(--purple-ll)':'#fff'}" onclick="setFulfillment('takeout')">
+          <input type="radio" ${orderFulfillment==='takeout'?'checked':''} style="accent-color:var(--purple)"/> 🏪 Retirada
+        </label>
+      </div>
+    </div>
+    ${orderFulfillment==='delivery'?`
+    <div class="grid2">
+      <div class="field-group" style="grid-column:1/-1">
+        <label>Rua *</label>
+        <input id="a-street" value="${esc(orderAddress.street||"")}" placeholder="Ex: Rua das Flores" oninput="orderAddress.street=this.value"/>
+      </div>
+      <div class="field-group">
+        <label>Número *</label>
+        <input id="a-number" value="${esc(orderAddress.number||"")}" placeholder="123" oninput="orderAddress.number=this.value"/>
+      </div>
+      <div class="field-group">
+        <label>Complemento</label>
+        <input id="a-comp" value="${esc(orderAddress.complement||"")}" placeholder="Apto, Bloco..." oninput="orderAddress.complement=this.value"/>
+      </div>
+      <div class="field-group" style="grid-column:1/-1">
+        <label>Bairro *</label>
+        <input id="a-neigh" value="${esc(orderAddress.neighborhood||"")}" placeholder="Ex: Centro" oninput="orderAddress.neighborhood=this.value"/>
+      </div>
+      <div class="field-group">
+        <label>Cidade *</label>
+        <input id="a-city" value="${esc(orderAddress.city||"Campinas")}" oninput="orderAddress.city=this.value"/>
+      </div>
+      <div class="field-group">
+        <label>UF</label>
+        <input id="a-state" value="${esc(orderAddress.state||"SP")}" maxlength="2" oninput="orderAddress.state=this.value.toUpperCase()"/>
+      </div>
+    </div>`:"<p style='text-align:center;padding:24px;color:#888;font-size:13px'>Cliente retira no local — sem endereço necessário.</p>"}
+  `;
+}
+
+function setFulfillment(f) { orderFulfillment = f; renderStep(); }
+
+function renderPaymentStep(body) {
+  const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
+  body.innerHTML = `
+    <div class="field-group">
+      <label>Resumo do pedido</label>
+      <div style="background:var(--purple-ll);border-radius:8px;padding:12px;font-size:13px">
+        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
+        <div style="border-top:1px solid #ddd;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-weight:700">
+          <span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Forma de pagamento *</label>
+      <div class="payment-list">
+        ${payments.filter(p=>p.available_on_menu!==false).map(p=>`
+          <div class="pay-option${orderPayment?.id===p.id?" selected":""}" onclick="selectPayment(${JSON.stringify(p).replace(/"/g,"&quot;")})">
+            <input type="radio" name="pay" ${orderPayment?.id===p.id?"checked":""} style="accent-color:var(--purple)"/>
+            <label>${esc(p.name||p.payment_method)}</label>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function selectPayment(p) { orderPayment = p; renderStep(); }
+
+async function confirmOrder() {
+  if (!orderPayment) { alert("Selecione a forma de pagamento"); return; }
+  if (!selectedCustomer) return;
+
+  const btn = document.getElementById("btnNext");
+  btn.textContent = "Enviando...";
+  btn.disabled = true;
+
+  const body = {
+    tenantId: TENANT,
+    customerId: selectedCustomer.id,
+    items: cart,
+    fulfillment: orderFulfillment,
+    address: orderFulfillment === "delivery" ? orderAddress : null,
+    paymentMethodId: orderPayment.id,
+    paymentMethodName: orderPayment.name || orderPayment.payment_method,
+    deliveryFee: 0,
+    discount: 0,
+  };
+
+  const result = await api("/order", { method:"POST", body: JSON.stringify(body) });
+  btn.disabled = false;
+
+  if (result?.ok) {
+    closeOrder();
+    alert("✅ Pedido criado!" + (result.cwOrderId ? ` CW #${result.cwOrderId}` : ""));
+    // Recarrega pedidos
+    const orders = await api(`/customer/${selectedCustomer.id}/orders`);
+    if (orders) renderOrders(orders);
+    fetchStats();
+  } else {
+    btn.textContent = "✅ Confirmar Pedido";
+    alert("Erro ao criar pedido: " + (result?.error||"Tente novamente"));
+  }
+}
+
+// ── REFRESH ──────────────────────────────────────────────────
 function startRefresh() {
-  refreshAll();
-  refreshTimer = setInterval(refreshAll, 5000);
+  fetchConvs();
+  fetchStats();
+  refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); }, 5000);
 }
 
-// Helpers
+// ── HELPERS ──────────────────────────────────────────────────
 function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function statusLabel(s) {
   return {
     waiting_confirmation:"⏳ Aguardando",confirmed:"✅ Confirmado",
     preparing:"👨‍🍳 Preparando",ready:"✅ Pronto",dispatched:"🛵 A caminho",
     delivered:"🏠 Entregue",cancelled:"❌ Cancelado"
-  }[s] || s;
-}
-function statusColor(s) {
-  if (s.includes("cancel")) return "text-red-400";
-  if (s.includes("deliver")) return "text-blue-400";
-  if (s.includes("confirm") || s.includes("prepar") || s.includes("ready")) return "text-green-400";
-  return "text-yellow-400";
+  }[s]||s;
 }
 </script>
 </body>

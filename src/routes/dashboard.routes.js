@@ -4,7 +4,12 @@ const { PrismaClient } = require("@prisma/client");
 const { requireAttendantKey } = require("../middleware/auth.middleware");
 const { setHandoff } = require("../services/customer.service");
 const { getClients } = require("../services/tenant.service");
+const { createWithIdempotency } = require("../services/order.service");
+const { validate: validateTotal } = require("../calculators/OrderCalculator");
+const { map: mapPayment } = require("../mappers/PaymentMapper");
+const { normalize: normalizeAddress } = require("../normalizers/AddressNormalizer");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+const { randomUUID } = require("crypto");
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -178,6 +183,116 @@ router.post("/send", authDash, async (req, res) => {
     const { wa } = await getClients(tenantId);
     await wa.sendText(normalized, text);
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/catalog ─────────────────────────────────────────
+router.get("/catalog", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const { cw } = await getClients(tenantId);
+    const catalog = await cw.getCatalog();
+    const payments = await cw.getPaymentMethods();
+    res.json({ catalog, payments });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/customer/:id/orders ─────────────────────────────
+router.get("/customer/:id/orders", authDash, async (req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { customerId: req.params.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    res.json(orders.map(o => ({
+      ...o,
+      items: (() => { try { return JSON.parse(o.itemsSnapshot); } catch { return []; } })(),
+      address: (() => { try { return JSON.parse(o.addressSnapshot || "null"); } catch { return null; } })(),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/order ──────────────────────────────────────────
+// Cria pedido manual pelo painel (atendente monta o pedido)
+router.post("/order", authDash, async (req, res) => {
+  try {
+    const {
+      tenantId = "tenant-pappi-001",
+      customerId,
+      items,
+      fulfillment = "delivery",
+      address,
+      paymentMethodId,
+      paymentMethodName,
+      deliveryFee = 0,
+      discount = 0,
+    } = req.body;
+
+    if (!customerId || !items?.length) {
+      return res.status(400).json({ error: "customerId e items obrigatórios" });
+    }
+
+    const { cw } = await getClients(tenantId);
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
+
+    // Calcula total
+    const calc = validateTotal({ items, declaredTotal: 0, deliveryFee, discount });
+    const total = calc.expected;
+
+    // Monta payload CW
+    const cwPayload = {
+      customer: { phone: PhoneNormalizer.toLocal(customer.phone), name: customer.name || "" },
+      items: items.map(i => ({
+        product_id: i.id,
+        quantity: i.quantity,
+        note: i.note || "",
+        addons: i.addons || [],
+      })),
+      fulfillment,
+      payment_method: paymentMethodId,
+      delivery_fee: deliveryFee,
+      discount,
+      ...(fulfillment === "delivery" && address ? { address } : {}),
+    };
+
+    // Envia ao CW
+    let cwResponse = null;
+    let cwOrderId = null;
+    try {
+      cwResponse = await cw.createOrder(cwPayload);
+      cwOrderId = cwResponse?.id || cwResponse?.order_id || null;
+    } catch (e) {
+      console.warn("CW createOrder falhou no painel:", e.message);
+    }
+
+    // Salva localmente com idempotência
+    const idempotencyKey = randomUUID();
+    const { order } = await createWithIdempotency({
+      tenantId,
+      customerId,
+      idempotencyKey,
+      items,
+      total,
+      fulfillment,
+      address: address ? normalizeAddress(address).address : null,
+      paymentMethodId,
+      paymentMethodName,
+      deliveryFee,
+      discount,
+      cwOrderId,
+      cwPayload,
+      cwResponse,
+    });
+
+    res.json({ ok: true, order, cwOrderId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
