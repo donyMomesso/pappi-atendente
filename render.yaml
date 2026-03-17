@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: pappi-atendente
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npx prisma generate
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: CARDAPIOWEB_BASE_URL
+        value: https://integracao.cardapioweb.com
+      - key: CARDAPIOWEB_API_KEY
+        sync: false
+      - key: CARDAPIOWEB_PARTNER_KEY
+        sync: false
+      - key: CARDAPIOWEB_STORE_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: ATTENDANT_API_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: STORE_LAT
+        value: "-22.9060"
+      - key: STORE_LNG
+        value: "-47.0616"
