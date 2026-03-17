@@ -390,4 +390,61 @@ router.post("/order", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/settings ────────────────────────────────────────
+router.get("/settings", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) return res.status(404).json({ error: "Tenant não encontrado" });
+
+    // Busca lista de atendentes do Config (se existir)
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }).catch(() => null);
+    const attendants = cfg?.value ? JSON.parse(cfg.value) : [];
+
+    res.json({
+      id: tenant.id,
+      name: tenant.name,
+      city: tenant.city,
+      waPhoneNumberId: tenant.waPhoneNumberId,
+      cwBaseUrl: tenant.cwBaseUrl,
+      cwStoreId: tenant.cwStoreId,
+      active: tenant.active,
+      attendants,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /dash/settings ──────────────────────────────────────
+router.patch("/settings", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const { name, city, attendants } = req.body;
+
+    const data = {};
+    if (name) data.name = name;
+    if (city !== undefined) data.city = city;
+
+    if (Object.keys(data).length) {
+      await prisma.tenant.update({ where: { id: tenantId }, data });
+      const { invalidateCache } = require("../services/tenant.service");
+      invalidateCache(tenantId);
+    }
+
+    // Salva lista de atendentes
+    if (Array.isArray(attendants)) {
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:attendants` },
+        create: { key: `${tenantId}:attendants`, value: JSON.stringify(attendants) },
+        update: { value: JSON.stringify(attendants) },
+      });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
