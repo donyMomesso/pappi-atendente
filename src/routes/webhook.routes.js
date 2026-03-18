@@ -6,6 +6,7 @@ const ENV = require("../config/env");
 const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.service");
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+const chatMemory = require("../services/chat-memory.service");
 
 const router = express.Router();
 
@@ -100,14 +101,18 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   // Atualiza última interação
   await touchInteraction(customer.id);
 
+  // ── Extrai texto da mensagem ──────────────────────────────
+  const text = extractText(msg);
+
+  // Salva mensagem do cliente no histórico temporário
+  if (text) chatMemory.push(customer.id, "customer", text);
+
   // ── Handoff ativo: bot silencioso ─────────────────────────
   if (customer.handoff) {
     console.log(`[${tenant.id}] Handoff ativo para ${phone} — bot silencioso`);
     return;
   }
 
-  // ── Extrai texto da mensagem ──────────────────────────────
-  const text = extractText(msg);
   if (!text) return;
 
   console.log(`[${tenant.id}] MSG de ${phone}: ${text.slice(0, 80)}`);

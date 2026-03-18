@@ -11,6 +11,7 @@ const { normalize: normalizeAddress } = require("../normalizers/AddressNormalize
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const { randomUUID } = require("crypto");
 const baileys = require("../services/baileys.service");
+const chatMemory = require("../services/chat-memory.service");
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -340,7 +341,7 @@ router.put("/handoff", authDash, async (req, res) => {
 // ── POST /dash/send ───────────────────────────────────────────
 router.post("/send", authDash, async (req, res) => {
   try {
-    const { phone, text, tenantId = "tenant-pappi-001" } = req.body;
+    const { phone, text, customerId, tenantId = "tenant-pappi-001" } = req.body;
     if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
 
     const normalized = PhoneNormalizer.normalize(phone);
@@ -348,10 +349,22 @@ router.post("/send", authDash, async (req, res) => {
 
     const { wa } = await getClients(tenantId);
     await wa.sendText(normalized, text);
+
+    // Salva no histórico temporário
+    if (customerId) {
+      const sender = getSessionData(getKey(req))?.name || req.userRole;
+      chatMemory.push(customerId, "attendant", text, sender);
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── GET /dash/customer/:id/messages ───────────────────────────
+router.get("/customer/:id/messages", authDash, (req, res) => {
+  res.json(chatMemory.get(req.params.id));
 });
 
 // ── GET /dash/catalog ─────────────────────────────────────────
