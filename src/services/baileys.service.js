@@ -102,6 +102,7 @@ const STATE = {
   notifyTo:  [],
   starting:  false,
   lastAlert: null,
+  account:   null,   // { phone, name } da conta conectada
 };
 
 // ── Conexão ────────────────────────────────────────────────────
@@ -139,7 +140,13 @@ async function start() {
         STATE.status   = "connected";
         STATE.qrBase64 = null;
         STATE.starting = false;
-        console.log("[Baileys] WhatsApp conectado!");
+        // Salva info da conta conectada
+        const user = sock.user;
+        STATE.account = {
+          phone: user?.id?.split(":")[0] || user?.id || "?",
+          name:  user?.name || "?",
+        };
+        console.log(`[Baileys] Conectado como ${STATE.account.name} (${STATE.account.phone})`);
       }
 
       if (connection === "close") {
@@ -202,6 +209,7 @@ function getStatus() {
     status:    STATE.status,
     qr:        STATE.qrBase64,
     lastAlert: STATE.lastAlert,
+    account:   STATE.account,
     usage: {
       hour:    COUNTERS.hour,
       hourMax: LIMITS.perHour,

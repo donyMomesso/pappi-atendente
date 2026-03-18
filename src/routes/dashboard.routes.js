@@ -474,6 +474,32 @@ router.patch("/settings", authAdmin, async (req, res) => {
   }
 });
 
+// ── GET /dash/debug ───────────────────────────────────────────
+router.get("/debug", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    const recentCustomers = await prisma.customer.findMany({
+      where: { tenantId },
+      orderBy: { lastInteraction: "desc" },
+      take: 5,
+      select: { phone: true, name: true, lastInteraction: true },
+    });
+    res.json({
+      tenant: {
+        id: tenant?.id,
+        name: tenant?.name,
+        waPhoneNumberId: tenant?.waPhoneNumberId,
+        active: tenant?.active,
+      },
+      recentCustomers,
+      baileysStatus: baileys.getStatus(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/wa-internal/status ─────────────────────────────
 router.get("/wa-internal/status", authDash, (_req, res) => {
   res.json(baileys.getStatus());

@@ -383,6 +383,10 @@
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
       <div class="settings-title">📊 Dashboard Geral</div>
       <div class="settings-sub">Visão consolidada da operação</div>
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="fetchAdminDash()">🔄 Atualizar</button>
+        <button class="btn-save-settings" style="width:auto;padding:8px 16px;background:#555" onclick="openDebug()">🔍 Diagnóstico Webhook</button>
+      </div>
       <div id="adminDashCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-top:16px"></div>
       <div style="margin-top:28px">
         <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:12px">Pedidos por status hoje</div>
@@ -1341,6 +1345,27 @@ function adminTab(tab) {
   if (tab === "cfg")  loadAdminSettings();
 }
 
+async function openDebug() {
+  const d = await api("/debug");
+  if (!d) { alert("Erro ao buscar diagnóstico"); return; }
+  const lines = [
+    "=== DIAGNÓSTICO WEBHOOK ===",
+    "",
+    "📌 Tenant: " + d.tenant.name,
+    "📞 waPhoneNumberId no banco: " + d.tenant.waPhoneNumberId,
+    "✅ Ativo: " + d.tenant.active,
+    "",
+    "📲 Baileys: " + d.baileysStatus.status,
+    d.baileysStatus.account ? "👤 Conta: " + d.baileysStatus.account.name + " (" + d.baileysStatus.account.phone + ")" : "",
+    "",
+    "👥 Últimos clientes que enviaram mensagem:",
+    ...(d.recentCustomers.length
+      ? d.recentCustomers.map(c => "  • " + (c.name||"Sem nome") + " · " + c.phone + " · " + new Date(c.lastInteraction).toLocaleString("pt-BR"))
+      : ["  Nenhum cliente ainda — webhook pode não estar recebendo"]),
+  ];
+  alert(lines.filter(l => l !== "").join("\n"));
+}
+
 async function fetchAdminDash() {
   const d = await api("/stats");
   if (!d) return;
@@ -1422,7 +1447,8 @@ async function waIntRefreshStatus() {
   }
 
   if (d.status === "connected") {
-    statusEl.textContent = "● conectado";
+    const acct = d.account ? ` · ${d.account.name} (${d.account.phone})` : "";
+    statusEl.textContent = "● conectado" + acct;
     statusEl.style.color = "#25d366";
     qrWrap.style.display = "none";
     btnConn.style.display = "none";
