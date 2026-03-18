@@ -8,10 +8,17 @@
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
-    :root{--purple:#FF6B35;--purple-d:#e55a20;--purple-l:#fde8d8;--purple-ll:#fff3ed;--green:#25d366;--red:#e53935;--gray:#757575;--border:#e0e0e0}
+    :root{
+      --orange:#FF6B35;--orange-d:#e55a20;--orange-l:#fde8d8;--orange-ll:#fff3ed;
+      --violet:#7C3AED;--violet-d:#6D28D9;--violet-l:#ede9fe;
+      --brand-grad:linear-gradient(135deg,#FF6B35 0%,#7C3AED 55%,#0D0D0D 100%);
+      /* legado */
+      --purple:#FF6B35;--purple-d:#e55a20;--purple-l:#fde8d8;--purple-ll:#fff3ed;
+      --green:#25d366;--red:#e53935;--gray:#757575;--border:#e0e0e0
+    }
 
     /* ── LOGIN ── */
-    #login{position:fixed;inset:0;background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);display:flex;align-items:center;justify-content:center;z-index:100}
+    #login{position:fixed;inset:0;background:var(--brand-grad);display:flex;align-items:center;justify-content:center;z-index:100}
     .login-box{background:#fff;border-radius:16px;padding:40px;width:340px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.2)}
     .login-box .logo{font-size:48px;margin-bottom:8px}
     .login-box h1{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
@@ -23,7 +30,7 @@
     .login-err{color:var(--red);font-size:12px;margin-top:8px}
 
     /* ── HEADER ── */
-    header{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+    header{background:var(--brand-grad);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
     header .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
     header .brand span{font-size:22px}
     header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
@@ -36,31 +43,31 @@
 
     /* ── COL 1: CONVERSAS ── */
     .col-conv{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--purple-ll)}
-    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--purple);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--violet-l)}
+    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--violet);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
     .search-box{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:6px 10px;border:1px solid var(--border)}
     .search-box input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
     .search-box svg{color:#aaa;flex-shrink:0}
     .conv-list{overflow-y:auto;flex:1}
     .conv-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
     .conv-item:hover{background:var(--purple-ll)}
-    .conv-item.active{background:var(--purple-l);border-left:3px solid var(--purple)}
-    .conv-item.handoff{background:#fff3e0;border-left:3px solid #ff9800}
-    .avatar{width:40px;height:40px;border-radius:50%;background:var(--purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
-    .avatar.orange{background:#ff9800}
+    .conv-item.active{background:var(--violet-l);border-left:3px solid var(--violet)}
+    .conv-item.handoff{background:#fff3e0;border-left:3px solid var(--orange)}
+    .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
+    .avatar.orange{background:var(--orange)}
     .conv-info{flex:1;min-width:0}
     .conv-name{font-size:14px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .conv-sub{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
     .conv-badge{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
-    .badge-handoff{background:#ff9800;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
-    .badge-bot{background:var(--purple);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
+    .badge-handoff{background:var(--orange);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
+    .badge-bot{background:var(--violet);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
 
     /* ── COL 2: CENTRO ── */
     .col-center{background:#ece5dd;display:flex;flex-direction:column;overflow:hidden;position:relative}
     .empty-center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#aaa;gap:8px}
     .empty-center .icon{font-size:64px;opacity:.4}
     .empty-center p{font-size:14px}
-    .chat-header{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .chat-header{background:var(--brand-grad);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
     .chat-header .name{font-weight:700;font-size:15px}
     .chat-header .phone{font-size:12px;opacity:.85}
     .chat-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
@@ -75,8 +82,8 @@
 
     /* ── COL 3: PAINEL DIREITO ── */
     .col-right{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--purple-ll)}
-    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--violet-l)}
+    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
     .client-info{font-size:13px}
     .client-info .cname{font-weight:700;font-size:15px;color:#1a1a1a}
     .client-info .cphone{color:#888;font-size:12px;margin-top:2px}
@@ -114,7 +121,7 @@
     /* ── MODAL PEDIDO ── */
     .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
     .modal{background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.25)}
-    .modal-head{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .modal-head{background:var(--brand-grad);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
     .modal-head h3{font-size:16px;font-weight:700}
     .modal-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;opacity:.8;line-height:1}
     .modal-head button:hover{opacity:1}
@@ -224,7 +231,7 @@
     /* ── OPTIONS OVERLAY ── */
     .options-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
     .options-modal{background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3)}
-    .options-head{background:linear-gradient(135deg,#FF6B35 0%,#000000 100%);color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .options-head{background:var(--brand-grad);color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
     .options-head h4{font-size:15px;font-weight:700;margin:0}
     .options-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1}
     .options-body{overflow-y:auto;flex:1;padding:14px}
