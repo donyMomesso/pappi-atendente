@@ -38,6 +38,9 @@ module.exports = {
   ATTENDANT_API_KEY: process.env.ATTENDANT_API_KEY || "",
   ADMIN_API_KEY: process.env.ADMIN_API_KEY || "",
 
+  // ── Google OAuth ───────────────────────────────────────────
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
+
   // ── Google Maps ────────────────────────────────────────────
   GOOGLE_MAPS_API_KEY:
     process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_KEY || "",

@@ -15,6 +15,22 @@ const baileys = require("../services/baileys.service");
 const prisma = new PrismaClient();
 const router = express.Router();
 
+// ── Sessões Google (in-memory, 8h TTL) ────────────────────────
+const sessions = new Map();
+
+function createSession(email, role, name) {
+  const token = randomUUID();
+  sessions.set(token, { email, role, name, expiresAt: Date.now() + 8 * 3600_000 });
+  return token;
+}
+
+function getSessionData(token) {
+  const sess = sessions.get(token);
+  if (!sess) return null;
+  if (Date.now() > sess.expiresAt) { sessions.delete(token); return null; }
+  return sess;
+}
+
 // ── Helpers de autenticação ────────────────────────────────────
 function getKey(req) {
   return req.headers["x-api-key"]
@@ -26,7 +42,7 @@ function getRole(key) {
   const ENV = require("../config/env");
   if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) return "admin";
   if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) return "attendant";
-  return null;
+  return getSessionData(key)?.role || null;
 }
 
 // Aceita admin ou atendente
@@ -51,6 +67,41 @@ router.get("/auth", (req, res) => {
   const role = getRole(getKey(req));
   if (!role) return res.status(401).json({ error: "unauthorized" });
   res.json({ role });
+});
+
+// ── POST /dash/auth/google ─────────────────────────────────────
+// Verifica token Google e cria sessão
+router.post("/auth/google", async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) return res.status(400).json({ error: "credential obrigatório" });
+
+    // Verifica token no Google
+    const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+    if (!gRes.ok) return res.status(401).json({ error: "Token Google inválido" });
+    const gData = await gRes.json();
+
+    // Confere se o client_id bate
+    const ENV = require("../config/env");
+    if (ENV.GOOGLE_CLIENT_ID && gData.aud !== ENV.GOOGLE_CLIENT_ID) {
+      return res.status(401).json({ error: "Client ID inválido" });
+    }
+
+    const email = gData.email;
+    const name  = gData.name || email;
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+
+    // Checa lista de usuários autorizados
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }).catch(() => null);
+    const googleUsers = cfg?.value ? JSON.parse(cfg.value) : [];
+    const user = googleUsers.find(u => u.email === email);
+    if (!user) return res.status(403).json({ error: "Email não autorizado. Peça ao admin para te adicionar." });
+
+    const token = createSession(email, user.role, name);
+    res.json({ role: user.role, name, email, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── GET /dash/stats ────────────────────────────────────────────
@@ -424,9 +475,12 @@ router.get("/settings", authAdmin, async (req, res) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) return res.status(404).json({ error: "Tenant não encontrado" });
 
-    // Busca lista de atendentes do Config (se existir)
-    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }).catch(() => null);
-    const attendants = cfg?.value ? JSON.parse(cfg.value) : [];
+    const [cfgAtt, cfgGoogle] = await Promise.all([
+      prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }).catch(() => null),
+      prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }).catch(() => null),
+    ]);
+    const attendants  = cfgAtt?.value    ? JSON.parse(cfgAtt.value)    : [];
+    const googleUsers = cfgGoogle?.value ? JSON.parse(cfgGoogle.value) : [];
 
     res.json({
       id: tenant.id,
@@ -437,6 +491,7 @@ router.get("/settings", authAdmin, async (req, res) => {
       cwStoreId: tenant.cwStoreId,
       active: tenant.active,
       attendants,
+      googleUsers,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -447,7 +502,7 @@ router.get("/settings", authAdmin, async (req, res) => {
 router.patch("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
-    const { name, city, attendants } = req.body;
+    const { name, city, attendants, googleUsers } = req.body;
 
     const data = {};
     if (name) data.name = name;
@@ -459,12 +514,19 @@ router.patch("/settings", authAdmin, async (req, res) => {
       invalidateCache(tenantId);
     }
 
-    // Salva lista de atendentes
     if (Array.isArray(attendants)) {
       await prisma.config.upsert({
         where: { key: `${tenantId}:attendants` },
         create: { key: `${tenantId}:attendants`, value: JSON.stringify(attendants) },
         update: { value: JSON.stringify(attendants) },
+      });
+    }
+
+    if (Array.isArray(googleUsers)) {
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:google_users` },
+        create: { key: `${tenantId}:google_users`, value: JSON.stringify(googleUsers) },
+        update: { value: JSON.stringify(googleUsers) },
       });
     }
 

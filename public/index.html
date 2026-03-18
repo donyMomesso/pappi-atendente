@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Pappi Atendente</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -276,10 +277,26 @@
     <div class="logo">🍕</div>
     <h1>Pappi Atendente</h1>
     <p>Painel de Atendimento</p>
-    <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
-    <input id="loginKey" type="password" placeholder="Chave de acesso" autocomplete="off"/>
-    <button onclick="doLogin()">Entrar</button>
-    <div id="loginErr" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
+
+    <!-- Modo Google (padrão) -->
+    <div id="loginGoogle">
+      <div id="g_signin" style="display:flex;justify-content:center;margin-bottom:16px;min-height:44px"></div>
+      <div id="loginErr" class="login-err" style="display:none">Acesso negado.</div>
+      <div style="margin-top:20px;text-align:center">
+        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showKeyMode(event)">Entrar com chave admin</a>
+      </div>
+    </div>
+
+    <!-- Modo chave (fallback admin) -->
+    <div id="loginKey" style="display:none">
+      <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
+      <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
+      <button onclick="doLogin()">Entrar</button>
+      <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
+      <div style="margin-top:12px;text-align:center">
+        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showGoogleMode(event)">← Voltar</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -453,6 +470,22 @@
           </div>
         </div>
         <div class="settings-card" style="grid-column:1/-1">
+          <div class="settings-card-head">👤 Usuários com Login Google</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Cada atendente entra com sua conta Google. Adicione o e-mail e o papel de cada um.</p>
+            <div class="attendant-list" id="googleUserList"></div>
+            <div class="add-attendant-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+              <input id="newGoogleEmail" type="email" placeholder="email@gmail.com" style="flex:2;min-width:180px" onkeydown="if(event.key==='Enter')addGoogleUser()"/>
+              <select id="newGoogleRole" style="flex:1;min-width:110px;padding:10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;background:#fff">
+                <option value="attendant">Atendente</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button class="btn-add-att" onclick="addGoogleUser()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveGoogleUsers()">Salvar usuários</button>
+          </div>
+        </div>
+        <div class="settings-card" style="grid-column:1/-1">
           <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
           <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
             <div style="flex:1;min-width:240px">
@@ -531,17 +564,57 @@ let orderAddress = {};
 let orderPayment = null;
 let refreshTimer = null;
 
-// ── LOGIN ──────────────────────────────────────────────────────
+// ── LOGIN GOOGLE ───────────────────────────────────────────────
+const GOOGLE_CLIENT_ID = "286493900825-vu5mlqqt2fcfk2m2ofsicibls8sa8mgo.apps.googleusercontent.com";
+
+function initGoogleSignIn() {
+  if (!window.google) return;
+  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleLogin });
+  google.accounts.id.renderButton(
+    document.getElementById("g_signin"),
+    { theme: "outline", size: "large", text: "signin_with", locale: "pt-BR", width: 260 }
+  );
+}
+
+// Inicializa quando o script GSI carregar
+document.querySelector('script[src*="gsi"]').addEventListener('load', initGoogleSignIn);
+
+async function handleGoogleLogin(response) {
+  const errEl = document.getElementById("loginErr");
+  errEl.style.display = "none";
+  const res = await fetch(`/dash/auth/google?tenant=${TENANT}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential: response.credential }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    errEl.textContent = data.error || "Acesso negado.";
+    errEl.style.display = "block";
+    return;
+  }
+  API_KEY = data.token;
+  ATTENDANT_NAME = data.name;
+  USER_ROLE = data.role;
+  localStorage.setItem("pappi_key", data.token);
+  localStorage.setItem("pappi_name", data.name);
+  localStorage.setItem("pappi_role", data.role);
+  enterApp();
+}
+
+function showKeyMode(e)    { e.preventDefault(); document.getElementById("loginGoogle").style.display="none"; document.getElementById("loginKey").style.display="block"; }
+function showGoogleMode(e) { e.preventDefault(); document.getElementById("loginKey").style.display="none"; document.getElementById("loginGoogle").style.display="block"; }
+
+// ── LOGIN CHAVE (fallback admin) ───────────────────────────────
 async function doLogin() {
   const name = document.getElementById("loginName").value.trim();
-  const key  = document.getElementById("loginKey").value.trim();
-  if (!key || !name) { document.getElementById("loginErr").style.display = "block"; return; }
+  const key  = document.getElementById("loginKeyInput").value.trim();
+  if (!key || !name) { document.getElementById("loginErrKey").style.display = "block"; return; }
   API_KEY = key;
   ATTENDANT_NAME = name;
 
-  // Descobre role pela chave
   const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
-  if (!authRes.ok) { document.getElementById("loginErr").style.display = "block"; API_KEY = ""; return; }
+  if (!authRes.ok) { document.getElementById("loginErrKey").style.display = "block"; API_KEY = ""; return; }
   const { role } = await authRes.json();
   USER_ROLE = role;
 
@@ -552,7 +625,7 @@ async function doLogin() {
     localStorage.setItem("pappi_role", role);
     enterApp();
   } else {
-    document.getElementById("loginErr").style.display = "block";
+    document.getElementById("loginErrKey").style.display = "block";
     API_KEY = "";
   }
 }
@@ -607,8 +680,8 @@ function applyRole() {
   document.getElementById("btnAdminPanel").style.display = isAdmin ? "" : "none";
   document.getElementById("btnConfig").style.display = isAdmin ? "" : "none";
 }
-document.getElementById("loginKey").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
-document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKey").focus(); });
+document.getElementById("loginKeyInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKeyInput").focus(); });
 
 // ── API ───────────────────────────────────────────────────────
 async function api(path, opts={}) {
@@ -1460,6 +1533,7 @@ async function loadAdminSettings() {
   document.getElementById("cfg-storeId").value = d.cwStoreId || "";
   document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
   renderAttendantList();
+  renderGoogleUserList();
   waIntRefreshStatus();
 }
 
@@ -1612,6 +1686,52 @@ async function saveAttendants() {
     body: JSON.stringify({ tenantId: TENANT, attendants: settingsData.attendants }),
   });
   if (r?.ok) alert("✅ Atendentes salvos!");
+  else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+// ── USUÁRIOS GOOGLE ───────────────────────────────────────────
+function renderGoogleUserList() {
+  const el = document.getElementById("googleUserList");
+  if (!el) return;
+  const list = settingsData.googleUsers || [];
+  if (!list.length) {
+    el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum usuário cadastrado</p>';
+    return;
+  }
+  el.innerHTML = list.map((u, i) => `
+    <div class="attendant-item">
+      <span>
+        <img src="https://www.google.com/s2/favicons?domain=gmail.com" style="width:13px;vertical-align:middle;margin-right:4px"/>
+        ${esc(u.email)}
+        <span style="font-size:10px;margin-left:6px;padding:2px 7px;border-radius:10px;background:${u.role==='admin'?'#FF6B35':'#25d366'};color:#fff;font-weight:700">${u.role==='admin'?'Admin':'Atendente'}</span>
+      </span>
+      <button class="btn-del-att" onclick="removeGoogleUser(${i})">×</button>
+    </div>`).join("");
+}
+
+function addGoogleUser() {
+  const email = document.getElementById("newGoogleEmail").value.trim().toLowerCase();
+  const role  = document.getElementById("newGoogleRole").value;
+  if (!email || !email.includes("@")) return;
+  if (!settingsData.googleUsers) settingsData.googleUsers = [];
+  if (!settingsData.googleUsers.find(u => u.email === email)) {
+    settingsData.googleUsers.push({ email, role });
+  }
+  document.getElementById("newGoogleEmail").value = "";
+  renderGoogleUserList();
+}
+
+function removeGoogleUser(idx) {
+  settingsData.googleUsers.splice(idx, 1);
+  renderGoogleUserList();
+}
+
+async function saveGoogleUsers() {
+  const r = await api("/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ tenantId: TENANT, googleUsers: settingsData.googleUsers || [] }),
+  });
+  if (r?.ok) alert("✅ Usuários salvos!");
   else alert("Erro: " + (r?.error || "Tente novamente"));
 }
 
