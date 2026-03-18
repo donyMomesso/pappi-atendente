@@ -723,16 +723,18 @@ async function fetchConvs() {
 
 function renderConvs(list) {
   const el = document.getElementById("convList");
-  if (!list.length) { el.innerHTML = '<p style="text-align:center;padding:24px;color:#bbb;font-size:13px">Nenhuma conversa ainda</p>'; return; }
-  el.innerHTML = list.map(c => `
-    <div class="conv-item${c.handoff?" handoff":""}${selectedCustomer?.id===c.id?" active":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
-      <div class="avatar${c.handoff?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+  // Conversas = apenas clientes no bot (handoff=false)
+  const botOnly = list.filter(c => !c.handoff);
+  if (!botOnly.length) { el.innerHTML = '<p style="text-align:center;padding:24px;color:#bbb;font-size:13px">Nenhuma conversa com o bot</p>'; return; }
+  el.innerHTML = botOnly.map(c => `
+    <div class="conv-item${selectedCustomer?.id===c.id?" active":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
+      <div class="avatar">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
       <div class="conv-info">
         <div class="conv-name">${esc(c.name)}</div>
         <div class="conv-sub">${esc(c.phoneFormatted)}${c.lastOrder?" · "+statusLabel(c.lastOrder.status):""}</div>
       </div>
       <div class="conv-badge">
-        ${c.handoff?'<span class="badge-handoff">🙋 Humano</span>':'<span class="badge-bot">🤖 Bot</span>'}
+        <span class="badge-bot">🤖 Bot</span>
       </div>
     </div>
   `).join("");
@@ -1377,20 +1379,25 @@ async function fetchQueue() {
   }
 
   // Renderiza aba Em Atendimento
+  // Atendente vê só as suas; admin vê todas
+  const myActive = USER_ROLE === "admin"
+    ? active
+    : active.filter(c => c.claimedBy === ATTENDANT_NAME);
+
   const elA = document.getElementById("activeList");
-  if (!active.length) {
+  if (!myActive.length) {
     elA.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div>';
   } else {
-    elA.innerHTML = active.map(c => {
+    elA.innerHTML = myActive.map(c => {
       const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
       const isMine = c.claimedBy === ATTENDANT_NAME;
       return `
-        <div class="queue-item${isMine?" claimed-mine":" claimed-other"}" onclick="selectConv('${c.id}')">
-          <div class="avatar${isMine?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+        <div class="queue-item claimed-mine" onclick="selectConv('${c.id}')">
+          <div class="avatar orange">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
           <div class="conv-info">
             <div class="conv-name">${esc(c.name)}</div>
             <div class="conv-sub">${esc(c.phoneFormatted)}</div>
-            <div class="queue-wait">${isMine?"🎯 Você":"👤 "+esc(c.claimedBy)} · ${wait}min</div>
+            <div class="queue-wait">${USER_ROLE==="admin"&&!isMine?"👤 "+esc(c.claimedBy):"🎯 Você"} · ${wait}min</div>
           </div>
           ${isMine?`<button class="btn-release" onclick="event.stopPropagation();releaseCustomer('${c.id}')">Encerrar</button>`:""}
         </div>`;
