@@ -274,6 +274,46 @@
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px}
+
+    /* ── PAINEL DIREITO REDESIGN ── */
+    .right-header{background:var(--brand-grad);color:#fff;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .right-header .rh-info{flex:1;min-width:0}
+    .right-header .rh-hello{font-size:14px;font-weight:700}
+    .right-header .rh-store{font-size:11px;opacity:.8}
+    .right-header .rh-actions{display:flex;gap:6px;flex-shrink:0}
+    .rh-icon{background:rgba(255,255,255,.2);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.2s}
+    .rh-icon:hover{background:rgba(255,255,255,.3)}
+    .cust-header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)}
+    .cust-avatar{width:44px;height:44px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;overflow:hidden}
+    .cust-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+    .cust-info{flex:1;min-width:0}
+    .cust-name{font-size:14px;font-weight:700;color:#1a1a1a}
+    .cust-phone{font-size:12px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px}
+    .btn-copy-inline{background:none;border:none;cursor:pointer;color:#bbb;padding:0 2px;font-size:13px;line-height:1}
+    .btn-copy-inline:hover{color:var(--violet)}
+    .catalog-row{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border);gap:8px;background:#fafafa;flex-shrink:0}
+    .catalog-row span{flex:1;font-size:12px;color:#555;font-weight:600}
+    .cat-btn{background:none;border:none;cursor:pointer;color:#888;font-size:16px;padding:4px;border-radius:6px;line-height:1;transition:.15s}
+    .cat-btn:hover{background:#e8e8e8;color:var(--violet)}
+    .right-nav{display:flex;border-top:1px solid var(--border);flex-shrink:0;background:#fff}
+    .right-nav-tab{flex:1;padding:8px 2px 6px;text-align:center;font-size:10px;font-weight:700;cursor:pointer;border-top:2px solid transparent;color:#aaa;transition:.2s;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .right-nav-tab .rnt-icon{font-size:18px;line-height:1}
+    .right-nav-tab.active{color:var(--violet);border-top-color:var(--violet)}
+    .right-nav-tab:hover:not(.active){background:#f9f9f9;color:#555}
+    /* ordem card redesign */
+    .order-card2{margin:8px 12px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fff}
+    .order-card2 .oc2-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+    .order-card2 .oc2-num{font-size:13px;font-weight:700;color:#1a1a1a}
+    .order-card2 .oc2-total{font-size:13px;font-weight:700;color:#1a1a1a}
+    .order-card2 .oc2-meta{font-size:12px;color:#888;margin-bottom:3px}
+    .order-card2 .oc2-date{font-size:11px;color:#aaa}
+    .s-concluido,.s-delivered{background:#d4edda;color:#155724}
+    /* chat header actions */
+    .chat-header-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
+    .btn-finalizar{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.2s}
+    .btn-finalizar:hover{background:rgba(229,57,53,.8);border-color:transparent}
+    /* profile avatar in chat header */
+    #chatHeaderAvatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
   </style>
 </head>
 <body>
@@ -398,6 +438,7 @@
     <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
     <div id="adminTabs" style="display:flex;gap:2px">
       <button class="admin-tab active" id="atDash"      onclick="adminTab('dash')">📊 Dashboard</button>
+      <button class="admin-tab"        id="atRet"       onclick="adminTab('ret')">📨 Retenção</button>
       <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📈 Relatórios</button>
       <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
       <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
@@ -418,6 +459,64 @@
       <div style="margin-top:28px">
         <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:12px">Pedidos por status hoje</div>
         <div id="adminStatusBars"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel: Retenção -->
+  <div id="adminPanelRet" class="admin-panel" style="display:none">
+    <div style="padding:28px;max-width:960px;margin:0 auto;width:100%">
+      <div class="settings-title">📨 Retenção de Clientes</div>
+      <div class="settings-sub">Envie mensagens automáticas dentro da janela de 24h gratuita da Meta. A IA seleciona os melhores candidatos.</div>
+
+      <!-- Volume mensal -->
+      <div class="settings-card" style="margin-bottom:20px">
+        <div class="settings-card-head">📊 Volume do Mês</div>
+        <div class="settings-card-body">
+          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+            <div style="text-align:center">
+              <div style="font-size:32px;font-weight:800;color:var(--violet)" id="retTotalMonth">—</div>
+              <div style="font-size:12px;color:#888">Mensagens enviadas este mês</div>
+            </div>
+            <div style="flex:1;min-width:200px">
+              <canvas id="retChartCanvas" height="60" style="width:100%;border-radius:8px"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Campanhas -->
+      <div class="settings-card" style="margin-bottom:20px">
+        <div class="settings-card-head">🎯 Campanhas Ativas</div>
+        <div class="settings-card-body">
+          <div id="retCampaignList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px"></div>
+          <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="openNewCampaign()">+ Nova Campanha</button>
+          <button class="btn-save-settings" style="width:auto;padding:8px 16px;margin-left:8px;background:#555" onclick="runRetentionNow()">▶ Executar Agora</button>
+        </div>
+      </div>
+
+      <!-- Form nova campanha -->
+      <div id="retNewCampaignForm" class="settings-card" style="display:none">
+        <div class="settings-card-head">✏️ Nova Campanha de Retenção</div>
+        <div class="settings-card-body">
+          <div class="settings-field"><label>Nome da campanha</label><input id="ret-name" placeholder="Ex: Follow-up pós-pedido"/></div>
+          <div class="settings-field">
+            <label>Mensagem <span style="color:#aaa;font-weight:400">({nome} = nome do cliente)</span></label>
+            <textarea id="ret-msg" rows="3" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;resize:vertical;outline:none" placeholder="Ex: Oi {nome}! 🍕 Que tal pedir novamente? Temos novidades esperando por você!"></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div class="settings-field"><label>Enviar após (horas)</label><input id="ret-delay" type="number" value="20" min="1" max="23"/></div>
+            <div class="settings-field"><label>Limite mensal (envios)</label><input id="ret-limit" type="number" value="100" min="1"/></div>
+            <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+              <input type="checkbox" id="ret-ai" checked style="width:16px;height:16px;accent-color:var(--violet)"/>
+              <label for="ret-ai" style="font-size:13px;color:#333;font-weight:600">Filtro por IA</label>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn-save-settings" style="width:auto;padding:9px 20px" onclick="saveCampaign()">Salvar Campanha</button>
+            <button onclick="document.getElementById('retNewCampaignForm').style.display='none'" style="background:#f5f5f5;color:#666;border:1px solid var(--border);border-radius:8px;padding:9px 16px;cursor:pointer;font-size:13px">Cancelar</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -840,12 +939,16 @@ function appendLastOrder(body, order) {
 
 function renderCenter(c) {
   const el = document.getElementById("colCenter");
+  const initials = (c.name||"?")[0].toUpperCase();
   el.innerHTML = `
     <div class="chat-header">
-      <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${(c.name||"?")[0].toUpperCase()}</div>
-      <div>
+      <div class="avatar" id="chatHeaderAvatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${initials}</div>
+      <div style="flex:1;min-width:0">
         <div class="name">${esc(c.name)}</div>
-        <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
+        <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visit${c.visitCount===1?'a':'as'}</div>
+      </div>
+      <div class="chat-header-actions">
+        ${c.handoff ? `<button class="btn-finalizar" onclick="releaseCustomer('${c.id}')">✓ Finalizar</button>` : ""}
       </div>
     </div>
     <div class="chat-body" id="chatBody">
@@ -858,60 +961,213 @@ function renderCenter(c) {
       </button>
     </div>
   `;
+  // Tenta carregar foto de perfil via Baileys
+  loadAvatar(c.id);
 }
 
+async function loadAvatar(customerId) {
+  try {
+    const d = await api(`/customer/${customerId}/avatar`);
+    if (!d?.url) return;
+    const set = (el) => { if (el) el.innerHTML = `<img src="${d.url}" onerror="this.parentElement.innerHTML='${(selectedCustomer?.name||'?')[0].toUpperCase()}'"/>`; };
+    set(document.getElementById("chatHeaderAvatar"));
+    set(document.getElementById("rightPanelAvatar"));
+  } catch {}
+}
+
+let rightTab = "pedidos";
+
 function renderRight(c) {
+  rightTab = c.handoff ? "atendimento" : "pedidos";
   const el = document.getElementById("colRight");
+  const initials = (c.name||"?")[0].toUpperCase();
+  const storeName = settingsData?.name || "Pappi Atendente";
+  const firstName = ATTENDANT_NAME.split(" ")[0];
+
   el.innerHTML = `
-    <div class="col-right" style="display:flex;flex-direction:column;overflow:hidden;flex:1">
-      <div class="panel-header">
-        <h2>Cliente</h2>
-        <div class="client-info">
-          <div class="cname">${esc(c.name)}</div>
-          <div class="cphone">${esc(c.phoneFormatted)}</div>
-          ${c.lastAddress?`<div style="font-size:11px;color:#888;margin-top:3px">📍 ${esc(c.lastAddress)}</div>`:""}
+    <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+      <!-- Cabeçalho loja/atendente -->
+      <div class="right-header">
+        <div class="rh-info">
+          <div class="rh-hello">Olá, ${esc(firstName)}</div>
+          <div class="rh-store">${esc(storeName)}</div>
+        </div>
+        <div class="rh-actions">
+          <button class="rh-icon" title="Diagnóstico" onclick="openDebug()">🔍</button>
+          ${USER_ROLE==="admin"?`<button class="rh-icon" title="Admin" onclick="openAdmin()">👑</button>`:""}
         </div>
       </div>
-      <div class="bot-row">
+
+      <!-- Bot toggle -->
+      <div class="bot-row" style="flex-shrink:0">
         <label>
           <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
-          ChatBot
+          ${c.handoff ? "Bot desligado" : "Bot ativo"}
         </label>
         <label class="toggle">
           <input type="checkbox" id="botToggle" ${!c.handoff?"checked":""} onchange="toggleHandoff(this.checked)"/>
           <span class="slider"></span>
         </label>
       </div>
-      ${c.handoff ? handoffBar(c) : ""}
-      <div class="orders-section">
-        <div class="orders-header">
-          <h3>Pedidos</h3>
-          <button class="btn-new-order" onclick="openOrder()">+ Adicionar</button>
+
+      <!-- Link catálogo -->
+      <div class="catalog-row">
+        <span>🔗 Link do Catálogo Web</span>
+        <button class="cat-btn" title="Enviar para o cliente" onclick="sendCatalogLink()">➤</button>
+        <button class="cat-btn" title="Copiar link" onclick="copyCatalogLink()">📋</button>
+        <button class="cat-btn" title="Abrir catálogo" onclick="openCatalogLink()">↗</button>
+      </div>
+
+      <!-- Info do cliente -->
+      <div class="cust-header">
+        <div class="cust-avatar" id="rightPanelAvatar">${initials}</div>
+        <div class="cust-info">
+          <div class="cust-name">${esc(c.name)}</div>
+          <div class="cust-phone">
+            ${esc(c.phoneFormatted)}
+            <button class="btn-copy-inline" id="btnCopyPhone" title="Copiar" onclick="copyPhone('${c.phone}')">📋</button>
+          </div>
+          ${c.visitCount ? `<div style="font-size:11px;color:#aaa;margin-top:2px">🛍 ${c.visitCount} pedido${c.visitCount>1?'s':''}</div>` : ""}
         </div>
-        <div id="ordersList"><div class="no-orders">Carregando...</div></div>
+      </div>
+
+      <!-- Conteúdo da aba selecionada -->
+      <div id="rightPanelContent" style="flex:1;overflow-y:auto;display:flex;flex-direction:column"></div>
+
+      <!-- Navegação inferior -->
+      <div class="right-nav">
+        <div class="right-nav-tab${rightTab==='atendimento'?' active':''}" data-tab="atendimento" onclick="rightPanelTab('atendimento')">
+          <span class="rnt-icon">🎧</span>Atendimento
+        </div>
+        <div class="right-nav-tab${rightTab==='pedidos'?' active':''}" data-tab="pedidos" onclick="rightPanelTab('pedidos')">
+          <span class="rnt-icon">📦</span>Pedidos
+        </div>
+        <div class="right-nav-tab${rightTab==='chatbot'?' active':''}" data-tab="chatbot" onclick="rightPanelTab('chatbot')">
+          <span class="rnt-icon">🤖</span>ChatBot
+        </div>
+        <div class="right-nav-tab${rightTab==='portal'?' active':''}" data-tab="portal" onclick="rightPanelTab('portal')">
+          <span class="rnt-icon">↗</span>Portal
+        </div>
       </div>
     </div>
   `;
+  rightPanelTab(rightTab);
+}
+
+function rightPanelTab(tab) {
+  rightTab = tab;
+  document.querySelectorAll(".right-nav-tab").forEach(el => {
+    el.classList.toggle("active", el.dataset.tab === tab);
+  });
+
+  const content = document.getElementById("rightPanelContent");
+  if (!content || !selectedCustomer) return;
+  const c = selectedCustomer;
+
+  if (tab === "atendimento") {
+    if (!c.handoff) {
+      content.innerHTML = `
+        <div style="padding:20px;text-align:center;color:#aaa;margin-top:24px">
+          <div style="font-size:48px;margin-bottom:12px">🤖</div>
+          <strong style="color:#555;font-size:14px">Bot ativo</strong><br/>
+          <span style="font-size:12px;color:#aaa">Cliente sendo atendido automaticamente</span>
+        </div>`;
+    } else {
+      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
+      const isMine = c.claimedBy === ATTENDANT_NAME;
+      content.innerHTML = `
+        <div style="padding:0">
+          ${handoffBar(c)}
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;color:#555">
+            <div style="display:flex;justify-content:space-between"><span>Na fila há:</span><strong>${wait} min</strong></div>
+            ${c.claimedBy?`<div style="display:flex;justify-content:space-between"><span>Atendente:</span><strong>${esc(c.claimedBy)}</strong></div>`:""}
+            ${c.preferredPayment?`<div style="display:flex;justify-content:space-between"><span>Pag. preferido:</span><strong>${esc(c.preferredPayment)}</strong></div>`:""}
+            ${c.lastAddress?`<div style="padding:8px 0;border-top:1px solid var(--border);font-size:12px;color:#888;margin-top:4px">📍 ${esc(c.lastAddress)}</div>`:""}
+          </div>
+          ${isMine?`<div style="padding:10px 14px;border-top:1px solid var(--border)"><button onclick="releaseCustomer('${c.id}')" style="width:100%;background:#e53935;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">✓ Finalizar Atendimento</button></div>`:""}
+        </div>`;
+    }
+  } else if (tab === "pedidos") {
+    content.innerHTML = `
+      <div class="orders-header" style="flex-shrink:0">
+        <div>
+          <h3 style="font-size:13px;font-weight:700;color:#333">Pedidos do cliente</h3>
+          <div id="ordersCount" style="font-size:11px;color:#aaa;margin-top:1px"></div>
+        </div>
+        <button class="btn-new-order" onclick="openOrder()">+ Novo pedido</button>
+      </div>
+      <div id="ordersList"><div class="no-orders">Carregando...</div></div>`;
+    api(`/customer/${c.id}/orders`).then(orders => { if (orders) renderOrders(orders); });
+  } else if (tab === "chatbot") {
+    content.innerHTML = `
+      <div style="padding:14px;display:flex;flex-direction:column;gap:10px">
+        <div style="padding:12px;border:1px solid var(--border);border-radius:10px;background:#fafafa">
+          <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:8px">Status</div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
+            <span>ChatBot</span><strong style="color:${!c.handoff?"#25d366":"#e53935"}">${!c.handoff?"● Ativo":"● Desligado"}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px">
+            <span>Visitas</span><strong>${c.visitCount}</strong>
+          </div>
+        </div>
+        <div style="padding:10px;background:#fff3cd;border-radius:8px;font-size:12px;color:#856404;line-height:1.6">
+          💡 Com o bot <strong>ativo</strong>, o cliente é atendido automaticamente. Desligue para atender manualmente.
+        </div>
+        <div style="font-size:12px;font-weight:700;color:#555;margin-top:4px">Sessão</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#888">
+          <span>Última interação</span>
+          <span>${c.lastInteraction ? new Date(c.lastInteraction).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</span>
+        </div>
+      </div>`;
+  } else if (tab === "portal") {
+    const cwStoreId = settingsData?.cwStoreId || "";
+    content.innerHTML = `
+      <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:4px">Links do sistema</div>
+        <a href="https://integracao.cardapioweb.com" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:#333;font-size:13px;font-weight:600;background:#fafafa;transition:.15s"
+          onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background='#fafafa'">
+          🌐 Portal CardápioWeb ↗
+        </a>
+        <a href="https://www.cardapioweb.com.br/pedidos" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:#333;font-size:13px;font-weight:600;background:#fafafa;transition:.15s"
+          onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background='#fafafa'">
+          📦 Pedidos CardápioWeb ↗
+        </a>
+        <a href="/privacy" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:#333;font-size:13px;font-weight:600;background:#fafafa;transition:.15s"
+          onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background='#fafafa'">
+          🔒 Política de Privacidade ↗
+        </a>
+      </div>`;
+  }
 }
 
 function renderOrders(orders) {
   const el = document.getElementById("ordersList");
   if (!el) return;
+  const countEl = document.getElementById("ordersCount");
+  if (countEl) countEl.textContent = `Total de ${orders.length} pedido${orders.length!==1?'s':''}`;
   if (!orders.length) { el.innerHTML = '<div class="no-orders">Nenhum pedido ainda</div>'; return; }
-  el.innerHTML = orders.map((o,i) => `
-    <div class="order-card">
-      <div class="oc-head">
-        <span class="oc-num">Pedido #${orders.length - i}</span>
-        <span class="status-pill s-${o.status.includes("cancel")?"cancelled":o.status.includes("deliver")?"delivered":o.status.includes("confirm")?"confirmed":o.status.includes("prepar")?"preparing":"waiting"}">${statusLabel(o.status)}</span>
-        <span class="oc-total">R$ ${o.total.toFixed(2)}</span>
+  el.innerHTML = orders.map((o, i) => {
+    const num = o.cwOrderId || (orders.length - i);
+    const total = `R$ ${o.total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    const fulfillText = o.fulfillment === "delivery" ? "Delivery" : "Retirada";
+    const dateStr = new Date(o.createdAt).toLocaleString("pt-BR", {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+    const statusClass = o.status.includes("cancel") ? "s-cancelled"
+      : (o.status.includes("deliver") || o.status === "delivered") ? "s-concluido"
+      : o.status.includes("confirm") ? "s-confirmed"
+      : o.status.includes("prepar") ? "s-preparing"
+      : "s-waiting";
+    const statusText = o.status === "delivered" || o.status === "dispatched" ? "Concluído" : statusLabel(o.status);
+    return `
+    <div class="order-card2">
+      <div class="oc2-head">
+        <span class="oc2-num">Pedido Nº ${num}</span>
+        <span class="status-pill ${statusClass}">${statusText}</span>
       </div>
-      <div class="oc-body">
-        <div>${o.fulfillment==="delivery"?"🛵 Entrega":"🏪 Retirada"} · ${esc(o.paymentMethodName||"—")}</div>
-        <div class="oc-items">${o.items.slice(0,3).map(i=>`${i.quantity}x ${esc(i.name)}`).join(", ")}${o.items.length>3?` +${o.items.length-3} itens`:""}</div>
-        <div style="font-size:11px;color:#aaa;margin-top:3px">${new Date(o.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
-      </div>
-    </div>
-  `).join("");
+      <div class="oc2-meta">${total} • ${fulfillText} • ${esc(o.paymentMethodName||"Imediato")}</div>
+      <div class="oc2-date">Feito em ${dateStr}</div>
+      ${o.items?.length ? `<div style="font-size:11px;color:#aaa;margin-top:4px">${o.items.slice(0,2).map(it=>`${it.quantity}x ${esc(it.name)}`).join(", ")}${o.items.length>2?` +${o.items.length-2} itens`:""}</div>` : ""}
+    </div>`;
+  }).join("");
 }
 
 // ── HANDOFF TOGGLE ───────────────────────────────────────────
@@ -1496,13 +1752,14 @@ function closeAdmin() {
 
 function adminTab(tab) {
   currentAdminTab = tab;
-  const tabIds = { dash:"Dash", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
+  const tabIds = { dash:"Dash", ret:"Ret", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
   Object.entries(tabIds).forEach(([k, v]) => {
     document.getElementById("at"+v).className = "admin-tab" + (k===tab?" active":"");
     document.getElementById("adminPanel"+v).style.display = k===tab ? "flex" : "none";
   });
   if (tab === "dash") fetchAdminDash();
   if (tab === "cfg")  loadAdminSettings();
+  if (tab === "ret")  loadRetention();
 }
 
 async function openDebug() {
@@ -1932,6 +2189,145 @@ async function saveGoogleUsers() {
   });
   if (r?.ok) alert("✅ Usuários salvos!");
   else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+// ── CATALOG LINK HELPERS ──────────────────────────────────────
+function getCatalogUrl() {
+  const storeId = settingsData?.cwStoreId || "";
+  return storeId
+    ? `https://www.cardapioweb.com.br/${storeId}`
+    : "https://integracao.cardapioweb.com";
+}
+async function sendCatalogLink() {
+  if (!selectedCustomer) return;
+  const url = getCatalogUrl();
+  await api("/send", { method:"POST", body: JSON.stringify({ phone: selectedCustomer.phone, text: `🔗 Nosso cardápio digital: ${url}`, customerId: selectedCustomer.id, tenantId: TENANT }) });
+  await loadChatHistory(selectedCustomer.id);
+}
+function copyCatalogLink() {
+  navigator.clipboard.writeText(getCatalogUrl()).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent; btn.textContent = "✓"; setTimeout(() => btn.textContent = orig, 1500);
+  }).catch(() => {});
+}
+function openCatalogLink() { window.open(getCatalogUrl(), "_blank"); }
+
+function copyPhone(phone) {
+  navigator.clipboard.writeText(phone).then(() => {
+    const btn = document.getElementById("btnCopyPhone");
+    if (btn) { btn.textContent = "✓"; setTimeout(() => btn.textContent = "📋", 1500); }
+  }).catch(() => {});
+}
+
+// ── RETENÇÃO ──────────────────────────────────────────────────
+let retCampaigns = [];
+
+async function loadRetention() {
+  // Stats mensais
+  const stats = await api("/retention/stats");
+  if (stats) {
+    document.getElementById("retTotalMonth").textContent = stats.totalMonth;
+    drawRetChart(stats.byDay);
+  }
+  // Campanhas
+  const camps = await api("/retention/campaigns");
+  if (camps) { retCampaigns = camps; renderRetCampaigns(); }
+}
+
+function drawRetChart(byDay) {
+  const canvas = document.getElementById("retChartCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  canvas.width = canvas.offsetWidth * devicePixelRatio;
+  canvas.height = canvas.offsetHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  const today = new Date();
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  const values = days.map(d => byDay[d] || 0);
+  const maxVal = Math.max(...values, 1);
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  const barW = (W / days.length) * 0.7;
+  const gap   = (W / days.length) * 0.3;
+
+  ctx.clearRect(0, 0, W, H);
+  values.forEach((v, i) => {
+    const barH = (v / maxVal) * (H - 16);
+    const x = i * (barW + gap);
+    const y = H - barH - 4;
+    ctx.fillStyle = v > 0 ? "#7C3AED" : "#f0f0f0";
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW, barH || 3, 2);
+    ctx.fill();
+  });
+}
+
+function renderRetCampaigns() {
+  const el = document.getElementById("retCampaignList");
+  if (!el) return;
+  if (!retCampaigns.length) {
+    el.innerHTML = '<p style="color:#bbb;font-size:13px;text-align:center;padding:16px">Nenhuma campanha criada ainda</p>';
+    return;
+  }
+  el.innerHTML = retCampaigns.map(c => `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:#fafafa;display:flex;align-items:center;gap:12px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:#1a1a1a">${esc(c.name)}</div>
+        <div style="font-size:12px;color:#888;margin-top:2px">${esc(c.message.slice(0,60))}${c.message.length>60?"...":""}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:3px">Após ${c.delayHours}h · Limite ${c.monthlyLimit}/mês · ${c.aiFilter?"IA ativa":"Sem IA"}</div>
+      </div>
+      <label class="toggle" title="${c.active?'Ativa':'Pausada'}">
+        <input type="checkbox" ${c.active?"checked":""} onchange="toggleCampaign('${c.id}',this.checked)"/>
+        <span class="slider"></span>
+      </label>
+      <button onclick="deleteCampaign('${c.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:18px;line-height:1;padding:0 4px" title="Excluir">×</button>
+    </div>`).join("");
+}
+
+function openNewCampaign() {
+  document.getElementById("retNewCampaignForm").style.display = "block";
+  document.getElementById("ret-name").focus();
+}
+
+async function saveCampaign() {
+  const name    = document.getElementById("ret-name").value.trim();
+  const message = document.getElementById("ret-msg").value.trim();
+  const delay   = parseInt(document.getElementById("ret-delay").value) || 20;
+  const limit   = parseInt(document.getElementById("ret-limit").value) || 100;
+  const aiFilter = document.getElementById("ret-ai").checked;
+  if (!name || !message) { alert("Preencha nome e mensagem"); return; }
+
+  const r = await api("/retention/campaigns", {
+    method: "POST",
+    body: JSON.stringify({ name, message, delayHours: delay, monthlyLimit: limit, aiFilter, tenantId: TENANT }),
+  });
+  if (r?.id) {
+    document.getElementById("retNewCampaignForm").style.display = "none";
+    document.getElementById("ret-name").value = "";
+    document.getElementById("ret-msg").value = "";
+    loadRetention();
+  } else alert("Erro ao salvar campanha");
+}
+
+async function toggleCampaign(id, active) {
+  await api(`/retention/campaigns/${id}`, { method:"PATCH", body: JSON.stringify({ active }) });
+  loadRetention();
+}
+
+async function deleteCampaign(id) {
+  if (!confirm("Excluir esta campanha?")) return;
+  await api(`/retention/campaigns/${id}`, { method:"DELETE" });
+  loadRetention();
+}
+
+async function runRetentionNow() {
+  const r = await api("/retention/run", { method:"POST", body:"{}" });
+  if (r?.ok) alert("✅ Campanhas iniciadas! Verifique os logs do servidor.");
+  else alert("Erro ao executar campanhas");
 }
 
 // ── HELPERS ──────────────────────────────────────────────────

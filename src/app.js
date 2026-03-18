@@ -16,6 +16,14 @@ try {
   console.warn("[Baileys] módulo não disponível:", e.message);
 }
 
+// Inicia agendador de retenção/reengajamento
+try {
+  const retentionSvc = require("./services/retention.service");
+  retentionSvc.startScheduler();
+} catch (e) {
+  console.warn("[Retention] scheduler error:", e.message);
+}
+
 const app = express();
 
 app.use(express.json({ limit: "10mb" }));

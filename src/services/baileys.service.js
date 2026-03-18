@@ -232,4 +232,16 @@ function disconnect() {
   STATE.qrBase64 = null;
 }
 
-module.exports = { start, sendText, notify, getStatus, setNotifyNumbers, disconnect };
+// ── Foto de perfil do cliente (via Baileys) ────────────────────
+async function getProfilePicture(phone) {
+  if (!STATE.socket || STATE.status !== "connected") return null;
+  try {
+    const jid = `${phone}@s.whatsapp.net`;
+    const url = await STATE.socket.profilePictureUrl(jid, "image");
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { start, sendText, notify, getStatus, setNotifyNumbers, disconnect, getProfilePicture };

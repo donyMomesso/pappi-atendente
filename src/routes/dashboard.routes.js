@@ -13,6 +13,7 @@ const { randomUUID } = require("crypto");
 const baileys        = require("../services/baileys.service");
 const chatMemory     = require("../services/chat-memory.service");
 const googleContacts = require("../services/google-contacts.service");
+const retention      = require("../services/retention.service");
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -615,6 +616,93 @@ router.get("/google-contacts/search", authDash, async (req, res) => {
   if (!q) return res.json([]);
   const results = await googleContacts.searchContacts(q);
   res.json(results);
+});
+
+// ── GET /dash/retention/campaigns ────────────────────────────
+router.get("/retention/campaigns", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const campaigns = await prisma.retentionCampaign.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(campaigns);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /dash/retention/campaigns ───────────────────────────
+router.post("/retention/campaigns", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const { name, message, delayHours = 20, monthlyLimit = 100, aiFilter = true } = req.body;
+    if (!name || !message) return res.status(400).json({ error: "name e message obrigatórios" });
+
+    const campaign = await prisma.retentionCampaign.create({
+      data: { tenantId, name, message, delayHours: +delayHours, monthlyLimit: +monthlyLimit, aiFilter: !!aiFilter },
+    });
+    res.json(campaign);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PATCH /dash/retention/campaigns/:id ──────────────────────
+router.patch("/retention/campaigns/:id", authAdmin, async (req, res) => {
+  try {
+    const { name, message, delayHours, monthlyLimit, aiFilter, active } = req.body;
+    const data = {};
+    if (name         !== undefined) data.name         = name;
+    if (message      !== undefined) data.message      = message;
+    if (delayHours   !== undefined) data.delayHours   = +delayHours;
+    if (monthlyLimit !== undefined) data.monthlyLimit = +monthlyLimit;
+    if (aiFilter     !== undefined) data.aiFilter     = !!aiFilter;
+    if (active       !== undefined) data.active       = !!active;
+
+    const campaign = await prisma.retentionCampaign.update({
+      where: { id: req.params.id },
+      data,
+    });
+    res.json(campaign);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /dash/retention/campaigns/:id ─────────────────────
+router.delete("/retention/campaigns/:id", authAdmin, async (req, res) => {
+  try {
+    await prisma.retentionCampaign.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /dash/retention/run ──────────────────────────────────
+// Disparo manual (admin)
+router.post("/retention/run", authAdmin, async (req, res) => {
+  try {
+    retention.runAll().catch(err => console.error("[Retention] run manual:", err.message));
+    res.json({ ok: true, message: "Campanhas iniciadas em background" });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /dash/retention/stats ─────────────────────────────────
+router.get("/retention/stats", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const stats = await retention.getMonthlyStats(tenantId);
+    res.json(stats);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /dash/customer/:id/avatar ────────────────────────────
+// Tenta buscar foto de perfil via Baileys (WhatsApp interno)
+router.get("/customer/:id/avatar", authDash, async (req, res) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      select: { phone: true },
+    });
+    if (!customer) return res.json({ url: null });
+
+    const url = await baileys.getProfilePicture(customer.phone).catch(() => null);
+    res.json({ url: url || null });
+  } catch { res.json({ url: null }); }
 });
 
 // ── GET /dash/wa-internal/status ─────────────────────────────

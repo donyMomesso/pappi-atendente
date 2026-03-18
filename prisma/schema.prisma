@@ -163,3 +163,37 @@ model Config {
 
   @@map("configs")
 }
+
+// ── RetentionCampaign (campanha de retenção) ──────────────────
+model RetentionCampaign {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  message      String   // Texto da mensagem; {nome} é substituído
+  delayHours   Int      @default(20)  // Enviar X horas após última interação
+  monthlyLimit Int      @default(100) // Limite de envios por mês
+  aiFilter     Boolean  @default(true) // Usar IA para filtrar candidatos
+  active       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  sends        RetentionSend[]
+
+  @@index([tenantId, active])
+  @@map("retention_campaigns")
+}
+
+// ── RetentionSend (log de envios de retenção) ─────────────────
+model RetentionSend {
+  id           String            @id @default(uuid())
+  campaignId   String
+  campaign     RetentionCampaign @relation(fields: [campaignId], references: [id])
+  customerId   String
+  phone        String
+  customerName String?
+  aiScore      String?           // "sim" | "talvez" | "nao" com motivo
+  sentAt       DateTime          @default(now())
+
+  @@index([campaignId, sentAt])
+  @@index([customerId, sentAt])
+  @@map("retention_sends")
+}
