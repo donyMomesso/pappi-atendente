@@ -1,23 +1,36 @@
 // src/services/chat-memory.service.js
-// Armazena as últimas N mensagens de cada cliente em memória (sem persistência).
-// Suficiente para o atendente ver o contexto da conversa.
-// Perde ao reiniciar o servidor — intencional para não sobrecarregar o banco.
+// Histórico de conversa: salva em memória (rápido) E no banco (persistente).
 
-const MAX_MSGS = 100;
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
-// Map<customerId, Message[]>
-const store = new Map();
+const MAX_MEMORY = 100;
+const store = new Map(); // customerId → Message[]
 
-// role: "customer" | "attendant" | "bot"
-function push(customerId, role, text, sender = null) {
+async function push(customerId, role, text, sender = null) {
+  // Memória
   if (!store.has(customerId)) store.set(customerId, []);
   const msgs = store.get(customerId);
   msgs.push({ role, text, sender, at: new Date().toISOString() });
-  if (msgs.length > MAX_MSGS) msgs.shift();
+  if (msgs.length > MAX_MEMORY) msgs.shift();
+
+  // Banco (assíncrono, não bloqueia)
+  prisma.message.create({ data: { customerId, role, text, sender } }).catch(() => {});
 }
 
-function get(customerId) {
-  return store.get(customerId) || [];
+async function get(customerId) {
+  // Tenta memória primeiro; se vazio busca últimas 100 do banco
+  const mem = store.get(customerId) || [];
+  if (mem.length) return mem;
+
+  try {
+    const rows = await prisma.message.findMany({
+      where: { customerId },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+    });
+    return rows.map(r => ({ role: r.role, text: r.text, sender: r.sender, at: r.createdAt.toISOString() }));
+  } catch { return []; }
 }
 
 function clear(customerId) {

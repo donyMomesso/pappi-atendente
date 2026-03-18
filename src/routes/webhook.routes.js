@@ -7,6 +7,7 @@ const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.ser
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const chatMemory = require("../services/chat-memory.service");
+const baileys   = require("../services/baileys.service");
 
 const router = express.Router();
 
@@ -124,6 +125,11 @@ async function processMessage({ tenant, wa, msg, contacts }) {
       phone,
       "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼"
     );
+    // Notifica equipe interna via Baileys
+    const displayName = customer.name || phone;
+    baileys.notify(
+      `🔔 *Novo cliente na fila!*\n👤 ${displayName}\n📞 ${phone}\n⏰ ${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}`
+    ).catch(() => {});
     return;
   }
 

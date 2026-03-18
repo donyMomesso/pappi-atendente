@@ -73,6 +73,7 @@ model Customer {
 
   createdAt        DateTime  @default(now())
   orders           Order[]
+  messages         Message[]
 
   @@unique([tenantId, phone], name: "tenantId_phone")
   @@map("customers")
@@ -138,6 +139,20 @@ model OrderStatusLog {
 
   @@index([orderId])
   @@map("order_status_logs")
+}
+
+// ── Message (histórico de conversa) ──────────────────────────
+model Message {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  role       String   // "customer" | "attendant" | "bot"
+  text       String
+  sender     String?  // nome do atendente (quando role=attendant)
+  createdAt  DateTime @default(now())
+
+  @@index([customerId, createdAt])
+  @@map("messages")
 }
 
 // ── Config (chave-valor global) ───────────────────────────────
