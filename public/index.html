@@ -526,17 +526,45 @@ async function doLogin() {
 
   const ok = await fetchStats();
   if (ok) {
-    document.getElementById("login").style.display = "none";
-    document.getElementById("header").style.display = "flex";
-    document.getElementById("app").style.display = "block";
-    applyRole();
-    startRefresh();
-    loadCatalog();
+    localStorage.setItem("pappi_key", key);
+    localStorage.setItem("pappi_name", name);
+    localStorage.setItem("pappi_role", role);
+    enterApp();
   } else {
     document.getElementById("loginErr").style.display = "block";
     API_KEY = "";
   }
 }
+
+function enterApp() {
+  document.getElementById("login").style.display = "none";
+  document.getElementById("header").style.display = "flex";
+  document.getElementById("app").style.display = "block";
+  applyRole();
+  startRefresh();
+  loadCatalog();
+}
+
+// ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
+(async function restoreSession() {
+  const key  = localStorage.getItem("pappi_key");
+  const name = localStorage.getItem("pappi_name");
+  const role = localStorage.getItem("pappi_role");
+  if (!key || !name || !role) return;
+  API_KEY = key;
+  ATTENDANT_NAME = name;
+  USER_ROLE = role;
+  const ok = await fetchStats();
+  if (ok) {
+    enterApp();
+  } else {
+    // Sessão expirou ou chave mudou — limpa
+    localStorage.removeItem("pappi_key");
+    localStorage.removeItem("pappi_name");
+    localStorage.removeItem("pappi_role");
+    API_KEY = "";
+  }
+})();
 
 function applyRole() {
   const isAdmin = USER_ROLE === "admin";
