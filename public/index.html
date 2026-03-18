@@ -334,10 +334,13 @@
         <div class="col-tab" id="tabActive" onclick="switchTab('active')">🎧 Em Atendimento</div>
       </div>
       <div id="panelConv" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
-        <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--purple-ll)">
-          <div class="search-box">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input id="searchInput" placeholder="Pesquisar por nome ou número..." oninput="filterConv()"/>
+        <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--violet-l)">
+          <div style="display:flex;gap:6px;align-items:center">
+            <div class="search-box" style="flex:1">
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <input id="searchInput" placeholder="Pesquisar..." oninput="filterConv()"/>
+            </div>
+            <button onclick="openContacts()" title="Buscar contato Google" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
           </div>
         </div>
         <div class="conv-list" id="convList"></div>
@@ -526,6 +529,29 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: BUSCAR CONTATO GOOGLE -->
+<div class="modal-bg" id="modalContacts" style="display:none" onclick="if(event.target===this)closeContacts()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head">
+      <h3>📒 Buscar Contato Google</h3>
+      <button onclick="closeContacts()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input id="contactSearchInput" type="text" placeholder="Nome ou telefone..." style="flex:1;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;outline:none"
+          oninput="searchContactsDebounce()" onkeydown="if(event.key==='Enter')searchContactsNow()"/>
+        <button onclick="searchContactsNow()" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px">🔍</button>
+      </div>
+      <div id="contactResults" style="min-height:80px;max-height:320px;overflow-y:auto">
+        <p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeContacts()" style="background:#555;color:#fff">Fechar</button>
     </div>
   </div>
 </div>
@@ -1732,6 +1758,99 @@ async function saveAttendants() {
   });
   if (r?.ok) alert("✅ Atendentes salvos!");
   else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+// ── BUSCA DE CONTATOS GOOGLE ──────────────────────────────────
+let _contactsDebounce = null;
+
+function openContacts() {
+  document.getElementById("modalContacts").style.display = "flex";
+  document.getElementById("contactSearchInput").focus();
+}
+function closeContacts() {
+  document.getElementById("modalContacts").style.display = "none";
+  document.getElementById("contactResults").innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>';
+  document.getElementById("contactSearchInput").value = "";
+}
+
+function searchContactsDebounce() {
+  clearTimeout(_contactsDebounce);
+  _contactsDebounce = setTimeout(searchContactsNow, 400);
+}
+
+async function searchContactsNow() {
+  const q = document.getElementById("contactSearchInput").value.trim();
+  const el = document.getElementById("contactResults");
+  if (!q) { el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>'; return; }
+  el.innerHTML = '<p style="text-align:center;color:#aaa;font-size:13px;padding:24px">🔍 Buscando...</p>';
+
+  const results = await fetch(`/dash/google-contacts/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`)
+    .then(r => r.json()).catch(() => []);
+
+  if (!results.length) {
+    el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Nenhum contato encontrado</p>';
+    return;
+  }
+
+  el.innerHTML = results.map(c => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f5f5f5;cursor:pointer;border-radius:8px;transition:.15s"
+      onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background=''"
+      onclick="startConvFromContact('${esc(c.name)}','${esc(c.phone)}')">
+      <div class="avatar" style="width:36px;height:36px;font-size:14px">${(c.name||c.phone||"?")[0].toUpperCase()}</div>
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:600;color:#1a1a1a">${esc(c.name||"Sem nome")}</div>
+        <div style="font-size:12px;color:#888">+${esc(c.phone)}</div>
+      </div>
+      <button style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">Conversar</button>
+    </div>`).join("");
+}
+
+async function startConvFromContact(name, phone) {
+  closeContacts();
+  // Busca se já tem conversa com esse número
+  const normalized = phone.replace(/\D/g,"");
+  const existing = allConvs.find(c => c.phone === normalized || c.phone.endsWith(normalized.slice(-9)));
+  if (existing) { selectCustomer(existing); return; }
+  // Mostra no centro com opção de enviar mensagem
+  document.getElementById("colCenter").innerHTML = `
+    <div class="chat-header">
+      <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${(name||"?")[0].toUpperCase()}</div>
+      <div>
+        <div class="name">${esc(name||"Sem nome")}</div>
+        <div class="phone">+${esc(phone)} · novo contato</div>
+      </div>
+    </div>
+    <div class="chat-body" id="chatBody">
+      <div style="text-align:center;padding:32px;color:#aaa;font-size:13px">
+        ⚠️ Este cliente ainda não iniciou conversa.<br/>
+        Você pode enviar uma mensagem mas será cobrado após 1.000/mês.
+      </div>
+    </div>
+    <div class="chat-input">
+      <textarea id="msgText" rows="1" placeholder="Digite uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsgToPhone('${esc(phone)}')}"></textarea>
+      <button onclick="sendMsgToPhone('${esc(phone)}')" style="background:var(--orange)">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+      </button>
+    </div>`;
+}
+
+async function sendMsgToPhone(phone) {
+  const el = document.getElementById("msgText");
+  const text = el?.value?.trim();
+  if (!text) return;
+  el.value = "";
+  await api("/send", {
+    method: "POST",
+    body: JSON.stringify({ phone, text, tenantId: TENANT }),
+  });
+  const body = document.getElementById("chatBody");
+  if (body) {
+    const div = document.createElement("div");
+    div.className = "msg out";
+    div.innerHTML = `${esc(text)}<div class="time">${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>`;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  }
 }
 
 // ── GOOGLE CONTACTS ───────────────────────────────────────────

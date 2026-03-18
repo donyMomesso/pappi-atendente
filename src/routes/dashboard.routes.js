@@ -609,6 +609,14 @@ router.post("/google-contacts/disconnect", authAdmin, async (_req, res) => {
   res.json({ ok: true });
 });
 
+// ── GET /dash/google-contacts/search ─────────────────────────
+router.get("/google-contacts/search", authDash, async (req, res) => {
+  const q = (req.query.q || "").trim();
+  if (!q) return res.json([]);
+  const results = await googleContacts.searchContacts(q);
+  res.json(results);
+});
+
 // ── GET /dash/wa-internal/status ─────────────────────────────
 router.get("/wa-internal/status", authDash, (_req, res) => {
   res.json(baileys.getStatus());

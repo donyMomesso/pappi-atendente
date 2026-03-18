@@ -122,9 +122,38 @@ async function createContact(name, phone) {
   }
 }
 
+// ── Busca contatos ────────────────────────────────────────────
+async function searchContacts(query) {
+  try {
+    const token = await getAccessToken();
+    if (!token) return [];
+
+    const params = new URLSearchParams({
+      query,
+      readMask: "names,phoneNumbers",
+      pageSize: 20,
+    });
+    const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    return (data.results || []).map(r => {
+      const p = r.person;
+      const name  = p.names?.[0]?.displayName || "";
+      const phone = p.phoneNumbers?.[0]?.value?.replace(/\D/g, "") || "";
+      return { name, phone };
+    }).filter(c => c.phone);
+  } catch (e) {
+    console.error("[GoogleContacts] Erro na busca:", e.message);
+    return [];
+  }
+}
+
 // ── Desconectar ───────────────────────────────────────────────
 async function disconnect() {
   await prisma.config.deleteMany({ where: { key: TOKEN_KEY } }).catch(() => {});
 }
 
-module.exports = { getAuthUrl, exchangeCode, saveTokens, isAuthorized, createContact, disconnect };
+module.exports = { getAuthUrl, exchangeCode, saveTokens, isAuthorized, createContact, searchContacts, disconnect };
