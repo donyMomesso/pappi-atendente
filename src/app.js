@@ -26,6 +26,9 @@ app.use(express.static(path.join(__dirname, "../public")));
 // Saúde
 app.get("/health", (_req, res) => res.json({ ok: true, version: "3.0.0" }));
 
+// Política de privacidade
+app.get("/privacy", (_req, res) => res.sendFile(path.join(__dirname, "../public/privacy.html")));
+
 // Rotas
 app.use("/", webhookRoutes);
 app.use("/orders", ordersRoutes);
