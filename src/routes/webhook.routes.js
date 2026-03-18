@@ -27,6 +27,14 @@ router.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
+// Log dos últimos webhooks recebidos (em memória)
+const webhookLog = [];
+function logWebhook(body) {
+  webhookLog.unshift({ at: new Date().toISOString(), body });
+  if (webhookLog.length > 10) webhookLog.pop();
+}
+router.get("/webhook-log", (req, res) => res.json(webhookLog));
+
 // ── Recebimento de Eventos (POST) ────────────────────────────
 
 router.post("/webhook", async (req, res) => {
@@ -35,6 +43,8 @@ router.post("/webhook", async (req, res) => {
 
   try {
     const body = req.body;
+    logWebhook(body);
+    console.log("[Webhook] recebido:", JSON.stringify(body).slice(0, 200));
     if (body.object !== "whatsapp_business_account") return;
 
     for (const entry of body.entry || []) {
