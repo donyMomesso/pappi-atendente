@@ -1381,6 +1381,37 @@ async function waIntRefreshStatus() {
   const btnConn = document.getElementById("btnWaIntConnect");
   const btnDisc = document.getElementById("btnWaIntDisconnect");
 
+  // Exibe alerta de uso se houver
+  let alertEl = document.getElementById("waIntAlert");
+  if (!alertEl) {
+    alertEl = document.createElement("div");
+    alertEl.id = "waIntAlert";
+    alertEl.style.cssText = "margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:600;display:none";
+    document.getElementById("waIntStatus").parentElement.appendChild(alertEl);
+  }
+  if (d.lastAlert) {
+    alertEl.style.display = "";
+    alertEl.style.background = d.lastAlert.startsWith("🚫") ? "#fde8d8" : "#fff3cd";
+    alertEl.style.color = d.lastAlert.startsWith("🚫") ? "#c04400" : "#856404";
+    alertEl.textContent = d.lastAlert;
+  } else { alertEl.style.display = "none"; }
+
+  // Barra de uso
+  if (d.usage) {
+    let usageEl = document.getElementById("waIntUsage");
+    if (!usageEl) {
+      usageEl = document.createElement("div");
+      usageEl.id = "waIntUsage";
+      usageEl.style.cssText = "margin-top:10px;font-size:12px;color:#555";
+      document.getElementById("waIntStatus").parentElement.appendChild(usageEl);
+    }
+    const hPct = Math.round(d.usage.hour / d.usage.hourMax * 100);
+    const dPct = Math.round(d.usage.day  / d.usage.dayMax  * 100);
+    usageEl.innerHTML =
+      '<div style="margin-bottom:6px">Hora: <b>'+d.usage.hour+'/'+d.usage.hourMax+'</b> <span style="background:#f0f0f0;border-radius:10px;display:inline-block;width:80px;height:7px;vertical-align:middle"><span style="display:block;height:100%;border-radius:10px;background:'+(hPct>=70?'#e53935':'#25d366')+';width:'+hPct+'%"></span></span></div>'+
+      '<div>Dia: <b>'+d.usage.day+'/'+d.usage.dayMax+'</b> <span style="background:#f0f0f0;border-radius:10px;display:inline-block;width:80px;height:7px;vertical-align:middle"><span style="display:block;height:100%;border-radius:10px;background:'+(dPct>=70?'#e53935':'#25d366')+';width:'+dPct+'%"></span></span></div>';
+  }
+
   if (d.status === "connected") {
     statusEl.textContent = "● conectado";
     statusEl.style.color = "#25d366";
