@@ -1389,18 +1389,18 @@ async function waIntRefreshStatus() {
     btnDisc.style.display = "inline-block";
     clearInterval(waIntTimer); waIntTimer = null;
   } else if (d.status === "qr" && d.qr) {
-    statusEl.textContent = "● aguardando scan do QR";
+    statusEl.textContent = "● escaneie o QR abaixo (mantenha esta tela aberta)";
     statusEl.style.color = "#ff9800";
     qrImg.src = d.qr;
     qrWrap.style.display = "block";
     btnConn.style.display = "none";
     btnDisc.style.display = "none";
-    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 4000);
+    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 8000);
   } else if (d.status === "connecting") {
     statusEl.textContent = "● conectando...";
     statusEl.style.color = "#ff9800";
     qrWrap.style.display = "none";
-    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 3000);
+    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 5000);
   } else {
     statusEl.textContent = "● desconectado";
     statusEl.style.color = "#888";

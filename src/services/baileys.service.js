@@ -15,64 +15,77 @@ const fs = require("fs");
 const AUTH_DIR = path.join(__dirname, "../../.baileys-auth");
 const STATE = {
   socket: null,
-  qrBase64: null,        // QR code em base64 para exibir no painel
+  qrBase64: null,
   status: "disconnected", // disconnected | qr | connecting | connected
-  notifyTo: [],           // lista de números para notificações internas
+  notifyTo: [],
+  starting: false,        // guard contra chamadas simultâneas
 };
 
 async function start() {
-  if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
+  // Evita múltiplas conexões simultâneas
+  if (STATE.starting || STATE.status === "connected" || STATE.status === "qr") return;
+  STATE.starting = true;
 
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  const { version } = await fetchLatestBaileysVersion();
+  try {
+    if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: true,
-    logger: require("pino")({ level: "silent" }),
-    browser: ["Pappi Atendente", "Chrome", "1.0"],
-  });
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { version } = await fetchLatestBaileysVersion();
 
-  STATE.socket = sock;
-  STATE.status = "connecting";
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: require("pino")({ level: "silent" }),
+      browser: ["Pappi Atendente", "Chrome", "1.0"],
+      // Mantém QR válido por mais tempo
+      qrTimeout: 60000,
+    });
 
-  sock.ev.on("creds.update", saveCreds);
+    STATE.socket = sock;
+    STATE.status = "connecting";
+    STATE.starting = false;
 
-  sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
-      STATE.status = "qr";
-      STATE.qrBase64 = await QRCode.toDataURL(qr);
-      console.log("[Baileys] QR Code gerado — acesse o painel para escanear");
-    }
+    sock.ev.on("creds.update", saveCreds);
 
-    if (connection === "open") {
-      STATE.status = "connected";
-      STATE.qrBase64 = null;
-      console.log("[Baileys] WhatsApp conectado!");
-    }
-
-    if (connection === "close") {
-      const code = lastDisconnect?.error?.output?.statusCode;
-      STATE.status = "disconnected";
-      STATE.socket = null;
-      if (code !== DisconnectReason.loggedOut) {
-        console.log("[Baileys] Reconectando...");
-        setTimeout(start, 5000);
-      } else {
-        console.log("[Baileys] Desconectado (logout). Escaneie o QR novamente.");
-        // Remove auth para forçar novo QR
-        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+    sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
+      if (qr) {
+        STATE.status = "qr";
+        STATE.qrBase64 = await QRCode.toDataURL(qr);
+        console.log("[Baileys] QR Code gerado — acesse o painel para escanear");
       }
-    }
-  });
+
+      if (connection === "open") {
+        STATE.status = "connected";
+        STATE.qrBase64 = null;
+        STATE.starting = false;
+        console.log("[Baileys] WhatsApp conectado!");
+      }
+
+      if (connection === "close") {
+        const code = lastDisconnect?.error?.output?.statusCode;
+        const loggedOut = code === DisconnectReason.loggedOut;
+        STATE.status = "disconnected";
+        STATE.socket = null;
+        STATE.starting = false;
+
+        if (loggedOut) {
+          console.log("[Baileys] Logout — limpa auth e aguarda reconexão manual.");
+          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+          STATE.qrBase64 = null;
+        } else {
+          console.log(`[Baileys] Conexão fechada (code=${code}) — reconectando em 8s...`);
+          setTimeout(start, 8000);
+        }
+      }
+    });
+  } catch (err) {
+    STATE.starting = false;
+    console.error("[Baileys] Erro ao iniciar:", err.message);
+    setTimeout(start, 15000);
+  }
 }
 
-/**
- * Envia mensagem de texto via Baileys.
- * @param {string} to  Número no formato 5511999999999 (sem +)
- * @param {string} text
- */
 async function sendText(to, text) {
   if (!STATE.socket || STATE.status !== "connected") return false;
   try {
@@ -85,9 +98,6 @@ async function sendText(to, text) {
   }
 }
 
-/**
- * Envia notificação para todos os números em STATE.notifyTo.
- */
 async function notify(text) {
   if (!STATE.notifyTo.length) return;
   await Promise.all(STATE.notifyTo.map(n => sendText(n, text)));
@@ -102,8 +112,9 @@ function setNotifyNumbers(numbers) {
 }
 
 function disconnect() {
-  if (STATE.socket) STATE.socket.end();
-  fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+  STATE.starting = false;
+  if (STATE.socket) { try { STATE.socket.end(); } catch(e) {} }
+  try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch(e) {}
   STATE.status = "disconnected";
   STATE.socket = null;
   STATE.qrBase64 = null;
