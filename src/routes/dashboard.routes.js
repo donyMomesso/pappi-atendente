@@ -10,6 +10,7 @@ const { map: mapPayment } = require("../mappers/PaymentMapper");
 const { normalize: normalizeAddress } = require("../normalizers/AddressNormalizer");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const { randomUUID } = require("crypto");
+const baileys = require("../services/baileys.service");
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -445,6 +446,34 @@ router.patch("/settings", authDash, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── GET /dash/wa-internal/status ─────────────────────────────
+router.get("/wa-internal/status", authDash, (_req, res) => {
+  res.json(baileys.getStatus());
+});
+
+// ── POST /dash/wa-internal/connect ───────────────────────────
+router.post("/wa-internal/connect", authDash, async (_req, res) => {
+  try {
+    await baileys.start();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/wa-internal/disconnect ────────────────────────
+router.post("/wa-internal/disconnect", authDash, (_req, res) => {
+  baileys.disconnect();
+  res.json({ ok: true });
+});
+
+// ── PATCH /dash/wa-internal/numbers ──────────────────────────
+router.patch("/wa-internal/numbers", authDash, (req, res) => {
+  const { numbers } = req.body;
+  baileys.setNotifyNumbers(Array.isArray(numbers) ? numbers : []);
+  res.json({ ok: true });
 });
 
 module.exports = router;

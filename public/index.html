@@ -273,7 +273,6 @@
   <div class="brand"><span>🍕</span> Pappi Atendente</div>
   <div class="stats">
     <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
-    <div class="stat">💰 <strong id="h-revenue">R$0</strong> hoje</div>
     <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
     <div class="stat" style="margin-left:8px">
       <button onclick="openSettings()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px">⚙️ Config</button>
@@ -290,6 +289,7 @@
       <div class="col-tabs">
         <div class="col-tab active" id="tabConv" onclick="switchTab('conv')">💬 Conversas</div>
         <div class="col-tab" id="tabQueue" onclick="switchTab('queue')">🙋 Fila <span id="queueBadgeCount" style="display:none;background:var(--purple);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">0</span></div>
+        <div class="col-tab" id="tabActive" onclick="switchTab('active')">🎧 Em Atendimento</div>
       </div>
       <div id="panelConv" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
         <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--purple-ll)">
@@ -302,6 +302,9 @@
       </div>
       <div id="panelQueue" style="display:none;flex-direction:column;flex:1;overflow:hidden">
         <div class="queue-list" id="queueList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Carregando fila...</div></div>
+      </div>
+      <div id="panelActive" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <div class="queue-list" id="activeList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div></div>
       </div>
     </div>
 
@@ -370,6 +373,29 @@
           <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
         </div>
         <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
+      </div>
+    </div>
+    <!-- WhatsApp Interno (Baileys) -->
+    <div class="settings-card" style="grid-column:1/-1">
+      <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
+      <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte um segundo WhatsApp para enviar notificações à operação sem consumir créditos da API Meta.</p>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span id="waIntStatus" style="font-size:13px;font-weight:600;color:#888">● desconectado</span>
+            <button id="btnWaIntConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0" onclick="waIntConnect()">Conectar</button>
+            <button id="btnWaIntDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="waIntDisconnect()">Desconectar</button>
+          </div>
+          <div class="settings-field">
+            <label>Números para notificar (separados por vírgula)</label>
+            <input id="waIntNumbers" type="text" placeholder="5511999990000, 5511999990001"/>
+          </div>
+          <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="waIntSaveNumbers()">Salvar números</button>
+        </div>
+        <div id="waIntQrWrap" style="display:none;text-align:center">
+          <p style="font-size:12px;color:#888;margin-bottom:8px">Escaneie com o WhatsApp do celular</p>
+          <img id="waIntQr" src="" style="width:200px;height:200px;border-radius:12px;border:1px solid #eee"/>
+        </div>
       </div>
     </div>
   </div>
@@ -447,7 +473,6 @@ async function fetchStats() {
   const d = await api("/stats");
   if (!d) return false;
   document.getElementById("h-orders").textContent = d.ordersToday;
-  document.getElementById("h-revenue").textContent = "R$"+d.revenueToday.toFixed(0);
   if (d.handoffActive > 0) {
     document.getElementById("h-handoff-stat").style.display = "flex";
     document.getElementById("h-handoff").textContent = d.handoffActive;
@@ -485,6 +510,14 @@ function filterConv() {
   renderConvs(allConvs.filter(c =>
     (c.name||"").toLowerCase().includes(q) || (c.phoneFormatted||"").includes(q)
   ));
+}
+
+// ── SELECIONA CLIENTE POR ID (da fila/aba em atendimento) ─────
+function selectConv(id) {
+  const c = allConvs.find(x => x.id === id);
+  if (c) selectCustomer(c);
+  else { fetchConvs().then(() => { const c2 = allConvs.find(x=>x.id===id); if(c2) selectCustomer(c2); }); }
+  switchTab("conv");
 }
 
 // ── SELECIONA CLIENTE ────────────────────────────────────────
@@ -809,7 +842,9 @@ function closeOptionsOverlay() {
 
 function renderOptionsBody() {
   const body = document.getElementById("optionsBody");
-  const groups = (pendingProduct.option_groups||[]).filter(og => og.status !== "INACTIVE" && og.options?.length);
+  const groups = (pendingProduct.option_groups||[])
+    .filter(og => og.status !== "INACTIVE" && og.options?.length)
+    .sort((a,b) => (b.minimum_quantity>0?1:0) - (a.minimum_quantity>0?1:0));
   body.innerHTML = groups.map(og => {
     const isSingle = og.choice_type === "SINGLE" || og.maximum_quantity === 1;
     const required = og.minimum_quantity > 0;
@@ -1016,14 +1051,40 @@ async function confirmOrder() {
   }
 }
 
-// ── ABAS CONVERSAS / FILA ─────────────────────────────────────
+// ── ABAS CONVERSAS / FILA / EM ATENDIMENTO ────────────────────
 function switchTab(tab) {
   currentTab = tab;
   document.getElementById("tabConv").className = "col-tab" + (tab==="conv"?" active":"");
   document.getElementById("tabQueue").className = "col-tab" + (tab==="queue"?" active":"");
+  document.getElementById("tabActive").className = "col-tab" + (tab==="active"?" active":"");
   document.getElementById("panelConv").style.display = tab==="conv" ? "flex" : "none";
   document.getElementById("panelQueue").style.display = tab==="queue" ? "flex" : "none";
-  if (tab === "queue") fetchQueue();
+  document.getElementById("panelActive").style.display = tab==="active" ? "flex" : "none";
+  if (tab === "queue" || tab === "active") fetchQueue();
+}
+
+// ── CAMPANINHA ────────────────────────────────────────────────
+let _bellTimer = null;
+function playBell() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.6, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+  } catch(e) {}
+}
+function startBell() {
+  if (_bellTimer) return; // já tocando
+  playBell();
+  _bellTimer = setInterval(playBell, 8000); // repete a cada 8s
+}
+function stopBell() {
+  if (_bellTimer) { clearInterval(_bellTimer); _bellTimer = null; }
 }
 
 // ── FILA DE ATENDIMENTO ───────────────────────────────────────
@@ -1031,42 +1092,58 @@ async function fetchQueue() {
   const d = await api(`/queue?attendant=${encodeURIComponent(ATTENDANT_NAME)}`);
   if (!d) return;
 
-  // Atualiza badge de contagem
-  const unclaimed = d.filter(c => c.isUnclaimed).length;
+  const unclaimed = d.filter(c => c.isUnclaimed);
+  const active = d.filter(c => c.claimedBy);
+
+  // Campainha: toca enquanto houver clientes sem atendente
+  if (unclaimed.length > 0) startBell();
+  else stopBell();
+
+  // Badge da aba fila
   const badge = document.getElementById("queueBadgeCount");
-  if (unclaimed > 0) { badge.style.display = ""; badge.textContent = unclaimed; }
+  if (unclaimed.length > 0) { badge.style.display = ""; badge.textContent = unclaimed.length; }
   else { badge.style.display = "none"; }
 
+  // Renderiza aba Fila (apenas não assumidos)
   const el = document.getElementById("queueList");
-  if (!d.length) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum cliente na fila</div>'; return; }
+  if (!unclaimed.length) {
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum cliente aguardando</div>';
+  } else {
+    el.innerHTML = unclaimed.map(c => {
+      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
+      return `
+        <div class="queue-item" onclick="selectConv('${c.id}')">
+          <div class="avatar">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+          <div class="conv-info">
+            <div class="conv-name">${esc(c.name)}</div>
+            <div class="conv-sub">${esc(c.phoneFormatted)}</div>
+            <div class="queue-wait">⏳ Aguardando há ${wait}min</div>
+          </div>
+          <button class="btn-claim" onclick="event.stopPropagation();claimCustomer('${c.id}')">Assumir</button>
+        </div>`;
+    }).join("");
+  }
 
-  el.innerHTML = d.map(c => {
-    const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
-    let badge, btn;
-    if (c.isMine) {
-      badge = `<span class="queue-badge qb-mine">🎯 Meu</span>`;
-      btn = `<button class="btn-release" onclick="releaseCustomer('${c.id}')">Encerrar</button>`;
-    } else if (c.isUnclaimed) {
-      badge = `<span class="queue-badge qb-waiting">⏳ Aguardando</span>`;
-      btn = `<button class="btn-claim" onclick="claimCustomer('${c.id}')">Assumir</button>`;
-    } else {
-      badge = `<span class="queue-badge qb-other">👤 ${esc(c.claimedBy)}</span>`;
-      btn = "";
-    }
-    return `
-      <div class="queue-item${c.isMine?" claimed-mine":c.claimedBy?" claimed-other":""}">
-        <div class="avatar${c.isMine?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
-        <div class="conv-info">
-          <div class="conv-name">${esc(c.name)}</div>
-          <div class="conv-sub">${esc(c.phoneFormatted)}</div>
-          <div class="queue-wait">Aguardando há ${wait}min</div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          ${badge}
-          ${btn}
-        </div>
-      </div>`;
-  }).join("");
+  // Renderiza aba Em Atendimento
+  const elA = document.getElementById("activeList");
+  if (!active.length) {
+    elA.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div>';
+  } else {
+    elA.innerHTML = active.map(c => {
+      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
+      const isMine = c.claimedBy === ATTENDANT_NAME;
+      return `
+        <div class="queue-item${isMine?" claimed-mine":" claimed-other"}" onclick="selectConv('${c.id}')">
+          <div class="avatar${isMine?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+          <div class="conv-info">
+            <div class="conv-name">${esc(c.name)}</div>
+            <div class="conv-sub">${esc(c.phoneFormatted)}</div>
+            <div class="queue-wait">${isMine?"🎯 Você":"👤 "+esc(c.claimedBy)} · ${wait}min</div>
+          </div>
+          ${isMine?`<button class="btn-release" onclick="event.stopPropagation();releaseCustomer('${c.id}')">Encerrar</button>`:""}
+        </div>`;
+    }).join("");
+  }
 }
 
 async function claimCustomer(customerId) {
@@ -1117,11 +1194,80 @@ async function openSettings() {
   document.getElementById("cfg-storeId").value = d.cwStoreId || "";
   document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
   renderAttendantList();
+  waIntRefreshStatus();
+}
+
+// ── WHATSAPP INTERNO (BAILEYS) ────────────────────────────────
+let waIntTimer = null;
+
+async function waIntRefreshStatus() {
+  const d = await api("/wa-internal/status");
+  if (!d) return;
+  const statusEl = document.getElementById("waIntStatus");
+  const qrWrap = document.getElementById("waIntQrWrap");
+  const qrImg = document.getElementById("waIntQr");
+  const btnConn = document.getElementById("btnWaIntConnect");
+  const btnDisc = document.getElementById("btnWaIntDisconnect");
+
+  if (d.status === "connected") {
+    statusEl.textContent = "● conectado";
+    statusEl.style.color = "#25d366";
+    qrWrap.style.display = "none";
+    btnConn.style.display = "none";
+    btnDisc.style.display = "inline-block";
+    clearInterval(waIntTimer); waIntTimer = null;
+  } else if (d.status === "qr" && d.qr) {
+    statusEl.textContent = "● aguardando scan do QR";
+    statusEl.style.color = "#ff9800";
+    qrImg.src = d.qr;
+    qrWrap.style.display = "block";
+    btnConn.style.display = "none";
+    btnDisc.style.display = "none";
+    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 4000);
+  } else if (d.status === "connecting") {
+    statusEl.textContent = "● conectando...";
+    statusEl.style.color = "#ff9800";
+    qrWrap.style.display = "none";
+    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 3000);
+  } else {
+    statusEl.textContent = "● desconectado";
+    statusEl.style.color = "#888";
+    qrWrap.style.display = "none";
+    btnConn.style.display = "inline-block";
+    btnDisc.style.display = "none";
+    clearInterval(waIntTimer); waIntTimer = null;
+  }
+}
+
+async function waIntConnect() {
+  document.getElementById("waIntStatus").textContent = "● iniciando...";
+  await api("/wa-internal/connect", { method: "POST", body: "{}" });
+  setTimeout(waIntRefreshStatus, 2000);
+  if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 4000);
+}
+
+async function waIntDisconnect() {
+  if (!confirm("Desconectar o WhatsApp interno?")) return;
+  await api("/wa-internal/disconnect", { method: "POST", body: "{}" });
+  clearInterval(waIntTimer); waIntTimer = null;
+  waIntRefreshStatus();
+}
+
+async function waIntSaveNumbers() {
+  const raw = document.getElementById("waIntNumbers").value;
+  const numbers = raw.split(",").map(s => s.trim()).filter(Boolean);
+  const r = await api("/wa-internal/numbers", {
+    method: "PATCH",
+    body: JSON.stringify({ numbers }),
+  });
+  if (r?.ok) alert("✅ Números salvos!");
+  else alert("Erro ao salvar");
 }
 
 function closeSettings() {
   document.getElementById("viewSettings").style.display = "none";
   document.getElementById("app").style.display = "block";
+  clearInterval(waIntTimer); waIntTimer = null;
 }
 
 function renderAttendantList() {

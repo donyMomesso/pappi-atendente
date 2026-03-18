@@ -8,6 +8,14 @@ const adminRoutes     = require("./routes/admin.routes");
 const diagRoutes      = require("./routes/diag.routes");
 const dashRoutes      = require("./routes/dashboard.routes");
 
+// Inicia Baileys (WhatsApp Web para notificações internas) em background
+try {
+  const baileys = require("./services/baileys.service");
+  baileys.start().catch(e => console.warn("[Baileys] start error:", e.message));
+} catch (e) {
+  console.warn("[Baileys] módulo não disponível:", e.message);
+}
+
 const app = express();
 
 app.use(express.json({ limit: "10mb" }));
