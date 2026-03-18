@@ -22,15 +22,11 @@
 
 const {
   default: makeWASocket,
-  useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
 } = require("@whiskeysockets/baileys");
+const { useDbAuthState, clearDbAuth } = require("./baileys-db-auth");
 const QRCode = require("qrcode");
-const path = require("path");
-const fs = require("fs");
-
-const AUTH_DIR = path.join(__dirname, "../../.baileys-auth");
 
 // ── Limites de segurança ───────────────────────────────────────
 const LIMITS = {
@@ -114,9 +110,7 @@ async function start() {
   STATE.starting = true;
 
   try {
-    if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
-
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { state, saveCreds } = await useDbAuthState();
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -156,8 +150,8 @@ async function start() {
         STATE.starting = false;
 
         if (loggedOut) {
-          console.log("[Baileys] Logout — limpa auth e aguarda reconexão manual.");
-          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+          console.log("[Baileys] Logout — limpa auth no banco e aguarda reconexão manual.");
+          await clearDbAuth();
           STATE.qrBase64 = null;
         } else {
           console.log(`[Baileys] Conexão fechada (code=${code}) — reconectando em 8s...`);
@@ -224,7 +218,7 @@ function setNotifyNumbers(numbers) {
 function disconnect() {
   STATE.starting = false;
   if (STATE.socket) { try { STATE.socket.end(); } catch(e) {} }
-  try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch(e) {}
+  clearDbAuth().catch(()=>{});
   STATE.status   = "disconnected";
   STATE.socket   = null;
   STATE.qrBase64 = null;
