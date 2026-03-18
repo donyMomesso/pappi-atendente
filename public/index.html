@@ -551,18 +551,27 @@ function enterApp() {
   const name = localStorage.getItem("pappi_name");
   const role = localStorage.getItem("pappi_role");
   if (!key || !name || !role) return;
-  API_KEY = key;
+
+  API_KEY        = key;
   ATTENDANT_NAME = name;
-  USER_ROLE = role;
-  const ok = await fetchStats();
-  if (ok) {
-    enterApp();
-  } else {
-    // Sessão expirou ou chave mudou — limpa
-    localStorage.removeItem("pappi_key");
-    localStorage.removeItem("pappi_name");
-    localStorage.removeItem("pappi_role");
-    API_KEY = "";
+  USER_ROLE      = role;
+
+  // Entra no app imediatamente com os dados salvos
+  enterApp();
+
+  // Valida a chave em background — só desloga se vier 401 explícito
+  try {
+    const r = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
+    if (r.status === 401) {
+      // Chave inválida ou alterada — força logout
+      localStorage.removeItem("pappi_key");
+      localStorage.removeItem("pappi_name");
+      localStorage.removeItem("pappi_role");
+      location.reload();
+    }
+    // Qualquer outro erro (500, network, cold start) → mantém sessão
+  } catch(e) {
+    // Servidor offline ou cold start → mantém sessão, não desloga
   }
 })();
 
