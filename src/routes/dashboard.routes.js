@@ -3,7 +3,8 @@ const { authAdmin, authDash } = require("../middleware/auth.middleware");
 const { getClients } = require("../services/tenant.service");
 const googleContacts = require("../services/google-contacts.service");
 const baileys = require("../services/baileys.service");
-const prisma = require("../lib/prisma");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 const retention = require("../services/retention.service");
 
 const router = express.Router();
