@@ -39,7 +39,8 @@ module.exports = {
   ADMIN_API_KEY: process.env.ADMIN_API_KEY || "",
 
   // ── Google OAuth ───────────────────────────────────────────
-  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
+  GOOGLE_CLIENT_ID:     process.env.GOOGLE_CLIENT_ID     || "",
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || "",
 
   // ── Google Maps ────────────────────────────────────────────
   GOOGLE_MAPS_API_KEY:

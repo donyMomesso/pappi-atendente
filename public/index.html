@@ -493,6 +493,17 @@
           </div>
         </div>
         <div class="settings-card" style="grid-column:1/-1">
+          <div class="settings-card-head">📒 Google Contacts (Salvar clientes automaticamente)</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Quando um novo cliente mandar mensagem, ele é salvo automaticamente nos seus Contatos Google.</p>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span id="gcStatus" style="font-size:13px;font-weight:600;color:#888">● verificando...</span>
+              <button id="btnGcConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;display:none" onclick="gcConnect()">🔗 Autorizar Google Contacts</button>
+              <button id="btnGcDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="gcDisconnect()">Desconectar</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-card" style="grid-column:1/-1">
           <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
           <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
             <div style="flex:1;min-width:240px">
@@ -1567,6 +1578,7 @@ async function loadAdminSettings() {
   document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
   renderAttendantList();
   renderGoogleUserList();
+  gcRefreshStatus();
   waIntRefreshStatus();
 }
 
@@ -1720,6 +1732,40 @@ async function saveAttendants() {
   });
   if (r?.ok) alert("✅ Atendentes salvos!");
   else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+// ── GOOGLE CONTACTS ───────────────────────────────────────────
+async function gcRefreshStatus() {
+  const d = await api("/google-contacts/status");
+  if (!d) return;
+  const statusEl = document.getElementById("gcStatus");
+  const btnConn  = document.getElementById("btnGcConnect");
+  const btnDisc  = document.getElementById("btnGcDisconnect");
+  if (d.authorized) {
+    statusEl.textContent = "● autorizado";
+    statusEl.style.color = "#25d366";
+    btnConn.style.display  = "none";
+    btnDisc.style.display  = "inline-block";
+  } else {
+    statusEl.textContent = "● não autorizado";
+    statusEl.style.color = "#e53935";
+    btnConn.style.display  = "inline-block";
+    btnDisc.style.display  = "none";
+  }
+}
+
+async function gcConnect() {
+  const d = await api("/google-contacts/auth-url");
+  if (!d?.url) return;
+  window.open(d.url, "_blank", "width=600,height=700");
+  // Aguarda o usuário autorizar e verifica após 5s
+  setTimeout(gcRefreshStatus, 5000);
+}
+
+async function gcDisconnect() {
+  if (!confirm("Desconectar Google Contacts?")) return;
+  await api("/google-contacts/disconnect", { method: "POST", body: "{}" });
+  gcRefreshStatus();
 }
 
 // ── USUÁRIOS GOOGLE ───────────────────────────────────────────

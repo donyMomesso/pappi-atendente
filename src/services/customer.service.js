@@ -25,6 +25,11 @@ async function findOrCreate(tenantId, rawPhone, name = null) {
     customer = await prisma.customer.create({
       data: { tenantId, phone, name: name || null },
     });
+    // Salva novo cliente no Google Contacts (assíncrono, não bloqueia)
+    try {
+      const gc = require("./google-contacts.service");
+      gc.createContact(name || null, phone).catch(() => {});
+    } catch { /* módulo não disponível */ }
   } else if (name && !customer.name) {
     customer = await prisma.customer.update({
       where: { id: customer.id },

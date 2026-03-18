@@ -10,8 +10,9 @@ const { map: mapPayment } = require("../mappers/PaymentMapper");
 const { normalize: normalizeAddress } = require("../normalizers/AddressNormalizer");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const { randomUUID } = require("crypto");
-const baileys = require("../services/baileys.service");
-const chatMemory = require("../services/chat-memory.service");
+const baileys        = require("../services/baileys.service");
+const chatMemory     = require("../services/chat-memory.service");
+const googleContacts = require("../services/google-contacts.service");
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -573,6 +574,39 @@ router.get("/debug", authAdmin, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── GET /dash/google-contacts/auth-url ───────────────────────
+router.get("/google-contacts/auth-url", authAdmin, (_req, res) => {
+  res.json({ url: googleContacts.getAuthUrl() });
+});
+
+// ── GET /dash/google-contacts/callback ───────────────────────
+router.get("/google-contacts/callback", async (req, res) => {
+  try {
+    const { code } = req.query;
+    if (!code) return res.status(400).send("Código ausente.");
+    const tokens = await googleContacts.exchangeCode(code);
+    await googleContacts.saveTokens(tokens);
+    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>✅ Google Contacts autorizado!</h2>
+      <p>Novos clientes serão salvos automaticamente nos seus contatos Google.</p>
+      <script>setTimeout(()=>window.close(),3000)</script>
+    </body></html>`);
+  } catch (err) {
+    res.status(500).send("Erro: " + err.message);
+  }
+});
+
+// ── GET /dash/google-contacts/status ─────────────────────────
+router.get("/google-contacts/status", authAdmin, async (_req, res) => {
+  res.json({ authorized: await googleContacts.isAuthorized() });
+});
+
+// ── POST /dash/google-contacts/disconnect ────────────────────
+router.post("/google-contacts/disconnect", authAdmin, async (_req, res) => {
+  await googleContacts.disconnect();
+  res.json({ ok: true });
 });
 
 // ── GET /dash/wa-internal/status ─────────────────────────────
