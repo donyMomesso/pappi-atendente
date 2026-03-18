@@ -6,2435 +6,871 @@
   <title>Pappi Atendente</title>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
-    :root{
-      --orange:#FF6B35;--orange-d:#e55a20;--orange-l:#fde8d8;--orange-ll:#fff3ed;
-      --violet:#7C3AED;--violet-d:#6D28D9;--violet-l:#ede9fe;
-      --brand-grad:linear-gradient(135deg,#FF6B35 0%,#7C3AED 55%,#0D0D0D 100%);
-      /* legado */
-      --purple:#FF6B35;--purple-d:#e55a20;--purple-l:#fde8d8;--purple-ll:#fff3ed;
-      --green:#25d366;--red:#e53935;--gray:#757575;--border:#e0e0e0
+    :root {
+      --orange: #FF6B35;
+      --orange-d: #e55a20;
+      --orange-l: #fde8d8;
+      --orange-ll: #fff3ed;
+      --violet: #7C3AED;
+      --violet-d: #6D28D9;
+      --violet-l: #ede9fe;
+      --brand-grad: linear-gradient(135deg, #FF6B35 0%, #7C3AED 55%, #0D0D0D 100%);
+      --green: #25d366;
+      --red: #e53935;
+      --gray: #757575;
+      --border: #e0e0e0;
+      --bg-light: #f5f5f5;
+      --bg-dark: #e0e0e0;
+      --text-dark: #1a1a1a;
+      --text-medium: #444;
+      --text-light: #888;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-light);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
     /* ── LOGIN ── */
-    #login{position:fixed;inset:0;background:var(--brand-grad);display:flex;align-items:center;justify-content:center;z-index:100}
-    .login-box{background:#fff;border-radius:16px;padding:40px;width:340px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.2)}
-    .login-box .logo{font-size:48px;margin-bottom:8px}
-    .login-box h1{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
-    .login-box p{color:#888;font-size:13px;margin-bottom:24px}
-    .login-box input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:12px 14px;font-size:14px;margin-bottom:12px;outline:none;transition:.2s}
-    .login-box input:focus{border-color:var(--purple)}
-    .login-box button{width:100%;background:var(--purple);color:#fff;border:none;border-radius:8px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:.2s}
-    .login-box button:hover{background:var(--purple-d)}
-    .login-err{color:var(--red);font-size:12px;margin-top:8px}
+    #login {
+      position: fixed;
+      inset: 0;
+      background: var(--brand-grad);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
 
-    /* ── HEADER ── */
-    header{background:var(--brand-grad);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-    header .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
-    header .brand span{font-size:22px}
-    header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
-    header .stat{display:flex;align-items:center;gap:4px}
-    header .stat strong{font-size:15px;font-weight:700}
+    .login-box {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px;
+      width: 340px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, .2);
+    }
 
-    /* ── MAIN ── */
-    #app{display:none;flex:1;overflow:hidden}
-    .layout{display:grid;grid-template-columns:280px 1fr 320px;height:100%;overflow:hidden}
+    .login-box .logo-login {
+      width: 120px;
+      margin-bottom: 20px;
+    }
 
-    /* ── COL 1: CONVERSAS ── */
-    .col-conv{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--violet-l)}
-    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--violet);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-    .search-box{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:6px 10px;border:1px solid var(--border)}
-    .search-box input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
-    .search-box svg{color:#aaa;flex-shrink:0}
-    .conv-list{overflow-y:auto;flex:1}
-    .conv-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
-    .conv-item:hover{background:var(--purple-ll)}
-    .conv-item.active{background:var(--violet-l);border-left:3px solid var(--violet)}
-    .conv-item.handoff{background:#fff3e0;border-left:3px solid var(--orange)}
-    .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
-    .avatar.orange{background:var(--orange)}
-    .conv-info{flex:1;min-width:0}
-    .conv-name{font-size:14px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .conv-sub{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-    .conv-badge{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
-    .badge-handoff{background:var(--orange);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
-    .badge-bot{background:var(--violet);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
+    .login-box h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 4px;
+    }
 
-    /* ── COL 2: CENTRO ── */
-    .col-center{background:#ece5dd;display:flex;flex-direction:column;overflow:hidden;position:relative}
-    .empty-center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#aaa;gap:8px}
-    .empty-center .icon{font-size:64px;opacity:.4}
-    .empty-center p{font-size:14px}
-    .chat-header{background:var(--brand-grad);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
-    .chat-header .name{font-weight:700;font-size:15px}
-    .chat-header .phone{font-size:12px;opacity:.85}
-    .chat-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
-    .msg{max-width:70%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.4;word-break:break-word}
-    .msg.in{background:#fff;align-self:flex-start;border-bottom-left-radius:4px}
-    .msg.out{background:#dcf8c6;align-self:flex-end;border-bottom-right-radius:4px}
-    .msg .time{font-size:10px;color:#aaa;margin-top:4px;text-align:right}
-    .chat-input{background:#f0f0f0;padding:10px 12px;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)}
-    .chat-input textarea{flex:1;border:none;background:#fff;border-radius:20px;padding:8px 14px;font-size:13px;resize:none;outline:none;max-height:80px}
-    .chat-input button{background:var(--purple);color:#fff;border:none;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
-    .chat-input button:hover{background:var(--purple-d)}
+    .login-box p {
+      color: #888;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
 
-    /* ── COL 3: PAINEL DIREITO ── */
-    .col-right{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--violet-l)}
-    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
-    .client-info{font-size:13px}
-    .client-info .cname{font-weight:700;font-size:15px;color:#1a1a1a}
-    .client-info .cphone{color:#888;font-size:12px;margin-top:2px}
+    .login-box input {
+      width: 100%;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 14px;
+      margin-bottom: 12px;
+      outline: none;
+      transition: .2s;
+    }
 
-    /* toggle bot */
-    .bot-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:#fafafa}
-    .bot-row label{font-size:13px;font-weight:600;color:#444;display:flex;align-items:center;gap:6px}
-    .toggle{position:relative;width:42px;height:24px}
-    .toggle input{opacity:0;width:0;height:0}
-    .slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:.3s}
-    .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
-    input:checked+.slider{background:var(--purple)}
-    input:checked+.slider:before{transform:translateX(18px)}
+    .login-box input:focus {
+      border-color: var(--orange);
+    }
 
-    /* pedidos */
-    .orders-section{flex:1;overflow-y:auto;display:flex;flex-direction:column}
-    .orders-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)}
-    .orders-header h3{font-size:13px;font-weight:700;color:#333}
-    .btn-new-order{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:.2s}
-    .btn-new-order:hover{background:var(--purple-d)}
-    .order-card{margin:8px 10px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
-    .order-card .oc-head{background:var(--purple-ll);padding:8px 12px;display:flex;align-items:center;justify-content:space-between}
-    .order-card .oc-num{font-size:12px;font-weight:700;color:var(--purple)}
-    .order-card .oc-total{font-size:13px;font-weight:700;color:#1a1a1a}
-    .order-card .oc-body{padding:8px 12px;font-size:12px;color:#555}
-    .order-card .oc-body .oc-items{margin-top:4px;color:#888}
-    .status-pill{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
-    .s-waiting{background:#fff3cd;color:#856404}
-    .s-confirmed{background:#d1e7dd;color:#0f5132}
-    .s-cancelled{background:#f8d7da;color:#842029}
-    .s-delivered{background:#cfe2ff;color:#084298}
-    .s-preparing{background:#fde8d8;color:#8a4300}
-    .no-orders{text-align:center;padding:32px 16px;color:#aaa;font-size:13px}
+    .login-box button {
+      width: 100%;
+      background: var(--orange);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 13px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: .2s;
+    }
 
-    /* ── MODAL PEDIDO ── */
-    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
-    .modal{background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.25)}
-    .modal-head{background:var(--brand-grad);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-    .modal-head h3{font-size:16px;font-weight:700}
-    .modal-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;opacity:.8;line-height:1}
-    .modal-head button:hover{opacity:1}
-    .modal-body{overflow-y:auto;flex:1;padding:16px}
-    .modal-foot{padding:12px 16px;border-top:1px solid var(--border);background:#fafafa;display:flex;gap:8px;flex-shrink:0}
-    .modal-foot button{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:.2s}
-    .btn-cancel{background:#f5f5f5;color:#666}
-    .btn-cancel:hover{background:#e8e8e8}
-    .btn-confirm{background:var(--purple);color:#fff}
-    .btn-confirm:hover{background:var(--purple-d)}
-    .btn-pay{background:var(--purple);color:#fff;width:100%;padding:14px;font-size:15px;border-radius:10px;border:none;cursor:pointer;font-weight:700;transition:.2s}
-    .btn-pay:hover{background:var(--purple-d)}
+    .login-box button:hover {
+      background: var(--orange-d);
+    }
 
-    /* catálogo */
-    .cat-search{display:flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:8px;padding:8px 12px;margin-bottom:12px;border:1px solid var(--border)}
-    .cat-search input{border:none;background:transparent;font-size:13px;outline:none;width:100%}
-    .cat-tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:4px}
-    .cat-tab{background:#f5f5f5;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;color:#555;transition:.2s;flex-shrink:0}
-    .cat-tab.active{background:var(--purple);color:#fff}
-    .prod-list{display:flex;flex-direction:column;gap:8px}
-    .prod-item{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.15s}
-    .prod-item:hover{border-color:var(--purple);background:var(--purple-ll)}
-    .prod-img{width:50px;height:50px;border-radius:8px;object-fit:cover;background:#f0e8ff;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px}
-    .prod-info{flex:1;min-width:0}
-    .prod-name{font-size:13px;font-weight:600;color:#1a1a1a}
-    .prod-desc{font-size:11px;color:#888;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-    .prod-price{font-size:13px;font-weight:700;color:var(--purple);white-space:nowrap}
+    .login-err {
+      color: var(--red);
+      font-size: 12px;
+      margin-top: 8px;
+    }
 
-    /* carrinho */
-    .cart-section{margin-top:16px}
-    .cart-section h4{font-size:13px;font-weight:700;color:#333;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
-    .cart-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f5f5f5}
-    .cart-item .ci-name{flex:1;font-size:13px;color:#333}
-    .cart-item .ci-qty{display:flex;align-items:center;gap:6px}
-    .ci-qty button{background:#f0e8ff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:14px;font-weight:700;color:var(--purple);line-height:1}
-    .ci-qty span{font-size:13px;font-weight:600;min-width:16px;text-align:center}
-    .cart-item .ci-price{font-size:13px;font-weight:700;color:var(--purple);min-width:60px;text-align:right}
-    .cart-item .ci-remove{background:none;border:none;color:#ccc;cursor:pointer;font-size:16px;padding:0 4px}
-    .cart-item .ci-remove:hover{color:var(--red)}
-    .cart-total{display:flex;justify-content:space-between;align-items:center;padding:12px 0 8px;font-weight:700;font-size:15px}
-    .cart-empty{text-align:center;color:#bbb;padding:24px;font-size:13px}
+    /* ── MAIN LAYOUT ── */
+    #app {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+    }
 
-    /* form fields */
-    .field-group{margin-bottom:12px}
-    .field-group label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px}
-    .field-group input,.field-group select,.field-group textarea{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:.2s;background:#fff}
-    .field-group input:focus,.field-group select:focus{border-color:var(--purple)}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .payment-list{display:flex;flex-direction:column;gap:6px}
-    .pay-option{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:.15s}
-    .pay-option:hover{border-color:var(--purple)}
-    .pay-option.selected{border-color:var(--purple);background:var(--purple-ll)}
-    .pay-option input{accent-color:var(--purple)}
-    .pay-option label{font-size:13px;font-weight:500;cursor:pointer;flex:1}
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      height: 100%;
+      overflow: hidden;
+    }
 
-    /* steps */
-    .steps{display:flex;gap:0;margin-bottom:16px;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
-    .step{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:600;color:#888;background:#f5f5f5;cursor:pointer;transition:.2s}
-    .step.active{background:var(--purple);color:#fff}
+    /* ── SIDEBAR ── */
+    .sidebar {
+      background: #0D0D0D;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+      position: relative;
+      z-index: 10;
+    }
 
-    /* ── CONFIGURAÇÕES ── */
-    #viewSettings{display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px}
-    .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:860px;margin:0 auto}
-    .settings-card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-    .settings-card-head{background:linear-gradient(135deg,#FF6B35 0%,#000 100%);color:#fff;padding:14px 18px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
-    .settings-card-body{padding:16px}
-    .settings-field{margin-bottom:14px}
-    .settings-field label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px}
-    .settings-field input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:.2s;background:#fff}
-    .settings-field input:focus{border-color:var(--purple)}
-    .settings-field input[readonly]{background:#f9f9f9;color:#888;cursor:default}
-    .btn-save-settings{background:linear-gradient(135deg,#FF6B35 0%,#000 100%);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;transition:.2s;width:100%;margin-top:4px}
-    .btn-save-settings:hover{opacity:.9}
-    .attendant-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-    .attendant-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fafafa}
-    .attendant-item span{flex:1;font-size:13px;color:#333}
-    .btn-del-att{background:none;border:none;color:#ccc;cursor:pointer;font-size:16px;padding:0 4px;line-height:1}
-    .btn-del-att:hover{color:var(--red)}
-    .add-attendant-row{display:flex;gap:8px}
-    .add-attendant-row input{flex:1;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;outline:none}
-    .add-attendant-row input:focus{border-color:var(--purple)}
-    .btn-add-att{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
-    .settings-title{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
-    .settings-sub{font-size:13px;color:#888;margin-bottom:20px}
-    .btn-back-settings{background:#f5f5f5;color:#555;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;margin-bottom:20px;width:fit-content}
-    .btn-back-settings:hover{background:#e8e8e8}
+    .sidebar .logo-container {
+      margin-bottom: 40px;
+      text-align: center;
+      padding: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
 
-    /* ── FILA DE ESPERA ── */
-    .col-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
-    .col-tab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:#888;transition:.2s;background:#fff}
-    .col-tab.active{color:var(--purple);border-bottom-color:var(--purple)}
-    .queue-list{overflow-y:auto;flex:1}
-    .queue-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
-    .queue-item:hover{background:#fff8f5}
-    .queue-item.claimed-mine{background:#fff3ed;border-left:3px solid var(--purple)}
-    .queue-item.claimed-other{background:#f5f5f5;opacity:.6}
-    .queue-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;white-space:nowrap}
-    .qb-waiting{background:#fff3cd;color:#856404}
-    .qb-mine{background:#fde8d8;color:#c04400}
-    .qb-other{background:#e8e8e8;color:#666}
-    .btn-claim{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.2s}
-    .btn-claim:hover{background:var(--purple-d)}
-    .btn-release{background:#f5f5f5;color:#666;border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;transition:.2s}
-    .btn-release:hover{background:#e8e8e8}
-    .queue-wait{font-size:10px;color:#aaa;margin-top:2px}
+    .sidebar .logo-container img {
+      max-width: 100%;
+      height: auto;
+      max-height: 140px;
+      filter: drop-shadow(0 0 8px rgba(124, 58, 237, 0.4));
+    }
 
-    /* ── OPTIONS OVERLAY ── */
-    .options-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
-    .options-modal{background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3)}
-    .options-head{background:var(--brand-grad);color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-    .options-head h4{font-size:15px;font-weight:700;margin:0}
-    .options-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1}
-    .options-body{overflow-y:auto;flex:1;padding:14px}
-    .og-section{margin-bottom:16px}
-    .og-title{font-size:13px;font-weight:700;color:#333;margin-bottom:6px;display:flex;align-items:center;gap:6px}
-    .og-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600}
-    .og-required{background:#fde8d8;color:#c04400}
-    .og-optional{background:#f0f0f0;color:#666}
-    .og-option{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:6px;transition:.15s}
-    .og-option:hover{border-color:var(--purple)}
-    .og-option.selected{border-color:var(--purple);background:var(--purple-ll)}
-    .og-option input{accent-color:var(--purple);flex-shrink:0}
-    .og-option-info{flex:1}
-    .og-option-name{font-size:13px;font-weight:500;color:#1a1a1a}
-    .og-option-price{font-size:12px;color:var(--purple);font-weight:600}
-    .options-foot{padding:12px 14px;border-top:1px solid var(--border);background:#fafafa;display:flex;gap:8px;flex-shrink:0}
-    .options-foot button{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:.2s}
-    /* promo price */
-    .prod-promo{font-size:11px;color:#aaa;text-decoration:line-through}
-    .prod-price-promo{font-size:13px;font-weight:700;color:#e55a20}
-    /* option indicator */
-    .has-options-badge{font-size:10px;background:#fff3ed;color:#c04400;padding:2px 6px;border-radius:8px;font-weight:600;margin-top:2px}
+    .sidebar nav a {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      border-radius: 10px;
+      color: rgba(255, 255, 255, 0.7);
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
 
-    /* ── ADMIN ── */
-    #viewAdmin{background:#f5f5f5}
-    .admin-tab{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;transition:.2s;white-space:nowrap}
-    .admin-tab:hover{background:rgba(255,255,255,.2)}
-    .admin-tab.active{background:#fff;color:var(--purple)}
-    .admin-panel{flex:1;overflow-y:auto}
-    .kpi-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center}
-    .kpi-card .kpi-val{font-size:28px;font-weight:800;color:var(--purple);margin-bottom:4px}
-    .kpi-card .kpi-lbl{font-size:12px;color:#888}
-    .status-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-    .status-bar-row .sb-label{font-size:12px;color:#555;min-width:120px}
-    .status-bar-row .sb-track{flex:1;height:10px;background:#f0f0f0;border-radius:10px;overflow:hidden}
-    .status-bar-row .sb-fill{height:100%;border-radius:10px;background:var(--purple);transition:.4s}
-    .status-bar-row .sb-count{font-size:12px;font-weight:700;color:#333;min-width:24px;text-align:right}
+    .sidebar nav a:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+    }
 
-    /* scrollbars */
-    ::-webkit-scrollbar{width:5px;height:5px}
-    ::-webkit-scrollbar-track{background:transparent}
-    ::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px}
+    .sidebar nav a.active {
+      background: var(--brand-grad);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+    }
 
-    /* ── PAINEL DIREITO REDESIGN ── */
-    .right-header{background:var(--brand-grad);color:#fff;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
-    .right-header .rh-info{flex:1;min-width:0}
-    .right-header .rh-hello{font-size:14px;font-weight:700}
-    .right-header .rh-store{font-size:11px;opacity:.8}
-    .right-header .rh-actions{display:flex;gap:6px;flex-shrink:0}
-    .rh-icon{background:rgba(255,255,255,.2);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.2s}
-    .rh-icon:hover{background:rgba(255,255,255,.3)}
-    .cust-header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)}
-    .cust-avatar{width:44px;height:44px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;overflow:hidden}
-    .cust-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
-    .cust-info{flex:1;min-width:0}
-    .cust-name{font-size:14px;font-weight:700;color:#1a1a1a}
-    .cust-phone{font-size:12px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px}
-    .btn-copy-inline{background:none;border:none;cursor:pointer;color:#bbb;padding:0 2px;font-size:13px;line-height:1}
-    .btn-copy-inline:hover{color:var(--violet)}
-    .catalog-row{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border);gap:8px;background:#fafafa;flex-shrink:0}
-    .catalog-row span{flex:1;font-size:12px;color:#555;font-weight:600}
-    .cat-btn{background:none;border:none;cursor:pointer;color:#888;font-size:16px;padding:4px;border-radius:6px;line-height:1;transition:.15s}
-    .cat-btn:hover{background:#e8e8e8;color:var(--violet)}
-    .right-nav{display:flex;border-top:1px solid var(--border);flex-shrink:0;background:#fff}
-    .right-nav-tab{flex:1;padding:8px 2px 6px;text-align:center;font-size:10px;font-weight:700;cursor:pointer;border-top:2px solid transparent;color:#aaa;transition:.2s;display:flex;flex-direction:column;align-items:center;gap:2px}
-    .right-nav-tab .rnt-icon{font-size:18px;line-height:1}
-    .right-nav-tab.active{color:var(--violet);border-top-color:var(--violet)}
-    .right-nav-tab:hover:not(.active){background:#f9f9f9;color:#555}
-    /* ordem card redesign */
-    .order-card2{margin:8px 12px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fff}
-    .order-card2 .oc2-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-    .order-card2 .oc2-num{font-size:13px;font-weight:700;color:#1a1a1a}
-    .order-card2 .oc2-total{font-size:13px;font-weight:700;color:#1a1a1a}
-    .order-card2 .oc2-meta{font-size:12px;color:#888;margin-bottom:3px}
-    .order-card2 .oc2-date{font-size:11px;color:#aaa}
-    .s-concluido,.s-delivered{background:#d4edda;color:#155724}
-    /* chat header actions */
-    .chat-header-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
-    .btn-finalizar{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.2s}
-    .btn-finalizar:hover{background:rgba(229,57,53,.8);border-color:transparent}
-    /* profile avatar in chat header */
-    #chatHeaderAvatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+    .sidebar nav a svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .sidebar .user-info {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .sidebar .user-info img {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid var(--violet);
+    }
+
+    .sidebar .user-info .name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .sidebar .user-info .role {
+      font-size: 11px;
+      opacity: 0.6;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── CONTENT AREA ── */
+    .content-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg-light);
+    }
+
+    .dashboard-header {
+      padding: 20px 30px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .dashboard-header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-dark);
+    }
+
+    .dashboard-header .actions button {
+      background: var(--violet);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .dashboard-header .actions button:hover {
+      background: var(--violet-d);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      padding: 25px 30px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.2s;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+    }
+
+    .card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-light);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .card .metric {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--text-dark);
+    }
+
+    .card .change {
+      font-size: 13px;
+      color: var(--green);
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .card .change.negative {
+      color: var(--red);
+    }
+
+    .chart-container {
+      flex: 1;
+      min-height: 250px;
+      position: relative;
+      margin-top: 10px;
+    }
+
+    /* ── MODALS ── */
+    .modal-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal {
+      background: #fff;
+      border-radius: 20px;
+      width: 100%;
+      max-width: 440px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+    }
+
+    .modal-head {
+      background: var(--brand-grad);
+      color: #fff;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .modal-head h3 {
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .modal-head button {
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      color: #fff;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: background 0.2s;
+    }
+
+    .modal-head button:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .modal-body {
+      overflow-y: auto;
+      flex: 1;
+      padding: 20px 24px;
+    }
+
+    .modal-foot {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: #fafafa;
+      display: flex;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .modal-foot button {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+
+    .btn-cancel {
+      background: #f0f0f0;
+      color: var(--text-medium);
+    }
+
+    .btn-cancel:hover {
+      background: #e5e5e5;
+    }
+
+    .btn-confirm {
+      background: var(--orange);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(255, 107, 53, 0.2);
+    }
+
+    .btn-confirm:hover {
+      background: var(--orange-d);
+      transform: translateY(-1px);
+    }
+
+    /* WhatsApp Templates Modal Specifics */
+    #modalTemplates select {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      margin-bottom: 16px;
+      outline: none;
+      font-size: 14px;
+      color: var(--text-dark);
+      background: #fff;
+    }
+
+    #modalTemplates select:focus {
+      border-color: var(--violet);
+    }
+
+    #modalTemplates #tplPreview {
+      background: #f8f9fa;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      color: var(--text-medium);
+      min-height: 80px;
+      border: 1px solid #eee;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
   </style>
 </head>
 <body>
 
-<!-- LOGIN -->
-<div id="login">
-  <div class="login-box">
-    <div class="logo">🍕</div>
-    <h1>Pappi Atendente</h1>
-    <p>Painel de Atendimento</p>
-
-    <!-- Modo Google (padrão) -->
-    <div id="loginGoogle">
-      <div id="g_signin" style="display:flex;justify-content:center;margin-bottom:16px;min-height:44px"></div>
-      <div id="loginErr" class="login-err" style="display:none">Acesso negado.</div>
-      <div style="margin-top:20px;text-align:center">
-        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showKeyMode(event)">Entrar com chave admin</a>
-      </div>
-    </div>
-
-    <!-- Modo chave (fallback admin) -->
-    <div id="loginKey" style="display:none">
-      <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
-      <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
-      <button onclick="doLogin()">Entrar</button>
-      <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
-      <div style="margin-top:12px;text-align:center">
-        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showGoogleMode(event)">← Voltar</a>
-      </div>
+  <div id="login">
+    <div class="login-box">
+      <img src="logo.png" alt="Pappi Logo" class="logo-login" onerror="this.style.display='none'"/>
+      <h1>Pappi Atendente</h1>
+      <p>Faça login para gerenciar seus atendimentos</p>
+      <input type="text" id="tenantId" placeholder="ID da Loja" value="tenant-pappi-001"/>
+      <input type="password" id="attendantKey" placeholder="Chave de Atendente"/>
+      <button onclick="login()">Entrar no Painel</button>
+      <div id="loginErr" class="login-err" style="display:none"></div>
     </div>
   </div>
-</div>
 
-<!-- HEADER -->
-<header id="header" style="display:none">
-  <div class="brand"><span>🍕</span> Pappi Atendente</div>
-  <div class="stats">
-    <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
-    <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
-    <div class="stat" style="margin-left:8px;gap:8px;display:flex;align-items:center">
-      <span id="h-role-badge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px"></span>
-      <span id="h-user-name" style="font-size:12px;opacity:.8"></span>
-      <button id="btnAdminPanel" onclick="openAdmin()" style="display:none;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">👑 Admin</button>
-      <button id="btnConfig" onclick="openSettings()" style="display:none;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">⚙️ Config</button>
-    </div>
-  </div>
-</header>
-
-<!-- APP -->
-<div id="app">
-  <div class="layout">
-
-    <!-- COL 1: CONVERSAS + FILA -->
-    <div class="col-conv">
-      <div class="col-tabs">
-        <div class="col-tab active" id="tabConv" onclick="switchTab('conv')">💬 Conversas</div>
-        <div class="col-tab" id="tabQueue" onclick="switchTab('queue')">🙋 Fila <span id="queueBadgeCount" style="display:none;background:var(--purple);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">0</span></div>
-        <div class="col-tab" id="tabActive" onclick="switchTab('active')">🎧 Em Atendimento</div>
-      </div>
-      <div id="panelConv" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
-        <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--violet-l)">
-          <div style="display:flex;gap:6px;align-items:center">
-            <div class="search-box" style="flex:1">
-              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-              <input id="searchInput" placeholder="Pesquisar..." oninput="filterConv()"/>
-            </div>
-            <button onclick="openContacts()" title="Buscar contato Google" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
+  <div id="app">
+    <div class="layout">
+      <!-- SIDEBAR -->
+      <div class="sidebar">
+        <div class="logo-container">
+          <img src="logo.png" alt="Pappi Atendente Logo" onerror="this.src='https://www.pappi.com.br/logo.png'"/>
+        </div>
+        <nav>
+          <a href="#" class="active" onclick="showPage('dashboard')">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11v10a1 1 0 001 1h3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+            Dashboard
+          </a>
+          <a href="#" onclick="showPage('conversations')">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+            Conversas
+          </a>
+          <a href="#" onclick="showPage('settings')">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Configurações
+          </a>
+        </nav>
+        <div class="user-info">
+          <img src="https://ui-avatars.com/api/?name=User&background=7C3AED&color=fff" alt="User Avatar"/>
+          <div>
+            <div class="name" id="currentUserName">Atendente</div>
+            <div class="role" id="currentUserRole">ADMIN</div>
           </div>
         </div>
-        <div class="conv-list" id="convList"></div>
       </div>
-      <div id="panelQueue" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-        <div class="queue-list" id="queueList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Carregando fila...</div></div>
-      </div>
-      <div id="panelActive" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-        <div class="queue-list" id="activeList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div></div>
-      </div>
-    </div>
 
-    <!-- COL 2: CENTRO -->
-    <div class="col-center" id="colCenter">
-      <div class="empty-center">
-        <div class="icon">💬</div>
-        <p>Selecione uma conversa</p>
-      </div>
-    </div>
-
-    <!-- COL 3: PAINEL DIREITO -->
-    <div class="col-right" id="colRight">
-      <div class="col-right" style="align-items:center;justify-content:center;display:flex;flex:1;color:#bbb;font-size:13px">
-        Selecione uma conversa
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- MODAL: NOVO PEDIDO -->
-<div class="modal-bg" id="modalOrder" style="display:none" onclick="if(event.target===this)closeOrder()">
-  <div class="modal">
-    <div class="modal-head">
-      <h3>Novo Pedido</h3>
-      <button onclick="closeOrder()">×</button>
-    </div>
-    <div class="steps" style="margin:12px 16px 0;border-radius:10px">
-      <div class="step active" id="step1" onclick="goStep(1)">1. Produtos</div>
-      <div class="step" id="step2" onclick="goStep(2)">2. Entrega</div>
-      <div class="step" id="step3" onclick="goStep(3)">3. Pagamento</div>
-    </div>
-    <div class="modal-body" id="modalBody"></div>
-    <div class="modal-foot">
-      <button class="modal-foot btn-cancel" onclick="closeOrder()">Cancelar</button>
-      <button class="modal-foot btn-confirm" id="btnNext" onclick="nextStep()">Próximo →</button>
-    </div>
-  </div>
-</div>
-
-<!-- VIEW: ADMIN ──────────────────────────────────────────── -->
-<div id="viewAdmin" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-  <!-- Navbar admin -->
-  <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
-    <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
-    <div id="adminTabs" style="display:flex;gap:2px">
-      <button class="admin-tab active" id="atDash"      onclick="adminTab('dash')">📊 Dashboard</button>
-      <button class="admin-tab"        id="atRet"       onclick="adminTab('ret')">📨 Retenção</button>
-      <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📈 Relatórios</button>
-      <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
-      <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
-      <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
-    </div>
-  </div>
-
-  <!-- Painel: Dashboard -->
-  <div id="adminPanelDash" class="admin-panel" style="display:flex">
-    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📊 Dashboard Geral</div>
-      <div class="settings-sub">Visão consolidada da operação</div>
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="fetchAdminDash()">🔄 Atualizar</button>
-        <button class="btn-save-settings" style="width:auto;padding:8px 16px;background:#555" onclick="openDebug()">🔍 Diagnóstico Webhook</button>
-      </div>
-      <div id="adminDashCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-top:16px"></div>
-      <div style="margin-top:28px">
-        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:12px">Pedidos por status hoje</div>
-        <div id="adminStatusBars"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Painel: Retenção -->
-  <div id="adminPanelRet" class="admin-panel" style="display:none">
-    <div style="padding:28px;max-width:960px;margin:0 auto;width:100%">
-      <div class="settings-title">📨 Retenção de Clientes</div>
-      <div class="settings-sub">Envie mensagens automáticas dentro da janela de 24h gratuita da Meta. A IA seleciona os melhores candidatos.</div>
-
-      <!-- Volume mensal -->
-      <div class="settings-card" style="margin-bottom:20px">
-        <div class="settings-card-head">📊 Volume do Mês</div>
-        <div class="settings-card-body">
-          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-            <div style="text-align:center">
-              <div style="font-size:32px;font-weight:800;color:var(--violet)" id="retTotalMonth">—</div>
-              <div style="font-size:12px;color:#888">Mensagens enviadas este mês</div>
-            </div>
-            <div style="flex:1;min-width:200px">
-              <canvas id="retChartCanvas" height="60" style="width:100%;border-radius:8px"></canvas>
+      <!-- CONTENT AREA -->
+      <div class="content-area">
+        <!-- DASHBOARD PAGE -->
+        <div id="page-dashboard" class="page" style="display:flex; flex-direction: column; height: 100%;">
+          <div class="dashboard-header">
+            <h1>Dashboard de Atendimento</h1>
+            <div class="actions">
+              <button onclick="openContacts()">
+                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Nova Conversa (Google)
+              </button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Campanhas -->
-      <div class="settings-card" style="margin-bottom:20px">
-        <div class="settings-card-head">🎯 Campanhas Ativas</div>
-        <div class="settings-card-body">
-          <div id="retCampaignList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px"></div>
-          <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="openNewCampaign()">+ Nova Campanha</button>
-          <button class="btn-save-settings" style="width:auto;padding:8px 16px;margin-left:8px;background:#555" onclick="runRetentionNow()">▶ Executar Agora</button>
-        </div>
-      </div>
-
-      <!-- Form nova campanha -->
-      <div id="retNewCampaignForm" class="settings-card" style="display:none">
-        <div class="settings-card-head">✏️ Nova Campanha de Retenção</div>
-        <div class="settings-card-body">
-          <div class="settings-field"><label>Nome da campanha</label><input id="ret-name" placeholder="Ex: Follow-up pós-pedido"/></div>
-          <div class="settings-field">
-            <label>Mensagem <span style="color:#aaa;font-weight:400">({nome} = nome do cliente)</span></label>
-            <textarea id="ret-msg" rows="3" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;resize:vertical;outline:none" placeholder="Ex: Oi {nome}! 🍕 Que tal pedir novamente? Temos novidades esperando por você!"></textarea>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-            <div class="settings-field"><label>Enviar após (horas)</label><input id="ret-delay" type="number" value="20" min="1" max="23"/></div>
-            <div class="settings-field"><label>Limite mensal (envios)</label><input id="ret-limit" type="number" value="100" min="1"/></div>
-            <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
-              <input type="checkbox" id="ret-ai" checked style="width:16px;height:16px;accent-color:var(--violet)"/>
-              <label for="ret-ai" style="font-size:13px;color:#333;font-weight:600">Filtro por IA</label>
+          <div class="dashboard-grid">
+            <div class="card">
+              <h3>Conversas Ativas</h3>
+              <div class="metric">120</div>
+              <div class="change">▲ 15% vs ontem</div>
             </div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:4px">
-            <button class="btn-save-settings" style="width:auto;padding:9px 20px" onclick="saveCampaign()">Salvar Campanha</button>
-            <button onclick="document.getElementById('retNewCampaignForm').style.display='none'" style="background:#f5f5f5;color:#666;border:1px solid var(--border);border-radius:8px;padding:9px 16px;cursor:pointer;font-size:13px">Cancelar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Painel: Relatórios -->
-  <div id="adminPanelRel" class="admin-panel" style="display:none">
-    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📈 Relatórios</div>
-      <div class="settings-sub">Em breve — métricas detalhadas por período e atendente</div>
-      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📊</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 4</div>
-    </div>
-  </div>
-
-  <!-- Painel: Auditoria -->
-  <div id="adminPanelAudit" class="admin-panel" style="display:none">
-    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">🔍 Auditoria de Atendimentos</div>
-      <div class="settings-sub">Em breve — IA avalia cada conversa e gera score de qualidade</div>
-      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">🤖</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 3</div>
-    </div>
-  </div>
-
-  <!-- Painel: SAC -->
-  <div id="adminPanelSac" class="admin-panel" style="display:none">
-    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📩 SAC — Reclamações e Elogios</div>
-      <div class="settings-sub">Em breve — canal dedicado para feedback dos clientes</div>
-      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📬</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 3</div>
-    </div>
-  </div>
-
-  <!-- Painel: Configurações -->
-  <div id="adminPanelCfg" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
-    <div style="max-width:860px;margin:0 auto">
-      <div class="settings-title">⚙️ Configurações</div>
-      <div class="settings-sub">Gerencie os dados da empresa e os atendentes autorizados.</div>
-      <div class="settings-grid" style="margin-top:0">
-        <div class="settings-card">
-          <div class="settings-card-head">🏪 Dados da Empresa</div>
-          <div class="settings-card-body">
-            <div class="settings-field"><label>Nome da loja</label><input id="cfg-name" type="text" placeholder="Ex: Pappi Pizzaria"/></div>
-            <div class="settings-field"><label>Cidade</label><input id="cfg-city" type="text" placeholder="Ex: Campinas"/></div>
-            <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
-            <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
-            <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-head">👥 Atendentes Autorizados</div>
-          <div class="settings-card-body">
-            <div class="attendant-list" id="attendantList"></div>
-            <div class="add-attendant-row">
-              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
-              <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
+            <div class="card">
+              <h3>Mensagens Enviadas</h3>
+              <div class="metric">5.432</div>
+              <div class="change">▲ 8% vs ontem</div>
             </div>
-            <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
-          </div>
-        </div>
-        <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">👤 Usuários com Login Google</div>
-          <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Cada atendente entra com sua conta Google. Adicione o e-mail e o papel de cada um.</p>
-            <div class="attendant-list" id="googleUserList"></div>
-            <div class="add-attendant-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
-              <input id="newGoogleEmail" type="email" placeholder="email@gmail.com" style="flex:2;min-width:180px" onkeydown="if(event.key==='Enter')addGoogleUser()"/>
-              <select id="newGoogleRole" style="flex:1;min-width:110px;padding:10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;background:#fff">
-                <option value="attendant">Atendente</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button class="btn-add-att" onclick="addGoogleUser()">+ Adicionar</button>
+            <div class="card">
+              <h3>Taxa de Resposta</h3>
+              <div class="metric">92%</div>
+              <div class="change">▲ 2% vs ontem</div>
             </div>
-            <button class="btn-save-settings" style="margin-top:14px" onclick="saveGoogleUsers()">Salvar usuários</button>
-          </div>
-        </div>
-        <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">📒 Google Contacts (Salvar clientes automaticamente)</div>
-          <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Quando um novo cliente mandar mensagem, ele é salvo automaticamente nos seus Contatos Google.</p>
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-              <span id="gcStatus" style="font-size:13px;font-weight:600;color:#888">● verificando...</span>
-              <button id="btnGcConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;display:none" onclick="gcConnect()">🔗 Autorizar Google Contacts</button>
-              <button id="btnGcDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="gcDisconnect()">Desconectar</button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
-          <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
-            <div style="flex:1;min-width:240px">
-              <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte um segundo WhatsApp para enviar notificações à operação sem consumir créditos da API Meta.</p>
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-                <span id="waIntStatus" style="font-size:13px;font-weight:600;color:#888">● desconectado</span>
-                <button id="btnWaIntConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0" onclick="waIntConnect()">Conectar</button>
-                <button id="btnWaIntDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="waIntDisconnect()">Desconectar</button>
+            <div class="card" style="grid-column: 1 / -1;">
+              <h3>Volume de Mensagens (Últimos 7 dias)</h3>
+              <div class="chart-container">
+                <canvas id="activityChart"></canvas>
               </div>
-              <div class="settings-field">
-                <label>Números para notificar (separados por vírgula)</label>
-                <input id="waIntNumbers" type="text" placeholder="5511999990000, 5511999990001"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONVERSATIONS PAGE -->
+        <div id="page-conversations" class="page" style="display:none; flex-direction: row; height: 100%; overflow: hidden;">
+          <!-- Lista de Clientes -->
+          <div style="width: 320px; border-right: 1px solid var(--border); background: #fff; display: flex; flex-direction: column;">
+            <div style="padding: 20px; border-bottom: 1px solid var(--border);">
+              <input type="text" placeholder="Buscar conversa..." style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); outline: none;">
+            </div>
+            <div id="customerList" style="flex: 1; overflow-y: auto;">
+              <!-- Clientes carregados via JS -->
+            </div>
+          </div>
+          <!-- Chat -->
+          <div style="flex: 1; display: flex; flex-direction: column; background: #f0f2f5;">
+            <div id="chatHeader" style="padding: 15px 25px; background: #fff; border-bottom: 1px solid var(--border); display: none; align-items: center; gap: 12px;">
+              <div id="chatAvatar" style="width: 40px; height: 40px; border-radius: 50%; background: var(--violet); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700;"></div>
+              <div>
+                <div id="chatName" style="font-weight: 700; font-size: 16px;"></div>
+                <div id="chatStatus" style="font-size: 12px; color: var(--green);">online</div>
               </div>
-              <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="waIntSaveNumbers()">Salvar números</button>
             </div>
-            <div id="waIntQrWrap" style="display:none;text-align:center">
-              <p style="font-size:12px;color:#888;margin-bottom:8px">Escaneie com o WhatsApp do celular</p>
-              <img id="waIntQr" src="" style="width:200px;height:200px;border-radius:12px;border:1px solid #eee"/>
+            <div id="chatMessages" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+              <div style="margin: auto; text-align: center; color: #888;">
+                <p>Selecione uma conversa para visualizar as mensagens.</p>
+              </div>
+            </div>
+            <div id="chatInputArea" style="padding: 15px 25px; background: #fff; border-top: 1px solid var(--border); display: none; gap: 12px;">
+              <input id="messageInput" type="text" placeholder="Digite uma mensagem..." style="flex: 1; padding: 12px; border-radius: 20px; border: 1px solid var(--border); outline: none;" onkeydown="if(event.key==='Enter')sendMessage()">
+              <button onclick="sendMessage()" style="background: var(--violet); color: #fff; border: none; border-radius: 50%; width: 45px; height: 45px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              </button>
             </div>
           </div>
         </div>
+
+        <!-- SETTINGS PAGE -->
+        <div id="page-settings" class="page" style="display:none; flex-direction: column; height: 100%;">
+          <div class="dashboard-header">
+            <h1>Configurações</h1>
+          </div>
+          <div style="padding: 40px; text-align: center; color: #888;">
+            <p>Configurações do sistema e da conta Meta.</p>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
-</div>
 
-<!-- MODAL: BUSCAR CONTATO GOOGLE -->
-<div class="modal-bg" id="modalContacts" style="display:none" onclick="if(event.target===this)closeContacts()">
-  <div class="modal" style="max-width:480px">
-    <div class="modal-head">
-      <h3>📒 Buscar Contato Google</h3>
-      <button onclick="closeContacts()">×</button>
-    </div>
-    <div class="modal-body">
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <input id="contactSearchInput" type="text" placeholder="Nome ou telefone..." style="flex:1;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;outline:none"
-          oninput="searchContactsDebounce()" onkeydown="if(event.key==='Enter')searchContactsNow()"/>
-        <button onclick="searchContactsNow()" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px">🔍</button>
+  <!-- MODAL: BUSCAR CONTATO GOOGLE -->
+  <div class="modal-bg" id="modalContacts" style="display:none" onclick="if(event.target===this)closeContacts()">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>📒 Buscar Contato Google</h3>
+        <button onclick="closeContacts()">×</button>
       </div>
-      <div id="contactResults" style="min-height:80px;max-height:320px;overflow-y:auto">
-        <p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>
+      <div class="modal-body">
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+          <input id="contactSearchInput" type="text" placeholder="Nome ou telefone..." 
+            style="flex:1; border:1.5px solid var(--border); border-radius:10px; padding:12px; font-size:14px; outline:none;"
+            oninput="searchContactsDebounce()" onkeydown="if(event.key==='Enter')searchContactsNow()"/>
+          <button onclick="searchContactsNow()" style="background:var(--violet); color:#fff; border:none; border-radius:10px; padding:0 15px; cursor:pointer;">🔍</button>
+        </div>
+        <div id="contactResults" style="min-height:100px; max-height:350px; overflow-y:auto;">
+          <p style="text-align:center; color:var(--text-light); font-size:13px; padding:30px">Digite para buscar na sua agenda Google</p>
+        </div>
       </div>
-    </div>
-    <div class="modal-foot">
-      <button onclick="closeContacts()" style="background:#555;color:#fff">Fechar</button>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL: WHATSAPP TEMPLATES -->
-<div class="modal-bg" id="modalTemplates" style="display:none" onclick="if(event.target===this)closeTemplates()">
-  <div class="modal" style="max-width:420px">
-    <div class="modal-head">
-      <h3>Modelos de Mensagem (Meta)</h3>
-      <button onclick="closeTemplates()">×</button>
-    </div>
-    <div class="modal-body" style="padding:16px">
-      <p style="font-size:12px;color:#666;margin-bottom:12px">Selecione um modelo aprovado para iniciar a conversa com <strong><span id="tplContactName"></span></strong>.</p>
-      <select id="tplSelect" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);margin-bottom:12px;outline:none" onchange="previewTemplate()">
-        <option value="">Carregando modelos...</option>
-      </select>
-      <div id="tplPreview" style="background:#f5f5f5;padding:12px;border-radius:10px;font-size:13px;color:#444;min-height:60px;border:1px solid #eee;white-space:pre-wrap">
-        Selecione um modelo para ver a prévia.
+      <div class="modal-foot">
+        <button onclick="closeContacts()" class="btn-cancel">Fechar</button>
       </div>
     </div>
-    <div class="modal-foot">
-      <button class="btn-cancel" onclick="closeTemplates()">Cancelar</button>
-      <button class="btn-confirm" id="btnSendTemplate" onclick="sendTemplateNow()" disabled>Enviar Modelo</button>
+  </div>
+
+  <!-- MODAL: WHATSAPP TEMPLATES -->
+  <div class="modal-bg" id="modalTemplates" style="display:none" onclick="if(event.target===this)closeTemplates()">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-head">
+        <h3>Modelos de Mensagem (Meta)</h3>
+        <button onclick="closeTemplates()">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px; color:var(--text-medium); margin-bottom:15px; line-height:1.4;">
+          Para iniciar a conversa com <strong><span id="tplContactName"></span></strong>, selecione um modelo aprovado pela Meta:
+        </p>
+        <select id="tplSelect" onchange="previewTemplate()">
+          <option value="">Carregando modelos...</option>
+        </select>
+        <div style="font-size:12px; font-weight:700; color:var(--text-light); margin-bottom:8px; text-transform:uppercase;">Prévia da Mensagem:</div>
+        <div id="tplPreview">Selecione um modelo para ver a prévia.</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-cancel" onclick="closeTemplates()">Cancelar</button>
+        <button class="btn-confirm" id="btnSendTemplate" onclick="sendTemplateNow()" disabled>Enviar Agora</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- MODAL: DIAGNÓSTICO WEBHOOK -->
-<div class="modal-bg" id="modalDebug" style="display:none" onclick="if(event.target===this)closeDebug()">
-  <div class="modal" style="max-width:640px">
-    <div class="modal-head">
-      <h3>🔍 Diagnóstico Webhook</h3>
-      <button onclick="closeDebug()">×</button>
-    </div>
-    <div class="modal-body" style="padding:0">
-      <pre id="debugContent" style="margin:0;padding:16px 20px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;background:#1a1a1a;color:#e0e0e0;font-family:'Courier New',monospace;min-height:200px"></pre>
-    </div>
-    <div class="modal-foot">
-      <button onclick="copyDebug()" style="background:#FF6B35;color:#fff">📋 Copiar Relatório</button>
-      <button onclick="closeDebug()" style="background:#555;color:#fff">Fechar</button>
-    </div>
-  </div>
-</div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const API_KEY = localStorage.getItem("attendantKey");
+    const TENANT = localStorage.getItem("tenantId");
 
-<!-- OVERLAY: OPÇÕES DO PRODUTO -->
-<div class="options-overlay" id="optionsOverlay" style="display:none" onclick="if(event.target===this)closeOptionsOverlay()">
-  <div class="options-modal">
-    <div class="options-head">
-      <h4 id="optProdName">Configurar produto</h4>
-      <button onclick="closeOptionsOverlay()">×</button>
-    </div>
-    <div class="options-body" id="optionsBody"></div>
-    <div class="options-foot">
-      <button class="btn-cancel" onclick="closeOptionsOverlay()">Cancelar</button>
-      <button class="btn-confirm" id="btnAddOpt" onclick="confirmAddWithOptions()">Adicionar ao carrinho</button>
-    </div>
-  </div>
-</div>
-
-<script>
-const TENANT = "tenant-pappi-001";
-let API_KEY = "";
-let allConvs = [];
-let selectedCustomer = null;
-let catalog = null;
-let payments = [];
-let cart = [];
-let allCatalogProducts = []; // cache global dos produtos com option_groups
-let pendingProduct = null;   // produto sendo configurado no overlay de options
-let pendingSelections = {};  // { optionGroupId: [optionId, ...] }
-let orderStep = 1;
-let ATTENDANT_NAME = "";
-let USER_ROLE = "attendant"; // "attendant" | "admin"
-let currentTab = "conv"; // "conv" | "queue" | "active"
-let orderFulfillment = "delivery";
-let orderAddress = {};
-let orderPayment = null;
-let refreshTimer = null;
-
-// ── LOGIN GOOGLE ───────────────────────────────────────────────
-const GOOGLE_CLIENT_ID = "286493900825-vu5mlqqt2fcfk2m2ofsicibls8sa8mgo.apps.googleusercontent.com";
-
-function initGoogleSignIn() {
-  if (!window.google) return;
-  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleLogin });
-  google.accounts.id.renderButton(
-    document.getElementById("g_signin"),
-    { theme: "outline", size: "large", text: "signin_with", locale: "pt-BR", width: 260 }
-  );
-}
-
-// Inicializa quando o script GSI carregar
-document.querySelector('script[src*="gsi"]').addEventListener('load', initGoogleSignIn);
-
-async function handleGoogleLogin(response) {
-  const errEl = document.getElementById("loginErr");
-  errEl.style.display = "none";
-  const res = await fetch(`/dash/auth/google?tenant=${TENANT}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ credential: response.credential }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    errEl.textContent = data.error || "Acesso negado.";
-    errEl.style.display = "block";
-    return;
-  }
-  API_KEY = data.token;
-  ATTENDANT_NAME = data.name;
-  USER_ROLE = data.role;
-  localStorage.setItem("pappi_key", data.token);
-  localStorage.setItem("pappi_name", data.name);
-  localStorage.setItem("pappi_role", data.role);
-  enterApp();
-}
-
-function showKeyMode(e)    { e.preventDefault(); document.getElementById("loginGoogle").style.display="none"; document.getElementById("loginKey").style.display="block"; }
-function showGoogleMode(e) { e.preventDefault(); document.getElementById("loginKey").style.display="none"; document.getElementById("loginGoogle").style.display="block"; }
-
-// ── LOGIN CHAVE (fallback admin) ───────────────────────────────
-async function doLogin() {
-  const name = document.getElementById("loginName").value.trim();
-  const key  = document.getElementById("loginKeyInput").value.trim();
-  if (!key || !name) { document.getElementById("loginErrKey").style.display = "block"; return; }
-  API_KEY = key;
-  ATTENDANT_NAME = name;
-
-  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
-  if (!authRes.ok) { document.getElementById("loginErrKey").style.display = "block"; API_KEY = ""; return; }
-  const { role } = await authRes.json();
-  USER_ROLE = role;
-
-  const ok = await fetchStats();
-  if (ok) {
-    localStorage.setItem("pappi_key", key);
-    localStorage.setItem("pappi_name", name);
-    localStorage.setItem("pappi_role", role);
-    enterApp();
-  } else {
-    document.getElementById("loginErrKey").style.display = "block";
-    API_KEY = "";
-  }
-}
-
-function enterApp() {
-  document.getElementById("login").style.display = "none";
-  document.getElementById("header").style.display = "flex";
-  document.getElementById("app").style.display = "block";
-  applyRole();
-  startRefresh();
-  loadCatalog();
-}
-
-// ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
-(async function restoreSession() {
-  const key  = localStorage.getItem("pappi_key");
-  const name = localStorage.getItem("pappi_name");
-  const role = localStorage.getItem("pappi_role");
-  if (!key || !name || !role) return;
-
-  API_KEY        = key;
-  ATTENDANT_NAME = name;
-  USER_ROLE      = role;
-
-  // Entra no app imediatamente com os dados salvos
-  enterApp();
-
-  // Valida a chave em background — só desloga se vier 401 explícito
-  try {
-    const r = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
-    if (r.status === 401) {
-      // Chave inválida ou alterada — força logout
-      localStorage.removeItem("pappi_key");
-      localStorage.removeItem("pappi_name");
-      localStorage.removeItem("pappi_role");
-      location.reload();
+    function esc(s) {
+      if (!s) return "";
+      return s.replace(/[&<>'"`]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#x27;','`':'&#x60;'}[m]));
     }
-    // Qualquer outro erro (500, network, cold start) → mantém sessão
-  } catch(e) {
-    // Servidor offline ou cold start → mantém sessão, não desloga
-  }
-})();
 
-function applyRole() {
-  const isAdmin = USER_ROLE === "admin";
-  const badge = document.getElementById("h-role-badge");
-  badge.style.display = "";
-  badge.textContent = isAdmin ? "👑 Admin" : "🎧 Atendente";
-  badge.style.background = isAdmin ? "rgba(255,215,0,.3)" : "rgba(255,255,255,.15)";
-  badge.style.color = isAdmin ? "#ffe066" : "#fff";
-  document.getElementById("h-user-name").textContent = ATTENDANT_NAME;
-  document.getElementById("btnAdminPanel").style.display = isAdmin ? "" : "none";
-  document.getElementById("btnConfig").style.display = isAdmin ? "" : "none";
-}
-document.getElementById("loginKeyInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
-document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKeyInput").focus(); });
-
-// ── API ───────────────────────────────────────────────────────
-async function api(path, opts={}) {
-  const sep = path.includes("?") ? "&" : "?";
-  const r = await fetch(`/dash${path}${sep}tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`, {
-    headers: {"Content-Type":"application/json","x-api-key": API_KEY},
-    ...opts
-  });
-  if (!r.ok) return null;
-  return r.json();
-}
-
-// ── STATS ────────────────────────────────────────────────────
-async function fetchStats() {
-  const d = await api("/stats");
-  if (!d) return false;
-  document.getElementById("h-orders").textContent = d.ordersToday;
-  if (d.handoffActive > 0) {
-    document.getElementById("h-handoff-stat").style.display = "flex";
-    document.getElementById("h-handoff").textContent = d.handoffActive;
-  }
-  return true;
-}
-
-// ── CONVERSAS ────────────────────────────────────────────────
-async function fetchConvs() {
-  const d = await api("/conversations");
-  if (!d) return;
-  allConvs = d;
-  renderConvs(d);
-}
-
-function renderConvs(list) {
-  const el = document.getElementById("convList");
-  // Conversas = apenas clientes no bot (handoff=false)
-  const botOnly = list.filter(c => !c.handoff);
-  if (!botOnly.length) { el.innerHTML = '<p style="text-align:center;padding:24px;color:#bbb;font-size:13px">Nenhuma conversa com o bot</p>'; return; }
-  el.innerHTML = botOnly.map(c => `
-    <div class="conv-item${selectedCustomer?.id===c.id?" active":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
-      <div class="avatar">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
-      <div class="conv-info">
-        <div class="conv-name">${esc(c.name)}</div>
-        <div class="conv-sub">${esc(c.phoneFormatted)}${c.lastOrder?" · "+statusLabel(c.lastOrder.status):""}</div>
-      </div>
-      <div class="conv-badge">
-        <span class="badge-bot">🤖 Bot</span>
-      </div>
-    </div>
-  `).join("");
-}
-
-function filterConv() {
-  const q = document.getElementById("searchInput").value.toLowerCase();
-  renderConvs(allConvs.filter(c =>
-    (c.name||"").toLowerCase().includes(q) || (c.phoneFormatted||"").includes(q)
-  ));
-}
-
-// ── SELECIONA CLIENTE POR ID (da fila/aba em atendimento) ─────
-function selectConv(id) {
-  const c = allConvs.find(x => x.id === id);
-  if (c) selectCustomer(c);
-  else { fetchConvs().then(() => { const c2 = allConvs.find(x=>x.id===id); if(c2) selectCustomer(c2); }); }
-  switchTab("conv");
-}
-
-// ── SELECIONA CLIENTE ────────────────────────────────────────
-let chatPollTimer = null;
-
-async function selectCustomer(c) {
-  selectedCustomer = c;
-  renderConvs(allConvs);
-  renderCenter(c);
-  renderRight(c);
-  const orders = await api(`/customer/${c.id}/orders`);
-  if (orders) renderOrders(orders);
-  // Carrega histórico e inicia polling
-  clearInterval(chatPollTimer);
-  await loadChatHistory(c.id);
-  chatPollTimer = setInterval(() => loadChatHistory(c.id), 5000);
-}
-
-async function loadChatHistory(customerId) {
-  if (!selectedCustomer || selectedCustomer.id !== customerId) return;
-  const msgs = await fetch(`/dash/customer/${customerId}/messages?tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`)
-    .then(r => r.json()).catch(() => null);
-  if (!msgs) return;
-  const body = document.getElementById("chatBody");
-  if (!body) return;
-  if (!msgs.length) {
-    body.innerHTML = '<div style="text-align:center;padding:24px;color:#aaa;font-size:12px">Nenhuma mensagem ainda — aguardando o cliente escrever.</div>';
-    if (selectedCustomer.lastOrder) appendLastOrder(body, selectedCustomer.lastOrder);
-    return;
-  }
-  body.innerHTML = msgs.map(m => {
-    const isOut = m.role === "attendant";
-    const isBot = m.role === "bot";
-    const cls = isOut ? "msg out" : "msg in";
-    const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
-    const time = new Date(m.at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-    return `<div class="${cls}">${senderTag}${esc(m.text)}<div class="time">${time}</div></div>`;
-  }).join("");
-  body.scrollTop = body.scrollHeight;
-}
-
-function appendLastOrder(body, order) {
-  const div = document.createElement("div");
-  div.className = "msg in";
-  div.innerHTML = `Último pedido: <strong>${statusLabel(order.status)}</strong><br/>Total: R$ ${order.total.toFixed(2)}<div class="time">${new Date(order.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>`;
-  body.appendChild(div);
-}
-
-function renderCenter(c) {
-  const el = document.getElementById("colCenter");
-  const initials = (c.name||"?")[0].toUpperCase();
-  el.innerHTML = `
-    <div class="chat-header">
-      <div class="avatar" id="chatHeaderAvatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${initials}</div>
-      <div style="flex:1;min-width:0">
-        <div class="name">${esc(c.name)}</div>
-        <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visit${c.visitCount===1?'a':'as'}</div>
-      </div>
-      <div class="chat-header-actions">
-        ${c.handoff ? `<button class="btn-finalizar" onclick="releaseCustomer('${c.id}')">✓ Finalizar</button>` : ""}
-      </div>
-    </div>
-    <div class="chat-body" id="chatBody">
-      <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">Carregando...</div>
-    </div>
-    <div class="chat-input">
-      <textarea id="msgText" rows="1" placeholder="Digite uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
-      <button onclick="sendMsg()" title="Enviar">
-        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
-      </button>
-    </div>
-  `;
-  // Tenta carregar foto de perfil via Baileys
-  loadAvatar(c.id);
-}
-
-async function loadAvatar(customerId) {
-  try {
-    const d = await api(`/customer/${customerId}/avatar`);
-    if (!d?.url) return;
-    const set = (el) => { if (el) el.innerHTML = `<img src="${d.url}" onerror="this.parentElement.innerHTML='${(selectedCustomer?.name||'?')[0].toUpperCase()}'"/>`; };
-    set(document.getElementById("chatHeaderAvatar"));
-    set(document.getElementById("rightPanelAvatar"));
-  } catch {}
-}
-
-let rightTab = "pedidos";
-
-function renderRight(c) {
-  rightTab = c.handoff ? "atendimento" : "pedidos";
-  const el = document.getElementById("colRight");
-  const initials = (c.name||"?")[0].toUpperCase();
-  const storeName = settingsData?.name || "Pappi Atendente";
-  const firstName = ATTENDANT_NAME.split(" ")[0];
-
-  el.innerHTML = `
-    <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
-      <!-- Cabeçalho loja/atendente -->
-      <div class="right-header">
-        <div class="rh-info">
-          <div class="rh-hello">Olá, ${esc(firstName)}</div>
-          <div class="rh-store">${esc(storeName)}</div>
-        </div>
-        <div class="rh-actions">
-          <button class="rh-icon" title="Diagnóstico" onclick="openDebug()">🔍</button>
-          ${USER_ROLE==="admin"?`<button class="rh-icon" title="Admin" onclick="openAdmin()">👑</button>`:""}
-        </div>
-      </div>
-
-      <!-- Bot toggle -->
-      <div class="bot-row" style="flex-shrink:0">
-        <label>
-          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
-          ${c.handoff ? "Bot desligado" : "Bot ativo"}
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="botToggle" ${!c.handoff?"checked":""} onchange="toggleHandoff(this.checked)"/>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <!-- Link catálogo -->
-      <div class="catalog-row">
-        <span>🔗 Link do Catálogo Web</span>
-        <button class="cat-btn" title="Enviar para o cliente" onclick="sendCatalogLink()">➤</button>
-        <button class="cat-btn" title="Copiar link" onclick="copyCatalogLink()">📋</button>
-        <button class="cat-btn" title="Abrir catálogo" onclick="openCatalogLink()">↗</button>
-      </div>
-
-      <!-- Info do cliente -->
-      <div class="cust-header">
-        <div class="cust-avatar" id="rightPanelAvatar">${initials}</div>
-        <div class="cust-info">
-          <div class="cust-name">${esc(c.name)}</div>
-          <div class="cust-phone">
-            ${esc(c.phoneFormatted)}
-            <button class="btn-copy-inline" id="btnCopyPhone" title="Copiar" onclick="copyPhone('${c.phone}')">📋</button>
-          </div>
-          ${c.visitCount ? `<div style="font-size:11px;color:#aaa;margin-top:2px">🛍 ${c.visitCount} pedido${c.visitCount>1?'s':''}</div>` : ""}
-        </div>
-      </div>
-
-      <!-- Conteúdo da aba selecionada -->
-      <div id="rightPanelContent" style="flex:1;overflow-y:auto;display:flex;flex-direction:column"></div>
-
-      <!-- Navegação inferior -->
-      <div class="right-nav">
-        <div class="right-nav-tab${rightTab==='atendimento'?' active':''}" data-tab="atendimento" onclick="rightPanelTab('atendimento')">
-          <span class="rnt-icon">🎧</span>Atendimento
-        </div>
-        <div class="right-nav-tab${rightTab==='pedidos'?' active':''}" data-tab="pedidos" onclick="rightPanelTab('pedidos')">
-          <span class="rnt-icon">📦</span>Pedidos
-        </div>
-        <div class="right-nav-tab${rightTab==='chatbot'?' active':''}" data-tab="chatbot" onclick="rightPanelTab('chatbot')">
-          <span class="rnt-icon">🤖</span>ChatBot
-        </div>
-        <div class="right-nav-tab${rightTab==='portal'?' active':''}" data-tab="portal" onclick="rightPanelTab('portal')">
-          <span class="rnt-icon">↗</span>Portal
-        </div>
-      </div>
-    </div>
-  `;
-  rightPanelTab(rightTab);
-}
-
-function rightPanelTab(tab) {
-  rightTab = tab;
-  document.querySelectorAll(".right-nav-tab").forEach(el => {
-    el.classList.toggle("active", el.dataset.tab === tab);
-  });
-
-  const content = document.getElementById("rightPanelContent");
-  if (!content || !selectedCustomer) return;
-  const c = selectedCustomer;
-
-  if (tab === "atendimento") {
-    if (!c.handoff) {
-      content.innerHTML = `
-        <div style="padding:20px;text-align:center;color:#aaa;margin-top:24px">
-          <div style="font-size:48px;margin-bottom:12px">🤖</div>
-          <strong style="color:#555;font-size:14px">Bot ativo</strong><br/>
-          <span style="font-size:12px;color:#aaa">Cliente sendo atendido automaticamente</span>
-        </div>`;
-    } else {
-      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
-      const isMine = c.claimedBy === ATTENDANT_NAME;
-      content.innerHTML = `
-        <div style="padding:0">
-          ${handoffBar(c)}
-          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;color:#555">
-            <div style="display:flex;justify-content:space-between"><span>Na fila há:</span><strong>${wait} min</strong></div>
-            ${c.claimedBy?`<div style="display:flex;justify-content:space-between"><span>Atendente:</span><strong>${esc(c.claimedBy)}</strong></div>`:""}
-            ${c.preferredPayment?`<div style="display:flex;justify-content:space-between"><span>Pag. preferido:</span><strong>${esc(c.preferredPayment)}</strong></div>`:""}
-            ${c.lastAddress?`<div style="padding:8px 0;border-top:1px solid var(--border);font-size:12px;color:#888;margin-top:4px">📍 ${esc(c.lastAddress)}</div>`:""}
-          </div>
-          ${isMine?`<div style="padding:10px 14px;border-top:1px solid var(--border)"><button onclick="releaseCustomer('${c.id}')" style="width:100%;background:#e53935;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">✓ Finalizar Atendimento</button></div>`:""}
-        </div>`;
+    async function api(path, options = {}) {
+      const headers = { 'Content-Type': 'application/json', ...options.headers };
+      if (API_KEY) headers['x-attendant-key'] = API_KEY;
+      const url = `/dash${path}?tenant=${TENANT}`;
+      const response = await fetch(url, { ...options, headers });
+      if (response.status === 401) { logout(); return null; }
+      return response.json();
     }
-  } else if (tab === "pedidos") {
-    content.innerHTML = `
-      <div class="orders-header" style="flex-shrink:0">
-        <div>
-          <h3 style="font-size:13px;font-weight:700;color:#333">Pedidos do cliente</h3>
-          <div id="ordersCount" style="font-size:11px;color:#aaa;margin-top:1px"></div>
-        </div>
-        <button class="btn-new-order" onclick="openOrder()">+ Novo pedido</button>
-      </div>
-      <div id="ordersList"><div class="no-orders">Carregando...</div></div>`;
-    api(`/customer/${c.id}/orders`).then(orders => { if (orders) renderOrders(orders); });
-  } else if (tab === "chatbot") {
-    content.innerHTML = `
-      <div style="padding:14px;display:flex;flex-direction:column;gap:10px">
-        <div style="padding:12px;border:1px solid var(--border);border-radius:10px;background:#fafafa">
-          <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:8px">Status</div>
-          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
-            <span>ChatBot</span><strong style="color:${!c.handoff?"#25d366":"#e53935"}">${!c.handoff?"● Ativo":"● Desligado"}</strong>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:13px">
-            <span>Visitas</span><strong>${c.visitCount}</strong>
-          </div>
-        </div>
-        <div style="padding:10px;background:#fff3cd;border-radius:8px;font-size:12px;color:#856404;line-height:1.6">
-          💡 Com o bot <strong>ativo</strong>, o cliente é atendido automaticamente. Desligue para atender manualmente.
-        </div>
-        <div style="font-size:12px;font-weight:700;color:#555;margin-top:4px">Sessão</div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:#888">
-          <span>Última interação</span>
-          <span>${c.lastInteraction ? new Date(c.lastInteraction).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</span>
-        </div>
-      </div>`;
-  } else if (tab === "portal") {
-    const cwStoreId = settingsData?.cwStoreId || "";
-    content.innerHTML = `
-      <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
-        <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:4px">Links do sistema</div>
-        <a href="https://integracao.cardapioweb.com" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:#333;font-size:13px;font-weight:600;background:#fafafa;transition:.15s"
-          onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background='#fafafa'">
-          🌐 Portal CardápioWeb ↗
-        </a>
-        <a href="https://www.cardapioweb.com.br/pedidos" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:#333;font-size:13px;font-weight:600;background:#fafafa;transition:.15s"
-          onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background='#fafafa'">
-          📦 Pedidos CardápioWeb ↗
-        </a>
-        <a href="/privacy" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:#333;font-size:13px;font-weight:600;background:#fafafa;transition:.15s"
-          onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background='#fafafa'">
-          🔒 Política de Privacidade ↗
-        </a>
-      </div>`;
-  }
-}
 
-function renderOrders(orders) {
-  const el = document.getElementById("ordersList");
-  if (!el) return;
-  const countEl = document.getElementById("ordersCount");
-  if (countEl) countEl.textContent = `Total de ${orders.length} pedido${orders.length!==1?'s':''}`;
-  if (!orders.length) { el.innerHTML = '<div class="no-orders">Nenhum pedido ainda</div>'; return; }
-  el.innerHTML = orders.map((o, i) => {
-    const num = o.cwOrderId || (orders.length - i);
-    const total = `R$ ${o.total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-    const fulfillText = o.fulfillment === "delivery" ? "Delivery" : "Retirada";
-    const dateStr = new Date(o.createdAt).toLocaleString("pt-BR", {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
-    const statusClass = o.status.includes("cancel") ? "s-cancelled"
-      : (o.status.includes("deliver") || o.status === "delivered") ? "s-concluido"
-      : o.status.includes("confirm") ? "s-confirmed"
-      : o.status.includes("prepar") ? "s-preparing"
-      : "s-waiting";
-    const statusText = o.status === "delivered" || o.status === "dispatched" ? "Concluído" : statusLabel(o.status);
-    return `
-    <div class="order-card2">
-      <div class="oc2-head">
-        <span class="oc2-num">Pedido Nº ${num}</span>
-        <span class="status-pill ${statusClass}">${statusText}</span>
-      </div>
-      <div class="oc2-meta">${total} • ${fulfillText} • ${esc(o.paymentMethodName||"Imediato")}</div>
-      <div class="oc2-date">Feito em ${dateStr}</div>
-      ${o.items?.length ? `<div style="font-size:11px;color:#aaa;margin-top:4px">${o.items.slice(0,2).map(it=>`${it.quantity}x ${esc(it.name)}`).join(", ")}${o.items.length>2?` +${o.items.length-2} itens`:""}</div>` : ""}
-    </div>`;
-  }).join("");
-}
+    // ── AUTH ──
+    async function login() {
+      const tenantId = document.getElementById("tenantId").value;
+      const attendantKey = document.getElementById("attendantKey").value;
+      const loginErr = document.getElementById("loginErr");
+      try {
+        const response = await fetch(`/dash/login?tenant=${tenantId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-attendant-key': attendantKey },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          localStorage.setItem("tenantId", tenantId);
+          localStorage.setItem("attendantKey", attendantKey);
+          localStorage.setItem("currentUserName", data.name);
+          localStorage.setItem("currentUserRole", data.role);
+          window.location.reload();
+        } else {
+          loginErr.textContent = "Chave ou ID inválidos.";
+          loginErr.style.display = "block";
+        }
+      } catch (e) { loginErr.style.display = "block"; }
+    }
 
-// ── HANDOFF TOGGLE ───────────────────────────────────────────
-async function toggleHandoff(botEnabled) {
-  if (!selectedCustomer) return;
-  // botEnabled=true → handoff=false (bot ativo)
-  // botEnabled=false → handoff=true (humano ativo)
-  const handoff = !botEnabled;
-  await api("/handoff", {
-    method: "PUT",
-    body: JSON.stringify({ customerId: selectedCustomer.id, enabled: handoff, tenantId: TENANT })
-  });
-  selectedCustomer.handoff = handoff;
-  allConvs = allConvs.map(c => c.id === selectedCustomer.id ? {...c, handoff} : c);
-  renderConvs(allConvs);
-}
+    function logout() {
+      localStorage.clear();
+      window.location.reload();
+    }
 
-// ── ENVIAR MENSAGEM ──────────────────────────────────────────
-async function sendMsg() {
-  const el = document.getElementById("msgText");
-  const text = el?.value?.trim();
-  if (!text || !selectedCustomer) return;
-  el.value = "";
-  await api("/send", {
-    method: "POST",
-    body: JSON.stringify({ phone: selectedCustomer.phone, text, customerId: selectedCustomer.id, tenantId: TENANT })
-  });
-  // Recarrega o histórico imediatamente
-  await loadChatHistory(selectedCustomer.id);
-}
+    // ── NAVIGATION ──
+    let chatInterval = null;
+    let selectedCustomerId = null;
 
-// ── NOVO PEDIDO ──────────────────────────────────────────────
-function openOrder() {
-  cart = [];
-  orderStep = 1;
-  orderFulfillment = "delivery";
-  orderAddress = selectedCustomer?.lastAddress ? {
-    street: selectedCustomer.lastStreet||"",
-    number: selectedCustomer.lastNumber||"",
-    neighborhood: selectedCustomer.lastNeighborhood||"",
-    complement: selectedCustomer.lastComplement||"",
-    city: selectedCustomer.lastCity||"Campinas",
-    state: "SP"
-  } : {};
-  orderPayment = null;
-  document.getElementById("modalOrder").style.display = "flex";
-  renderStep();
-}
+    function showPage(pageId) {
+      document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+      document.getElementById(`page-${pageId}`).style.display = 'flex';
+      document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+      const activeLink = document.querySelector(`.sidebar nav a[onclick*="${pageId}"]`);
+      if (activeLink) activeLink.classList.add('active');
+      
+      if (pageId === 'dashboard') renderActivityChart();
+      if (pageId === 'conversations') {
+        loadCustomers();
+        if (chatInterval) clearInterval(chatInterval);
+        chatInterval = setInterval(() => {
+          loadCustomers();
+          if (selectedCustomerId) loadMessages(selectedCustomerId);
+        }, 5000);
+      } else {
+        if (chatInterval) clearInterval(chatInterval);
+      }
+    }
 
-function closeOrder() {
-  document.getElementById("modalOrder").style.display = "none";
-}
-
-async function loadCatalog() {
-  const d = await api("/catalog");
-  if (d) { catalog = d.catalog; payments = d.payments || []; }
-}
-
-function goStep(n) {
-  orderStep = n;
-  renderStep();
-}
-
-function nextStep() {
-  if (orderStep === 1) {
-    if (!cart.length) { alert("Adicione pelo menos um item"); return; }
-    orderStep = 2;
-  } else if (orderStep === 2) {
-    orderStep = 3;
-  } else {
-    confirmOrder();
-    return;
-  }
-  renderStep();
-}
-
-function renderStep() {
-  [1,2,3].forEach(i => {
-    const el = document.getElementById("step"+i);
-    if (el) el.className = "step" + (i===orderStep?" active":"");
-  });
-  const body = document.getElementById("modalBody");
-  const btn = document.getElementById("btnNext");
-  if (orderStep === 1) {
-    btn.textContent = "Próximo →";
-    renderCatalogStep(body);
-  } else if (orderStep === 2) {
-    btn.textContent = "Próximo →";
-    renderAddressStep(body);
-  } else {
-    btn.textContent = "✅ Confirmar Pedido";
-    renderPaymentStep(body);
-  }
-}
-
-function renderCatalogStep(body) {
-  if (!catalog) { body.innerHTML = '<p style="text-align:center;padding:32px;color:#aaa">Carregando cardápio...</p>'; return; }
-
-  // Extrai categorias
-  const cats = catalog.categories || catalog.sections || catalog.items || [];
-  let catList = [];
-  let allProducts = [];
-
-  if (Array.isArray(cats)) {
-    cats.forEach(cat => {
-      const name = cat.name || cat.title || cat.category || "";
-      const prods = cat.products || cat.items || [];
-      if (prods.length) { catList.push(name); allProducts.push(...prods.map(p=>({...p,_cat:name}))); }
-    });
-  }
-
-  // Cache global com option_groups para lookup no overlay
-  allCatalogProducts = allProducts;
-
-  const activeCat = window._activeCat || "Todos";
-  const filtered = activeCat === "Todos" ? allProducts : allProducts.filter(p=>p._cat===activeCat);
-  const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
-
-  body.innerHTML = `
-    <div class="cat-search">
-      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <input placeholder="Pesquisar produto..." oninput="filterProds(this.value)" id="prodSearch"/>
-    </div>
-    <div class="cat-tabs">
-      <button class="cat-tab${activeCat==="Todos"?" active":""}" onclick="setCat('Todos')">Todos</button>
-      ${catList.map(c=>`<button class="cat-tab${activeCat===c?" active":""}" onclick="setCat('${esc(c)}')">${esc(c)}</button>`).join("")}
-    </div>
-    <div class="prod-list" id="prodList">
-      ${filtered.map(p=>{
-        const hasPromo = p.promotional_price_active && p.promotional_price > 0;
-        const price = hasPromo ? parseFloat(p.promotional_price) : parseFloat(p.price||p.value||p.min_price||0);
-        const origPrice = parseFloat(p.price||0);
-        const hasOptions = (p.option_groups||[]).filter(og=>og.status!=="INACTIVE").length > 0;
-        const inCart = cart.find(c=>c.id===String(p.id||p.product_id));
-        return `
-        <div class="prod-item" onclick="selectProduct('${String(p.id||p.product_id)}')">
-          <div class="prod-img">${(p.image?.thumbnail_url||p.image_url)?`<img src="${p.image?.thumbnail_url||p.image_url}" style="width:50px;height:50px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">`:"🍕"}</div>
-          <div class="prod-info">
-            <div class="prod-name">${esc(p.name)}</div>
-            ${p.description?`<div class="prod-desc">${esc(p.description)}</div>`:""}
-            ${hasOptions?`<div class="has-options-badge">+ Complementos</div>`:""}
-          </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-            ${hasPromo?`<span class="prod-promo">R$ ${origPrice.toFixed(2)}</span><span class="prod-price-promo">R$ ${price.toFixed(2)}</span>`:`<span class="prod-price">${price>0?"R$ "+price.toFixed(2):"Variável"}</span>`}
-            ${inCart?`<span style="font-size:11px;color:var(--purple);font-weight:700">${inCart.quantity} no carrinho</span>`:""}
-          </div>
-        </div>`;
-      }).join("")}
-      ${filtered.length===0?'<p style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum produto encontrado</p>':""}
-    </div>
-    ${cart.length?`
-    <div class="cart-section">
-      <h4>🛒 Carrinho (${cart.reduce((s,i)=>s+i.quantity,0)} itens)</h4>
-      ${cart.map(i=>`
-        <div class="cart-item">
-          <div class="ci-name">
-            ${esc(i.name)}
-            ${(i.options||[]).length?`<div style="font-size:10px;color:#888;margin-top:2px">${i.options.map(o=>esc(o.name)).join(", ")}</div>`:""}
-          </div>
-          <div class="ci-qty">
-            <button onclick="event.stopPropagation();changeQty('${i.id}',-1)">−</button>
-            <span>${i.quantity}</span>
-            <button onclick="event.stopPropagation();changeQty('${i.id}',1)">+</button>
-          </div>
-          <div class="ci-price">R$ ${(i.unit_price*i.quantity).toFixed(2)}</div>
-          <button class="ci-remove" onclick="event.stopPropagation();removeFromCart('${i.id}')">×</button>
-        </div>
-      `).join("")}
-      <div class="cart-total"><span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span></div>
-    </div>`:""}
-  `;
-}
-
-function setCat(cat) { window._activeCat = cat; renderStep(); }
-function filterProds(q) {
-  const items = document.querySelectorAll(".prod-item");
-  items.forEach(el => {
-    const name = el.querySelector(".prod-name")?.textContent?.toLowerCase()||"";
-    el.style.display = name.includes(q.toLowerCase()) ? "" : "none";
-  });
-}
-
-// ── SELECIONA PRODUTO (abre overlay se tiver option_groups) ──
-function selectProduct(id) {
-  const prod = allCatalogProducts.find(p => String(p.id||p.product_id) === String(id));
-  if (!prod) return;
-  const groups = (prod.option_groups||[]).filter(og => og.status !== "INACTIVE" && og.options?.length);
-  if (!groups.length) {
-    // sem complementos: adiciona direto
-    const hasPromo = prod.promotional_price_active && prod.promotional_price > 0;
-    const price = hasPromo ? parseFloat(prod.promotional_price) : parseFloat(prod.price||0);
-    addToCartDirect(String(prod.id||prod.product_id), prod.name, price, []);
-    return;
-  }
-  openOptionsOverlay(prod);
-}
-
-function addToCartDirect(id, name, price, options) {
-  const ex = cart.find(i => i.id === id && JSON.stringify(i.options||[]) === JSON.stringify(options));
-  if (ex && !options.length) { ex.quantity++; }
-  else { cart.push({ id, name, unit_price: price, quantity: 1, options }); }
-  renderStep();
-}
-
-// ── OVERLAY DE OPÇÕES ─────────────────────────────────────────
-function openOptionsOverlay(prod) {
-  pendingProduct = prod;
-  pendingSelections = {};
-  document.getElementById("optProdName").textContent = prod.name;
-  renderOptionsBody();
-  document.getElementById("optionsOverlay").style.display = "flex";
-}
-
-function closeOptionsOverlay() {
-  document.getElementById("optionsOverlay").style.display = "none";
-  pendingProduct = null;
-  pendingSelections = {};
-}
-
-function renderOptionsBody() {
-  const body = document.getElementById("optionsBody");
-  const groups = (pendingProduct.option_groups||[])
-    .filter(og => og.status !== "INACTIVE" && og.options?.length)
-    .sort((a,b) => (b.minimum_quantity>0?1:0) - (a.minimum_quantity>0?1:0));
-  body.innerHTML = groups.map(og => {
-    const isSingle = og.choice_type === "SINGLE" || og.maximum_quantity === 1;
-    const required = og.minimum_quantity > 0;
-    const selected = pendingSelections[og.id] || [];
-    return `
-      <div class="og-section">
-        <div class="og-title">
-          ${esc(og.name)}
-          <span class="og-badge ${required?"og-required":"og-optional"}">${required?"Obrigatório":"Opcional"}</span>
-          ${!isSingle?`<span style="font-size:10px;color:#888">Máx: ${og.maximum_quantity}</span>`:""}
-        </div>
-        ${og.options.filter(o=>o.status!=="INACTIVE").map(opt => {
-          const isSelected = selected.includes(opt.id);
-          return `
-          <div class="og-option${isSelected?" selected":""}" onclick="toggleOption(${og.id},${opt.id},${isSingle},${og.maximum_quantity})">
-            <input type="${isSingle?"radio":"checkbox"}" ${isSelected?"checked":""} style="accent-color:var(--purple)" onclick="event.stopPropagation()"/>
-            <div class="og-option-info">
-              <div class="og-option-name">${esc(opt.name)}</div>
-              ${opt.description?`<div style="font-size:11px;color:#888">${esc(opt.description)}</div>`:""}
-            </div>
-            ${opt.price>0?`<span class="og-option-price">+R$ ${parseFloat(opt.price).toFixed(2)}</span>`:""}
-          </div>`;
-        }).join("")}
-      </div>`;
-  }).join("");
-}
-
-function toggleOption(groupId, optionId, isSingle, maxQty) {
-  if (!pendingSelections[groupId]) pendingSelections[groupId] = [];
-  const sel = pendingSelections[groupId];
-  const idx = sel.indexOf(optionId);
-  if (isSingle) {
-    pendingSelections[groupId] = idx >= 0 ? [] : [optionId];
-  } else {
-    if (idx >= 0) { sel.splice(idx, 1); }
-    else if (sel.length < maxQty) { sel.push(optionId); }
-  }
-  renderOptionsBody();
-}
-
-function confirmAddWithOptions() {
-  if (!pendingProduct) return;
-  const groups = (pendingProduct.option_groups||[]).filter(og => og.status !== "INACTIVE" && og.options?.length);
-  // Valida obrigatórios
-  for (const og of groups) {
-    if (og.minimum_quantity > 0) {
-      const sel = pendingSelections[og.id] || [];
-      if (sel.length < og.minimum_quantity) {
-        alert(`Selecione pelo menos ${og.minimum_quantity} opção em "${og.name}"`);
+    async function loadCustomers() {
+      const customers = await api("/customers");
+      const list = document.getElementById("customerList");
+      if (!customers || !customers.length) {
+        list.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Nenhuma conversa encontrada.</p>';
         return;
       }
-    }
-  }
-  // Monta opções selecionadas
-  const options = [];
-  let extraPrice = 0;
-  for (const og of groups) {
-    const sel = pendingSelections[og.id] || [];
-    for (const optId of sel) {
-      const opt = og.options.find(o => o.id === optId);
-      if (opt) {
-        options.push({ option_group_id: og.id, option_id: opt.id, name: opt.name, price: parseFloat(opt.price||0) });
-        extraPrice += parseFloat(opt.price||0);
-      }
-    }
-  }
-  const hasPromo = pendingProduct.promotional_price_active && pendingProduct.promotional_price > 0;
-  const basePrice = hasPromo ? parseFloat(pendingProduct.promotional_price) : parseFloat(pendingProduct.price||0);
-  addToCartDirect(
-    String(pendingProduct.id||pendingProduct.product_id),
-    pendingProduct.name,
-    basePrice + extraPrice,
-    options
-  );
-  closeOptionsOverlay();
-}
-
-function changeQty(id, delta) {
-  const ex = cart.find(i=>i.id===id);
-  if (!ex) return;
-  ex.quantity += delta;
-  if (ex.quantity <= 0) cart = cart.filter(i=>i.id!==id);
-  renderStep();
-}
-function removeFromCart(id) { cart = cart.filter(i=>i.id!==id); renderStep(); }
-
-function renderAddressStep(body) {
-  body.innerHTML = `
-    <div class="field-group">
-      <label>Tipo de entrega</label>
-      <div style="display:flex;gap:8px;margin-bottom:4px">
-        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid ${orderFulfillment==='delivery'?'var(--purple)':'var(--border)'};border-radius:8px;cursor:pointer;background:${orderFulfillment==='delivery'?'var(--purple-ll)':'#fff'}" onclick="setFulfillment('delivery')">
-          <input type="radio" ${orderFulfillment==='delivery'?'checked':''} style="accent-color:var(--purple)"/> 🛵 Entrega
-        </label>
-        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid ${orderFulfillment==='takeout'?'var(--purple)':'var(--border)'};border-radius:8px;cursor:pointer;background:${orderFulfillment==='takeout'?'var(--purple-ll)':'#fff'}" onclick="setFulfillment('takeout')">
-          <input type="radio" ${orderFulfillment==='takeout'?'checked':''} style="accent-color:var(--purple)"/> 🏪 Retirada
-        </label>
-      </div>
-    </div>
-    ${orderFulfillment==='delivery'?`
-    <div class="grid2">
-      <div class="field-group" style="grid-column:1/-1">
-        <label>Rua *</label>
-        <input id="a-street" value="${esc(orderAddress.street||"")}" placeholder="Ex: Rua das Flores" oninput="orderAddress.street=this.value"/>
-      </div>
-      <div class="field-group">
-        <label>Número *</label>
-        <input id="a-number" value="${esc(orderAddress.number||"")}" placeholder="123" oninput="orderAddress.number=this.value"/>
-      </div>
-      <div class="field-group">
-        <label>Complemento</label>
-        <input id="a-comp" value="${esc(orderAddress.complement||"")}" placeholder="Apto, Bloco..." oninput="orderAddress.complement=this.value"/>
-      </div>
-      <div class="field-group" style="grid-column:1/-1">
-        <label>Bairro *</label>
-        <input id="a-neigh" value="${esc(orderAddress.neighborhood||"")}" placeholder="Ex: Centro" oninput="orderAddress.neighborhood=this.value"/>
-      </div>
-      <div class="field-group">
-        <label>Cidade *</label>
-        <input id="a-city" value="${esc(orderAddress.city||"Campinas")}" oninput="orderAddress.city=this.value"/>
-      </div>
-      <div class="field-group">
-        <label>UF</label>
-        <input id="a-state" value="${esc(orderAddress.state||"SP")}" maxlength="2" oninput="orderAddress.state=this.value.toUpperCase()"/>
-      </div>
-    </div>`:"<p style='text-align:center;padding:24px;color:#888;font-size:13px'>Cliente retira no local — sem endereço necessário.</p>"}
-  `;
-}
-
-function setFulfillment(f) { orderFulfillment = f; renderStep(); }
-
-function renderPaymentStep(body) {
-  const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
-  body.innerHTML = `
-    <div class="field-group">
-      <label>Resumo do pedido</label>
-      <div style="background:var(--purple-ll);border-radius:8px;padding:12px;font-size:13px">
-        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
-        <div style="border-top:1px solid #ddd;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-weight:700">
-          <span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span>
+      list.innerHTML = customers.map(c => `
+        <div onclick="selectChat('${c.id}', '${esc(c.name || c.phone)}')" style="padding: 15px 20px; border-bottom: 1px solid #f5f5f5; cursor: pointer; display: flex; align-items: center; gap: 12px; ${selectedCustomerId === c.id ? 'background: #f0f2f5;' : ''}">
+          <div style="width: 45px; height: 45px; border-radius: 50%; background: var(--violet); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0;">${(c.name || '?')[0]}</div>
+          <div style="flex: 1; overflow: hidden;">
+            <div style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(c.name || c.phone)}</div>
+            <div style="font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.handoff ? '⚠️ Aguardando atendimento' : 'Bot ativo'}</div>
+          </div>
         </div>
-      </div>
-    </div>
-    <div class="field-group">
-      <label>Forma de pagamento *</label>
-      <div class="payment-list">
-        ${payments.filter(p=>p.available_on_menu!==false).map(p=>`
-          <div class="pay-option${orderPayment?.id===p.id?" selected":""}" onclick="selectPayment(${JSON.stringify(p).replace(/"/g,"&quot;")})">
-            <input type="radio" name="pay" ${orderPayment?.id===p.id?"checked":""} style="accent-color:var(--purple)"/>
-            <label>${esc(p.name||p.payment_method)}</label>
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function selectPayment(p) { orderPayment = p; renderStep(); }
-
-async function confirmOrder() {
-  if (!orderPayment) { alert("Selecione a forma de pagamento"); return; }
-  if (!selectedCustomer) return;
-
-  const btn = document.getElementById("btnNext");
-  btn.textContent = "Enviando...";
-  btn.disabled = true;
-
-  const body = {
-    tenantId: TENANT,
-    customerId: selectedCustomer.id,
-    items: cart.map(i => ({
-      id: i.id,
-      name: i.name,
-      quantity: i.quantity,
-      unit_price: i.unit_price,
-      note: i.note || "",
-      options: (i.options||[]).map(o => ({
-        option_group_id: o.option_group_id,
-        option_id: o.option_id,
-        quantity: 1,
-      })),
-    })),
-    fulfillment: orderFulfillment,
-    address: orderFulfillment === "delivery" ? orderAddress : null,
-    paymentMethodId: orderPayment.id,
-    paymentMethodName: orderPayment.name || orderPayment.payment_method,
-    deliveryFee: 0,
-    discount: 0,
-  };
-
-  const result = await api("/order", { method:"POST", body: JSON.stringify(body) });
-  btn.disabled = false;
-
-  if (result?.ok) {
-    closeOrder();
-    alert("✅ Pedido criado!" + (result.cwOrderId ? ` CW #${result.cwOrderId}` : ""));
-    // Recarrega pedidos
-    const orders = await api(`/customer/${selectedCustomer.id}/orders`);
-    if (orders) renderOrders(orders);
-    fetchStats();
-  } else {
-    btn.textContent = "✅ Confirmar Pedido";
-    alert("Erro ao criar pedido: " + (result?.error||"Tente novamente"));
-  }
-}
-
-// ── ABAS CONVERSAS / FILA / EM ATENDIMENTO ────────────────────
-function switchTab(tab) {
-  currentTab = tab;
-  document.getElementById("tabConv").className = "col-tab" + (tab==="conv"?" active":"");
-  document.getElementById("tabQueue").className = "col-tab" + (tab==="queue"?" active":"");
-  document.getElementById("tabActive").className = "col-tab" + (tab==="active"?" active":"");
-  document.getElementById("panelConv").style.display = tab==="conv" ? "flex" : "none";
-  document.getElementById("panelQueue").style.display = tab==="queue" ? "flex" : "none";
-  document.getElementById("panelActive").style.display = tab==="active" ? "flex" : "none";
-  if (tab === "queue" || tab === "active") fetchQueue();
-}
-
-// ── CAMPANINHA ────────────────────────────────────────────────
-let _bellTimer = null;
-function playBell() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
-    gain.gain.setValueAtTime(0.6, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
-  } catch(e) {}
-}
-function startBell() {
-  if (_bellTimer) return; // já tocando
-  playBell();
-  _bellTimer = setInterval(playBell, 8000); // repete a cada 8s
-}
-function stopBell() {
-  if (_bellTimer) { clearInterval(_bellTimer); _bellTimer = null; }
-}
-
-// ── FILA DE ATENDIMENTO ───────────────────────────────────────
-async function fetchQueue() {
-  const d = await api(`/queue?attendant=${encodeURIComponent(ATTENDANT_NAME)}`);
-  if (!d) return;
-
-  const unclaimed = d.filter(c => c.isUnclaimed);
-  const active = d.filter(c => c.claimedBy);
-
-  // Campainha: toca enquanto houver clientes sem atendente
-  if (unclaimed.length > 0) startBell();
-  else stopBell();
-
-  // Badge da aba fila
-  const badge = document.getElementById("queueBadgeCount");
-  if (unclaimed.length > 0) { badge.style.display = ""; badge.textContent = unclaimed.length; }
-  else { badge.style.display = "none"; }
-
-  // Renderiza aba Fila (apenas não assumidos)
-  const el = document.getElementById("queueList");
-  if (!unclaimed.length) {
-    el.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum cliente aguardando</div>';
-  } else {
-    el.innerHTML = unclaimed.map(c => {
-      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
-      return `
-        <div class="queue-item" onclick="selectConv('${c.id}')">
-          <div class="avatar">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
-          <div class="conv-info">
-            <div class="conv-name">${esc(c.name)}</div>
-            <div class="conv-sub">${esc(c.phoneFormatted)}</div>
-            <div class="queue-wait">⏳ Aguardando há ${wait}min</div>
-          </div>
-          <button class="btn-claim" onclick="event.stopPropagation();claimCustomer('${c.id}')">Assumir</button>
-        </div>`;
-    }).join("");
-  }
-
-  // Renderiza aba Em Atendimento
-  // Atendente vê só as suas; admin vê todas
-  const myActive = USER_ROLE === "admin"
-    ? active
-    : active.filter(c => c.claimedBy === ATTENDANT_NAME);
-
-  const elA = document.getElementById("activeList");
-  if (!myActive.length) {
-    elA.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div>';
-  } else {
-    elA.innerHTML = myActive.map(c => {
-      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
-      const isMine = c.claimedBy === ATTENDANT_NAME;
-      return `
-        <div class="queue-item claimed-mine" onclick="selectConv('${c.id}')">
-          <div class="avatar orange">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
-          <div class="conv-info">
-            <div class="conv-name">${esc(c.name)}</div>
-            <div class="conv-sub">${esc(c.phoneFormatted)}</div>
-            <div class="queue-wait">${USER_ROLE==="admin"&&!isMine?"👤 "+esc(c.claimedBy):"🎯 Você"} · ${wait}min</div>
-          </div>
-          ${isMine?`<button class="btn-release" onclick="event.stopPropagation();releaseCustomer('${c.id}')">Encerrar</button>`:""}
-        </div>`;
-    }).join("");
-  }
-}
-
-async function claimCustomer(customerId) {
-  const r = await api("/queue/claim", {
-    method: "POST",
-    body: JSON.stringify({ customerId, attendant: ATTENDANT_NAME, tenantId: TENANT }),
-  });
-  if (r?.ok) { fetchQueue(); fetchConvs(); }
-  else alert("Erro: " + (r?.error || "Tente novamente"));
-}
-
-async function releaseCustomer(customerId) {
-  if (!confirm("Encerrar atendimento? O cliente voltará ao bot automaticamente.")) return;
-  const r = await api("/queue/release", {
-    method: "POST",
-    body: JSON.stringify({ customerId, tenantId: TENANT }),
-  });
-  if (r?.ok) {
-    fetchQueue();
-    fetchConvs();
-    if (selectedCustomer?.id === customerId) {
-      selectedCustomer = null;
-      document.getElementById("colCenter").innerHTML = `<div class="empty-center"><div class="icon">💬</div><p>Selecione uma conversa</p></div>`;
-      document.getElementById("colRight").innerHTML = `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:#bbb;font-size:13px">Selecione uma conversa</div>`;
+      `).join("");
     }
-  } else alert("Erro: " + (r?.error || "Tente novamente"));
-}
 
-// ── REFRESH ──────────────────────────────────────────────────
-function startRefresh() {
-  fetchConvs();
-  fetchStats();
-  fetchQueue();
-  refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); fetchQueue(); }, 5000);
-}
-
-// ── ADMIN ──────────────────────────────────────────────────────
-let settingsData = { attendants: [] };
-let currentAdminTab = "dash";
-
-function openAdmin() {
-  document.getElementById("app").style.display = "none";
-  document.getElementById("header").style.display = "none";
-  document.getElementById("viewAdmin").style.display = "flex";
-  adminTab("dash");
-}
-
-function closeAdmin() {
-  document.getElementById("viewAdmin").style.display = "none";
-  document.getElementById("header").style.display = "flex";
-  document.getElementById("app").style.display = "block";
-  clearInterval(waIntTimer); waIntTimer = null;
-}
-
-function adminTab(tab) {
-  currentAdminTab = tab;
-  const tabIds = { dash:"Dash", ret:"Ret", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
-  Object.entries(tabIds).forEach(([k, v]) => {
-    document.getElementById("at"+v).className = "admin-tab" + (k===tab?" active":"");
-    document.getElementById("adminPanel"+v).style.display = k===tab ? "flex" : "none";
-  });
-  if (tab === "dash") fetchAdminDash();
-  if (tab === "cfg")  loadAdminSettings();
-  if (tab === "ret")  loadRetention();
-}
-
-async function openDebug() {
-  const el = document.getElementById("debugContent");
-  el.textContent = "Carregando...";
-  document.getElementById("modalDebug").style.display = "flex";
-
-  const [d, wlog] = await Promise.all([
-    api("/debug"),
-    fetch(`/webhook-log`).then(r=>r.json()).catch(()=>[]),
-  ]);
-  if (!d) { el.textContent = "❌ Erro ao buscar diagnóstico — verifique a chave admin."; return; }
-
-  const now = new Date().toLocaleString("pt-BR");
-  const lines = [
-    "╔══════════════════════════════════════════════════╗",
-    "║         DIAGNÓSTICO WEBHOOK — PAPPI ATENDENTE    ║",
-    "╚══════════════════════════════════════════════════╝",
-    "Gerado em: " + now,
-    "",
-    "── TENANT ──────────────────────────────────────────",
-    "Nome:            " + d.tenant.name,
-    "ID:              " + d.tenant.id,
-    "waPhoneNumberId: " + d.tenant.waPhoneNumberId,
-    "Ativo:           " + (d.tenant.active ? "✅ Sim" : "❌ Não"),
-    "",
-    "── WHATSAPP INTERNO (BAILEYS) ───────────────────────",
-    "Status:   " + d.baileysStatus.status,
-    d.baileysStatus.account
-      ? "Conta:    " + d.baileysStatus.account.name + " (" + d.baileysStatus.account.phone + ")"
-      : "Conta:    — não conectado",
-    "Uso hora: " + (d.baileysStatus.usage?.hour||0) + "/" + (d.baileysStatus.usage?.hourMax||20) + " msgs",
-    "Uso dia:  " + (d.baileysStatus.usage?.day||0) + "/" + (d.baileysStatus.usage?.dayMax||80) + " msgs",
-    d.baileysStatus.lastAlert ? "⚠️ Alerta: " + d.baileysStatus.lastAlert : "",
-    "",
-    "── CLIENTES RECENTES NO BANCO ───────────────────────",
-    ...(d.recentCustomers.length
-      ? d.recentCustomers.map((c,i) => (i+1) + ". " + (c.name||"Sem nome").padEnd(20) + " | " + c.phone + " | " + new Date(c.lastInteraction).toLocaleString("pt-BR"))
-      : ["❌ NENHUM — webhook Meta não está chegando ao servidor"]),
-    "",
-    "── ÚLTIMOS WEBHOOKS RECEBIDOS (Meta) ────────────────",
-    ...(wlog.length
-      ? wlog.map((w,i) => (i+1) + ". " + w.at + "\n   object: " + (w.body?.object||"?") + " | phoneId: " + (w.body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id||"?"))
-      : ["❌ NENHUM — Meta não está enviando para este servidor"]),
-  ];
-  el.textContent = lines.filter(l => l !== undefined).join("\n");
-}
-
-function closeDebug() {
-  document.getElementById("modalDebug").style.display = "none";
-}
-
-function copyDebug() {
-  const text = document.getElementById("debugContent").textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = event.target;
-    const orig = btn.textContent;
-    btn.textContent = "✅ Copiado!";
-    setTimeout(() => btn.textContent = orig, 2000);
-  }).catch(() => {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-  });
-}
-
-async function fetchAdminDash() {
-  const d = await api("/stats");
-  if (!d) return;
-  const cards = [
-    { val: d.ordersToday,     lbl: "Pedidos Hoje" },
-    { val: d.ordersTotal,     lbl: "Total Pedidos" },
-    { val: d.customersTotal,  lbl: "Clientes" },
-    { val: d.handoffActive,   lbl: "Em Atendimento" },
-    { val: "R$"+Number(d.revenueToday||0).toFixed(0), lbl: "Receita Hoje" },
-  ];
-  document.getElementById("adminDashCards").innerHTML = cards.map(c => `
-    <div class="kpi-card"><div class="kpi-val">${c.val}</div><div class="kpi-lbl">${c.lbl}</div></div>
-  `).join("");
-  const maxCount = Math.max(...(d.ordersByStatus||[]).map(s => s.count), 1);
-  document.getElementById("adminStatusBars").innerHTML = (d.ordersByStatus||[]).map(s => `
-    <div class="status-bar-row">
-      <div class="sb-label">${s.status}</div>
-      <div class="sb-track"><div class="sb-fill" style="width:${Math.round(s.count/maxCount*100)}%"></div></div>
-      <div class="sb-count">${s.count}</div>
-    </div>`).join("") || '<p style="color:#bbb;font-size:13px">Sem pedidos hoje</p>';
-}
-
-async function loadAdminSettings() {
-  const d = await api("/settings");
-  if (!d) return;
-  settingsData = d;
-  document.getElementById("cfg-name").value = d.name || "";
-  document.getElementById("cfg-city").value = d.city || "";
-  document.getElementById("cfg-storeId").value = d.cwStoreId || "";
-  document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
-  renderAttendantList();
-  renderGoogleUserList();
-  gcRefreshStatus();
-  waIntRefreshStatus();
-}
-
-function openSettings() { openAdmin(); adminTab("cfg"); }
-function closeSettings() { closeAdmin(); }
-
-// ── WHATSAPP INTERNO (BAILEYS) ────────────────────────────────
-let waIntTimer = null;
-
-async function waIntRefreshStatus() {
-  const d = await api("/wa-internal/status");
-  if (!d) return;
-  const statusEl = document.getElementById("waIntStatus");
-  const qrWrap = document.getElementById("waIntQrWrap");
-  const qrImg = document.getElementById("waIntQr");
-  const btnConn = document.getElementById("btnWaIntConnect");
-  const btnDisc = document.getElementById("btnWaIntDisconnect");
-
-  // Exibe alerta de uso se houver
-  let alertEl = document.getElementById("waIntAlert");
-  if (!alertEl) {
-    alertEl = document.createElement("div");
-    alertEl.id = "waIntAlert";
-    alertEl.style.cssText = "margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:600;display:none";
-    document.getElementById("waIntStatus").parentElement.appendChild(alertEl);
-  }
-  if (d.lastAlert) {
-    alertEl.style.display = "";
-    alertEl.style.background = d.lastAlert.startsWith("🚫") ? "#fde8d8" : "#fff3cd";
-    alertEl.style.color = d.lastAlert.startsWith("🚫") ? "#c04400" : "#856404";
-    alertEl.textContent = d.lastAlert;
-  } else { alertEl.style.display = "none"; }
-
-  // Barra de uso
-  if (d.usage) {
-    let usageEl = document.getElementById("waIntUsage");
-    if (!usageEl) {
-      usageEl = document.createElement("div");
-      usageEl.id = "waIntUsage";
-      usageEl.style.cssText = "margin-top:10px;font-size:12px;color:#555";
-      document.getElementById("waIntStatus").parentElement.appendChild(usageEl);
+    async function selectChat(id, name) {
+      selectedCustomerId = id;
+      document.getElementById("chatHeader").style.display = "flex";
+      document.getElementById("chatInputArea").style.display = "flex";
+      document.getElementById("chatName").textContent = name;
+      document.getElementById("chatAvatar").textContent = name[0];
+      loadMessages(id);
+      loadCustomers();
     }
-    const hPct = Math.round(d.usage.hour / d.usage.hourMax * 100);
-    const dPct = Math.round(d.usage.day  / d.usage.dayMax  * 100);
-    usageEl.innerHTML =
-      '<div style="margin-bottom:6px">Hora: <b>'+d.usage.hour+'/'+d.usage.hourMax+'</b> <span style="background:#f0f0f0;border-radius:10px;display:inline-block;width:80px;height:7px;vertical-align:middle"><span style="display:block;height:100%;border-radius:10px;background:'+(hPct>=70?'#e53935':'#25d366')+';width:'+hPct+'%"></span></span></div>'+
-      '<div>Dia: <b>'+d.usage.day+'/'+d.usage.dayMax+'</b> <span style="background:#f0f0f0;border-radius:10px;display:inline-block;width:80px;height:7px;vertical-align:middle"><span style="display:block;height:100%;border-radius:10px;background:'+(dPct>=70?'#e53935':'#25d366')+';width:'+dPct+'%"></span></span></div>';
-  }
 
-  if (d.status === "connected") {
-    const acct = d.account ? ` · ${d.account.name} (${d.account.phone})` : "";
-    statusEl.textContent = "● conectado" + acct;
-    statusEl.style.color = "#25d366";
-    qrWrap.style.display = "none";
-    btnConn.style.display = "none";
-    btnDisc.style.display = "inline-block";
-    clearInterval(waIntTimer); waIntTimer = null;
-  } else if (d.status === "qr" && d.qr) {
-    statusEl.textContent = "● escaneie o QR abaixo (mantenha esta tela aberta)";
-    statusEl.style.color = "#ff9800";
-    qrImg.src = d.qr;
-    qrWrap.style.display = "block";
-    btnConn.style.display = "none";
-    btnDisc.style.display = "none";
-    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 8000);
-  } else if (d.status === "connecting") {
-    statusEl.textContent = "● conectando...";
-    statusEl.style.color = "#ff9800";
-    qrWrap.style.display = "none";
-    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 5000);
-  } else {
-    statusEl.textContent = "● desconectado";
-    statusEl.style.color = "#888";
-    qrWrap.style.display = "none";
-    btnConn.style.display = "inline-block";
-    btnDisc.style.display = "none";
-    clearInterval(waIntTimer); waIntTimer = null;
-  }
-}
+    async function loadMessages(customerId) {
+      const messages = await api(`/messages/${customerId}`);
+      const container = document.getElementById("chatMessages");
+      if (!messages || !messages.length) {
+        container.innerHTML = '<div style="margin: auto; text-align: center; color: #888;"><p>Nenhuma mensagem ainda — aguardando o cliente escrever.</p></div>';
+        return;
+      }
+      container.innerHTML = messages.map(m => `
+        <div style="max-width: 70%; padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.4; ${m.role === 'customer' ? 'align-self: flex-start; background: #fff; color: #000;' : 'align-self: flex-end; background: var(--violet); color: #fff;'}">
+          ${esc(m.text)}
+          <div style="font-size: 10px; margin-top: 4px; opacity: 0.7; text-align: right;">${new Date(m.at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+        </div>
+      `).join("");
+      container.scrollTop = container.scrollHeight;
+    }
 
-async function waIntConnect() {
-  document.getElementById("waIntStatus").textContent = "● iniciando...";
-  await api("/wa-internal/connect", { method: "POST", body: "{}" });
-  setTimeout(waIntRefreshStatus, 2000);
-  if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 4000);
-}
+    async function sendMessage() {
+      const input = document.getElementById("messageInput");
+      const text = input.value.trim();
+      if (!text || !selectedCustomerId) return;
+      
+      const customer = await api(`/customers`).then(list => list.find(c => c.id === selectedCustomerId));
+      if (!customer) return;
 
-async function waIntDisconnect() {
-  if (!confirm("Desconectar o WhatsApp interno?")) return;
-  await api("/wa-internal/disconnect", { method: "POST", body: "{}" });
-  clearInterval(waIntTimer); waIntTimer = null;
-  waIntRefreshStatus();
-}
+      input.value = "";
+      await api("/internal/send", {
+        method: "POST",
+        body: JSON.stringify({ phone: customer.phone, text })
+      });
+      loadMessages(selectedCustomerId);
+    }
 
-async function waIntSaveNumbers() {
-  const raw = document.getElementById("waIntNumbers").value;
-  const numbers = raw.split(",").map(s => s.trim()).filter(Boolean);
-  const r = await api("/wa-internal/numbers", {
-    method: "PATCH",
-    body: JSON.stringify({ numbers }),
-  });
-  if (r?.ok) alert("✅ Números salvos!");
-  else alert("Erro ao salvar");
-}
+    function renderActivityChart() {
+      const ctx = document.getElementById('activityChart').getContext('2d');
+      if (window.myChart) window.myChart.destroy();
+      window.myChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
+          datasets: [{
+            label: 'Mensagens',
+            data: [450, 590, 800, 720, 950, 1100, 850],
+            borderColor: '#7C3AED',
+            backgroundColor: 'rgba(124, 58, 237, 0.1)',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 3,
+            pointRadius: 4,
+            pointBackgroundColor: '#7C3AED'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { grid: { display: false } }, x: { grid: { display: false } } }
+        }
+      });
+    }
 
+    // ── GOOGLE CONTACTS ──
+    let _contactsDebounce = null;
+    function openContacts() { document.getElementById("modalContacts").style.display = "flex"; }
+    function closeContacts() { document.getElementById("modalContacts").style.display = "none"; }
+    function searchContactsDebounce() { clearTimeout(_contactsDebounce); _contactsDebounce = setTimeout(searchContactsNow, 400); }
 
-function renderAttendantList() {
-  const el = document.getElementById("attendantList");
-  if (!settingsData.attendants.length) {
-    el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum atendente cadastrado</p>';
-    return;
-  }
-  el.innerHTML = settingsData.attendants.map((a, i) => `
-    <div class="attendant-item">
-      <span>👤 ${esc(a)}</span>
-      <button class="btn-del-att" onclick="removeAttendant(${i})">×</button>
-    </div>`).join("");
-}
+    async function searchContactsNow() {
+      const q = document.getElementById("contactSearchInput").value.trim();
+      const el = document.getElementById("contactResults");
+      if (!q) return;
+      el.innerHTML = '<p style="text-align:center; padding:20px;">🔍 Buscando...</p>';
+      const results = await api(`/google-contacts/search?q=${encodeURIComponent(q)}`).then(r => r || []);
+      if (!results.length) { el.innerHTML = '<p style="text-align:center; padding:20px;">Nenhum contato encontrado.</p>'; return; }
+      el.innerHTML = results.map(c => `
+        <div style="display:flex; align-items:center; gap:12px; padding:12px; border-bottom:1px solid #f5f5f5; cursor:pointer;" onclick="startConvFromContact('${esc(c.name)}','${esc(c.phone)}')">
+          <div style="width:40px; height:40px; border-radius:50%; background:var(--violet); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700;">${(c.name||'?')[0]}</div>
+          <div style="flex:1">
+            <div style="font-weight:600; font-size:14px;">${esc(c.name || 'Sem nome')}</div>
+            <div style="font-size:12px; color:#888;">+${esc(c.phone)}</div>
+          </div>
+          <button style="background:var(--orange); color:#fff; border:none; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer;">Iniciar</button>
+        </div>`).join("");
+    }
 
-function addAttendant() {
-  const input = document.getElementById("newAttendantName");
-  const name = input.value.trim();
-  if (!name) return;
-  if (!settingsData.attendants.includes(name)) settingsData.attendants.push(name);
-  input.value = "";
-  renderAttendantList();
-}
+    // ── TEMPLATES ──
+    let currentTplContact = null;
+    let availableTemplates = [];
 
-function removeAttendant(idx) {
-  settingsData.attendants.splice(idx, 1);
-  renderAttendantList();
-}
+    function startConvFromContact(name, phone) {
+      closeContacts();
+      currentTplContact = { name, phone: phone.replace(/\D/g, "") };
+      document.getElementById("modalTemplates").style.display = "flex";
+      document.getElementById("tplContactName").textContent = name || phone;
+      loadTemplates();
+    }
 
-async function saveCompany() {
-  const r = await api("/settings", {
-    method: "PATCH",
-    body: JSON.stringify({
-      tenantId: TENANT,
-      name: document.getElementById("cfg-name").value.trim(),
-      city: document.getElementById("cfg-city").value.trim(),
-    }),
-  });
-  if (r?.ok) alert("✅ Dados da empresa salvos!");
-  else alert("Erro: " + (r?.error || "Tente novamente"));
-}
+    function closeTemplates() { document.getElementById("modalTemplates").style.display = "none"; }
 
-async function saveAttendants() {
-  const r = await api("/settings", {
-    method: "PATCH",
-    body: JSON.stringify({ tenantId: TENANT, attendants: settingsData.attendants }),
-  });
-  if (r?.ok) alert("✅ Atendentes salvos!");
-  else alert("Erro: " + (r?.error || "Tente novamente"));
-}
+    async function loadTemplates() {
+      const sel = document.getElementById("tplSelect");
+      sel.innerHTML = '<option>Carregando...</option>';
+      const data = await api("/whatsapp/templates");
+      availableTemplates = data || [];
+      sel.innerHTML = '<option value="">Selecione um modelo</option>' + 
+        availableTemplates.map(t => `<option value="${t.name}">${t.name}</option>`).join("");
+    }
 
-// ── BUSCA DE CONTATOS GOOGLE ──────────────────────────────────
-let _contactsDebounce = null;
+    function previewTemplate() {
+      const name = document.getElementById("tplSelect").value;
+      const tpl = availableTemplates.find(t => t.name === name);
+      const preview = document.getElementById("tplPreview");
+      const btn = document.getElementById("btnSendTemplate");
+      if (!tpl) { preview.textContent = "Selecione um modelo."; btn.disabled = true; return; }
+      const body = tpl.components.find(c => c.type === "BODY");
+      preview.textContent = body ? body.text : "Sem texto.";
+      btn.disabled = false;
+    }
 
-function openContacts() {
-  document.getElementById("modalContacts").style.display = "flex";
-  document.getElementById("contactSearchInput").focus();
-}
-function closeContacts() {
-  document.getElementById("modalContacts").style.display = "none";
-  document.getElementById("contactResults").innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>';
-  document.getElementById("contactSearchInput").value = "";
-}
+    async function sendTemplateNow() {
+      const name = document.getElementById("tplSelect").value;
+      const tpl = availableTemplates.find(t => t.name === name);
+      const btn = document.getElementById("btnSendTemplate");
+      btn.disabled = true; btn.textContent = "Enviando...";
+      const res = await api("/whatsapp/send-template", {
+        method: "POST",
+        body: JSON.stringify({ phone: currentTplContact.phone, templateName: tpl.name, languageCode: tpl.language })
+      });
+      if (res?.ok) { alert("✅ Enviado!"); closeTemplates(); }
+      else { alert("Erro ao enviar."); btn.disabled = false; btn.textContent = "Enviar Agora"; }
+    }
 
-function searchContactsDebounce() {
-  clearTimeout(_contactsDebounce);
-  _contactsDebounce = setTimeout(searchContactsNow, 400);
-}
-
-async function searchContactsNow() {
-  const q = document.getElementById("contactSearchInput").value.trim();
-  const el = document.getElementById("contactResults");
-  if (!q) { el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>'; return; }
-  el.innerHTML = '<p style="text-align:center;color:#aaa;font-size:13px;padding:24px">🔍 Buscando...</p>';
-
-  const results = await fetch(`/dash/google-contacts/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`)
-    .then(r => r.json()).catch(() => []);
-
-  if (!results.length) {
-    el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Nenhum contato encontrado</p>';
-    return;
-  }
-
-  el.innerHTML = results.map(c => `
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f5f5f5;cursor:pointer;border-radius:8px;transition:.15s"
-      onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background=''"
-      onclick="startConvFromContact('${esc(c.name)}','${esc(c.phone)}')">
-      <div class="avatar" style="width:36px;height:36px;font-size:14px">${(c.name||c.phone||"?")[0].toUpperCase()}</div>
-      <div style="flex:1">
-        <div style="font-size:14px;font-weight:600;color:#1a1a1a">${esc(c.name||"Sem nome")}</div>
-        <div style="font-size:12px;color:#888">+${esc(c.phone)}</div>
-      </div>
-      <button style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">Conversar</button>
-    </div>`).join("");
-}
-
-let currentTplContact = null;
-let availableTemplates = [];
-
-async function startConvFromContact(name, phone) {
-  closeContacts();
-  const normalized = phone.replace(/\D/g,"");
-  const existing = allConvs.find(c => c.phone === normalized || c.phone.endsWith(normalized.slice(-9)));
-  if (existing) { selectCustomer(existing); return; }
-  
-  currentTplContact = { name, phone: normalized };
-  openTemplates();
-}
-
-function openTemplates() {
-  document.getElementById("modalTemplates").style.display = "flex";
-  document.getElementById("tplContactName").textContent = currentTplContact.name || currentTplContact.phone;
-  loadTemplates();
-}
-
-function closeTemplates() {
-  document.getElementById("modalTemplates").style.display = "none";
-  currentTplContact = null;
-}
-
-async function loadTemplates() {
-  const sel = document.getElementById("tplSelect");
-  sel.innerHTML = '<option value="">Carregando modelos...</option>';
-  const data = await api("/whatsapp/templates");
-  if (!data || data.error) {
-    sel.innerHTML = '<option value="">Erro ao carregar modelos</option>';
-    return;
-  }
-  availableTemplates = data;
-  sel.innerHTML = '<option value="">Selecione um modelo</option>' + 
-    data.map(t => `<option value="${t.name}">${t.name} (${t.category})</option>`).join("");
-}
-
-function previewTemplate() {
-  const name = document.getElementById("tplSelect").value;
-  const tpl = availableTemplates.find(t => t.name === name);
-  const preview = document.getElementById("tplPreview");
-  const btn = document.getElementById("btnSendTemplate");
-  
-  if (!tpl) {
-    preview.textContent = "Selecione um modelo para ver a prévia.";
-    btn.disabled = true;
-    return;
-  }
-  
-  const body = tpl.components.find(c => c.type === "BODY");
-  preview.textContent = body ? body.text : "Modelo sem texto no corpo.";
-  btn.disabled = false;
-}
-
-async function sendTemplateNow() {
-  const name = document.getElementById("tplSelect").value;
-  const tpl = availableTemplates.find(t => t.name === name);
-  if (!tpl || !currentTplContact) return;
-  
-  const btn = document.getElementById("btnSendTemplate");
-  btn.disabled = true;
-  btn.textContent = "Enviando...";
-  
-  const res = await api("/whatsapp/send-template", {
-    method: "POST",
-    body: JSON.stringify({
-      phone: currentTplContact.phone,
-      templateName: tpl.name,
-      languageCode: tpl.language,
-      tenantId: TENANT
-    })
-  });
-  
-  if (res?.ok) {
-    alert("✅ Mensagem enviada!");
-    closeTemplates();
-    // Recarrega conversas para ver a nova
-    setTimeout(loadConversations, 2000);
-  } else {
-    alert("Erro ao enviar: " + (res?.error || "Tente novamente"));
-    btn.disabled = false;
-    btn.textContent = "Enviar Modelo";
-  }
-}
-
-async function sendMsgToPhone(phone) {
-  const el = document.getElementById("msgText");
-  const text = el?.value?.trim();
-  if (!text) return;
-  el.value = "";
-  await api("/send", {
-    method: "POST",
-    body: JSON.stringify({ phone, text, tenantId: TENANT }),
-  });
-  const body = document.getElementById("chatBody");
-  if (body) {
-    const div = document.createElement("div");
-    div.className = "msg out";
-    div.innerHTML = `${esc(text)}<div class="time">${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>`;
-    body.appendChild(div);
-    body.scrollTop = body.scrollHeight;
-  }
-}
-
-// ── GOOGLE CONTACTS ───────────────────────────────────────────
-async function gcRefreshStatus() {
-  const d = await api("/google-contacts/status");
-  if (!d) return;
-  const statusEl = document.getElementById("gcStatus");
-  const btnConn  = document.getElementById("btnGcConnect");
-  const btnDisc  = document.getElementById("btnGcDisconnect");
-  if (d.authorized) {
-    statusEl.textContent = "● autorizado";
-    statusEl.style.color = "#25d366";
-    btnConn.style.display  = "none";
-    btnDisc.style.display  = "inline-block";
-  } else {
-    statusEl.textContent = "● não autorizado";
-    statusEl.style.color = "#e53935";
-    btnConn.style.display  = "inline-block";
-    btnDisc.style.display  = "none";
-  }
-}
-
-async function gcConnect() {
-  const d = await api("/google-contacts/auth-url");
-  if (!d?.url) return;
-  window.open(d.url, "_blank", "width=600,height=700");
-  // Aguarda o usuário autorizar e verifica após 5s
-  setTimeout(gcRefreshStatus, 5000);
-}
-
-async function gcDisconnect() {
-  if (!confirm("Desconectar Google Contacts?")) return;
-  await api("/google-contacts/disconnect", { method: "POST", body: "{}" });
-  gcRefreshStatus();
-}
-
-// ── USUÁRIOS GOOGLE ───────────────────────────────────────────
-function renderGoogleUserList() {
-  const el = document.getElementById("googleUserList");
-  if (!el) return;
-  const list = settingsData.googleUsers || [];
-  if (!list.length) {
-    el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum usuário cadastrado</p>';
-    return;
-  }
-  el.innerHTML = list.map((u, i) => `
-    <div class="attendant-item">
-      <span>
-        <img src="https://www.google.com/s2/favicons?domain=gmail.com" style="width:13px;vertical-align:middle;margin-right:4px"/>
-        ${esc(u.email)}
-        <span style="font-size:10px;margin-left:6px;padding:2px 7px;border-radius:10px;background:${u.role==='admin'?'#FF6B35':'#25d366'};color:#fff;font-weight:700">${u.role==='admin'?'Admin':'Atendente'}</span>
-      </span>
-      <button class="btn-del-att" onclick="removeGoogleUser(${i})">×</button>
-    </div>`).join("");
-}
-
-function addGoogleUser() {
-  const email = document.getElementById("newGoogleEmail").value.trim().toLowerCase();
-  const role  = document.getElementById("newGoogleRole").value;
-  if (!email || !email.includes("@")) return;
-  if (!settingsData.googleUsers) settingsData.googleUsers = [];
-  if (!settingsData.googleUsers.find(u => u.email === email)) {
-    settingsData.googleUsers.push({ email, role });
-  }
-  document.getElementById("newGoogleEmail").value = "";
-  renderGoogleUserList();
-}
-
-function removeGoogleUser(idx) {
-  settingsData.googleUsers.splice(idx, 1);
-  renderGoogleUserList();
-}
-
-async function saveGoogleUsers() {
-  const r = await api("/settings", {
-    method: "PATCH",
-    body: JSON.stringify({ tenantId: TENANT, googleUsers: settingsData.googleUsers || [] }),
-  });
-  if (r?.ok) alert("✅ Usuários salvos!");
-  else alert("Erro: " + (r?.error || "Tente novamente"));
-}
-
-// ── CATALOG LINK HELPERS ──────────────────────────────────────
-function getCatalogUrl() {
-  const storeId = settingsData?.cwStoreId || "";
-  return storeId
-    ? `https://www.cardapioweb.com.br/${storeId}`
-    : "https://integracao.cardapioweb.com";
-}
-async function sendCatalogLink() {
-  if (!selectedCustomer) return;
-  const url = getCatalogUrl();
-  await api("/send", { method:"POST", body: JSON.stringify({ phone: selectedCustomer.phone, text: `🔗 Nosso cardápio digital: ${url}`, customerId: selectedCustomer.id, tenantId: TENANT }) });
-  await loadChatHistory(selectedCustomer.id);
-}
-function copyCatalogLink() {
-  navigator.clipboard.writeText(getCatalogUrl()).then(() => {
-    const btn = event.target;
-    const orig = btn.textContent; btn.textContent = "✓"; setTimeout(() => btn.textContent = orig, 1500);
-  }).catch(() => {});
-}
-function openCatalogLink() { window.open(getCatalogUrl(), "_blank"); }
-
-function copyPhone(phone) {
-  navigator.clipboard.writeText(phone).then(() => {
-    const btn = document.getElementById("btnCopyPhone");
-    if (btn) { btn.textContent = "✓"; setTimeout(() => btn.textContent = "📋", 1500); }
-  }).catch(() => {});
-}
-
-// ── RETENÇÃO ──────────────────────────────────────────────────
-let retCampaigns = [];
-
-async function loadRetention() {
-  // Stats mensais
-  const stats = await api("/retention/stats");
-  if (stats) {
-    document.getElementById("retTotalMonth").textContent = stats.totalMonth;
-    drawRetChart(stats.byDay);
-  }
-  // Campanhas
-  const camps = await api("/retention/campaigns");
-  if (camps) { retCampaigns = camps; renderRetCampaigns(); }
-}
-
-function drawRetChart(byDay) {
-  const canvas = document.getElementById("retChartCanvas");
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  canvas.width = canvas.offsetWidth * devicePixelRatio;
-  canvas.height = canvas.offsetHeight * devicePixelRatio;
-  ctx.scale(devicePixelRatio, devicePixelRatio);
-
-  const today = new Date();
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
-  }
-  const values = days.map(d => byDay[d] || 0);
-  const maxVal = Math.max(...values, 1);
-  const W = canvas.offsetWidth, H = canvas.offsetHeight;
-  const barW = (W / days.length) * 0.7;
-  const gap   = (W / days.length) * 0.3;
-
-  ctx.clearRect(0, 0, W, H);
-  values.forEach((v, i) => {
-    const barH = (v / maxVal) * (H - 16);
-    const x = i * (barW + gap);
-    const y = H - barH - 4;
-    ctx.fillStyle = v > 0 ? "#7C3AED" : "#f0f0f0";
-    ctx.beginPath();
-    ctx.roundRect(x, y, barW, barH || 3, 2);
-    ctx.fill();
-  });
-}
-
-function renderRetCampaigns() {
-  const el = document.getElementById("retCampaignList");
-  if (!el) return;
-  if (!retCampaigns.length) {
-    el.innerHTML = '<p style="color:#bbb;font-size:13px;text-align:center;padding:16px">Nenhuma campanha criada ainda</p>';
-    return;
-  }
-  el.innerHTML = retCampaigns.map(c => `
-    <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:#fafafa;display:flex;align-items:center;gap:12px">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:700;color:#1a1a1a">${esc(c.name)}</div>
-        <div style="font-size:12px;color:#888;margin-top:2px">${esc(c.message.slice(0,60))}${c.message.length>60?"...":""}</div>
-        <div style="font-size:11px;color:#aaa;margin-top:3px">Após ${c.delayHours}h · Limite ${c.monthlyLimit}/mês · ${c.aiFilter?"IA ativa":"Sem IA"}</div>
-      </div>
-      <label class="toggle" title="${c.active?'Ativa':'Pausada'}">
-        <input type="checkbox" ${c.active?"checked":""} onchange="toggleCampaign('${c.id}',this.checked)"/>
-        <span class="slider"></span>
-      </label>
-      <button onclick="deleteCampaign('${c.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:18px;line-height:1;padding:0 4px" title="Excluir">×</button>
-    </div>`).join("");
-}
-
-function openNewCampaign() {
-  document.getElementById("retNewCampaignForm").style.display = "block";
-  document.getElementById("ret-name").focus();
-}
-
-async function saveCampaign() {
-  const name    = document.getElementById("ret-name").value.trim();
-  const message = document.getElementById("ret-msg").value.trim();
-  const delay   = parseInt(document.getElementById("ret-delay").value) || 20;
-  const limit   = parseInt(document.getElementById("ret-limit").value) || 100;
-  const aiFilter = document.getElementById("ret-ai").checked;
-  if (!name || !message) { alert("Preencha nome e mensagem"); return; }
-
-  const r = await api("/retention/campaigns", {
-    method: "POST",
-    body: JSON.stringify({ name, message, delayHours: delay, monthlyLimit: limit, aiFilter, tenantId: TENANT }),
-  });
-  if (r?.id) {
-    document.getElementById("retNewCampaignForm").style.display = "none";
-    document.getElementById("ret-name").value = "";
-    document.getElementById("ret-msg").value = "";
-    loadRetention();
-  } else alert("Erro ao salvar campanha");
-}
-
-async function toggleCampaign(id, active) {
-  await api(`/retention/campaigns/${id}`, { method:"PATCH", body: JSON.stringify({ active }) });
-  loadRetention();
-}
-
-async function deleteCampaign(id) {
-  if (!confirm("Excluir esta campanha?")) return;
-  await api(`/retention/campaigns/${id}`, { method:"DELETE" });
-  loadRetention();
-}
-
-async function runRetentionNow() {
-  const r = await api("/retention/run", { method:"POST", body:"{}" });
-  if (r?.ok) alert("✅ Campanhas iniciadas! Verifique os logs do servidor.");
-  else alert("Erro ao executar campanhas");
-}
-
-// ── HELPERS ──────────────────────────────────────────────────
-function handoffBar(c) {
-  const isMine = c.claimedBy && c.claimedBy === ATTENDANT_NAME;
-  const isTaken = c.claimedBy && !isMine;
-  const label = isMine
-    ? "🎯 Você está atendendo"
-    : isTaken
-    ? "👤 " + esc(c.claimedBy) + " está atendendo"
-    : "⏳ Na fila de espera";
-  const btn = isMine
-    ? "<button class='btn-release' onclick=\"releaseCustomer('" + c.id + "')\">Encerrar</button>"
-    : !c.claimedBy
-    ? "<button class='btn-claim' onclick=\"claimCustomer('" + c.id + "')\">Assumir</button>"
-    : "";
-  return "<div style='padding:8px 14px;border-bottom:1px solid var(--border);background:#fff8f5;display:flex;align-items:center;justify-content:space-between;gap:8px'>"
-    + "<span style='font-size:12px;color:#c04400;font-weight:600'>" + label + "</span>"
-    + btn + "</div>";
-}
-
-function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-function statusLabel(s) {
-  return {
-    waiting_confirmation:"⏳ Aguardando",confirmed:"✅ Confirmado",
-    preparing:"👨‍🍳 Preparando",ready:"✅ Pronto",dispatched:"🛵 A caminho",
-    delivered:"🏠 Entregue",cancelled:"❌ Cancelado"
-  }[s]||s;
-}
-</script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (API_KEY && TENANT) {
+        document.getElementById("login").style.display = "none";
+        document.getElementById("app").style.display = "flex";
+        document.getElementById("currentUserName").textContent = localStorage.getItem("currentUserName");
+        document.getElementById("currentUserRole").textContent = localStorage.getItem("currentUserRole");
+        showPage('dashboard');
+      }
+    });
+  </script>
 </body>
 </html>

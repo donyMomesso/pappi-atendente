@@ -105,8 +105,10 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   // ── Extrai texto da mensagem ──────────────────────────────
   const text = extractText(msg);
 
-  // Salva mensagem do cliente no histórico temporário
-  if (text) chatMemory.push(customer.id, "customer", text);
+  // Salva mensagem do cliente no histórico (memória e banco)
+  if (text) {
+    await chatMemory.push(customer.id, "customer", text);
+  }
 
   // ── Handoff ativo: bot silencioso ─────────────────────────
   if (customer.handoff) {

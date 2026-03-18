@@ -6,6 +6,7 @@ const { findByCustomer } = require("../services/order.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
 const AddressNormalizer = require("../normalizers/AddressNormalizer");
 const Gemini = require("../services/gemini.service");
+const chatMemory = require("../services/chat-memory.service");
 
 // Estado de conversa em memória (simples; para produção use Redis)
 // tenantId:phone → { step, cart, address, payment, ... }
@@ -35,7 +36,9 @@ async function handle({ tenant, wa, customer, msg, text, phone }) {
   // Verifica se loja está aberta
   const open = await cw.isOpen();
   if (!open) {
-    await wa.sendText(phone, "😴 Estamos fechados no momento. Em breve voltamos!");
+    const msgClose = "😴 Estamos fechados no momento. Em breve voltamos!";
+    await wa.sendText(phone, msgClose);
+    await chatMemory.push(customer.id, "bot", msgClose);
     clearSession(tenant.id, phone);
     return;
   }
@@ -77,15 +80,17 @@ async function handle({ tenant, wa, customer, msg, text, phone }) {
 
 async function sendMainMenu(wa, phone, customer) {
   const name = customer.name ? `, ${customer.name.split(" ")[0]}` : "";
+  const text = `Olá${name}! 🍕 Bem-vindo ao Pappi!\n\nO que deseja fazer?`;
   await wa.sendButtons(
     phone,
-    `Olá${name}! 🍕 Bem-vindo ao Pappi!\n\nO que deseja fazer?`,
+    text,
     [
       { id: "PEDIDO", title: "🛒 Fazer Pedido" },
       { id: "STATUS", title: "📦 Ver Meu Pedido" },
       { id: "CARDAPIO", title: "📋 Ver Cardápio" },
     ]
   );
+  await chatMemory.push(customer.id, "bot", text);
 }
 
 async function handleMenu(wa, cw, phone, text, t, session, customer, tenant) {

@@ -1,483 +1,40 @@
-// src/routes/dashboard.routes.js
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
-const { requireAttendantKey } = require("../middleware/auth.middleware");
-const { setHandoff, claimFromQueue, releaseHandoff } = require("../services/customer.service");
+const { authAdmin, authDash } = require("../middleware/auth.middleware");
 const { getClients } = require("../services/tenant.service");
-const { createWithIdempotency } = require("../services/order.service");
-const { validate: validateTotal } = require("../calculators/OrderCalculator");
-const { map: mapPayment } = require("../mappers/PaymentMapper");
-const { normalize: normalizeAddress } = require("../normalizers/AddressNormalizer");
-const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-const { randomUUID } = require("crypto");
-const baileys        = require("../services/baileys.service");
-const chatMemory     = require("../services/chat-memory.service");
 const googleContacts = require("../services/google-contacts.service");
-const retention      = require("../services/retention.service");
+const baileys = require("../services/baileys.service");
+const prisma = require("../lib/prisma");
+const retention = require("../services/retention.service");
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
-// ── Sessões Google (in-memory, 8h TTL) ────────────────────────
-const sessions = new Map();
-
-function createSession(email, role, name) {
-  const token = randomUUID();
-  sessions.set(token, { email, role, name, expiresAt: Date.now() + 8 * 3600_000 });
-  return token;
-}
-
-function getSessionData(token) {
-  const sess = sessions.get(token);
-  if (!sess) return null;
-  if (Date.now() > sess.expiresAt) { sessions.delete(token); return null; }
-  return sess;
-}
-
-// ── Helpers de autenticação ────────────────────────────────────
-function getKey(req) {
-  return req.headers["x-api-key"]
-    || req.query.key
-    || req.headers["authorization"]?.replace("Bearer ", "");
-}
-
-function getRole(key) {
-  const ENV = require("../config/env");
-  if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) return "admin";
-  if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) return "attendant";
-  return getSessionData(key)?.role || null;
-}
-
-// Aceita admin ou atendente
-function authDash(req, res, next) {
-  const role = getRole(getKey(req));
-  if (!role) return res.status(401).json({ error: "unauthorized" });
-  req.userRole = role;
-  next();
-}
-
-// Somente admin
-function authAdmin(req, res, next) {
-  const role = getRole(getKey(req));
-  if (role !== "admin") return res.status(403).json({ error: "forbidden" });
-  req.userRole = "admin";
-  next();
-}
-
-// ── GET /dash/auth ─────────────────────────────────────────────
-// Valida chave e retorna role
-router.get("/auth", (req, res) => {
-  const role = getRole(getKey(req));
-  if (!role) return res.status(401).json({ error: "unauthorized" });
-  res.json({ role });
-});
-
-// ── POST /dash/auth/google ─────────────────────────────────────
-// Verifica token Google e cria sessão
-router.post("/auth/google", async (req, res) => {
+// ── GET /dash/login ───────────────────────────────────────────
+router.post("/login", async (req, res) => {
   try {
-    const { credential } = req.body;
-    if (!credential) return res.status(400).json({ error: "credential obrigatório" });
+    const { tenant } = req.query;
+    const attendantKey = req.headers["x-attendant-key"];
 
-    // Verifica token no Google
-    const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
-    if (!gRes.ok) return res.status(401).json({ error: "Token Google inválido" });
-    const gData = await gRes.json();
-
-    // Confere se o client_id bate
-    const ENV = require("../config/env");
-    if (ENV.GOOGLE_CLIENT_ID && gData.aud !== ENV.GOOGLE_CLIENT_ID) {
-      return res.status(401).json({ error: "Client ID inválido" });
+    if (!tenant || !attendantKey) {
+      return res.status(400).json({ error: "Tenant ID e Attendant Key são obrigatórios" });
     }
 
-    const email = gData.email;
-    const name  = gData.name || email;
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-
-    // Checa lista de usuários autorizados
-    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }).catch(() => null);
-    const googleUsers = cfg?.value ? JSON.parse(cfg.value) : [];
-    const user = googleUsers.find(u => u.email === email);
-    if (!user) return res.status(403).json({ error: "Email não autorizado. Peça ao admin para te adicionar." });
-
-    const token = createSession(email, user.role, name);
-    res.json({ role: user.role, name, email, token });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /dash/stats ────────────────────────────────────────────
-router.get("/stats", authDash, async (req, res) => {
-  try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const [ordersToday, ordersTotal, customersTotal, handoffActive, ordersByStatus] =
-      await Promise.all([
-        prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }),
-        prisma.order.count({ where: { tenantId } }),
-        prisma.customer.count({ where: { tenantId } }),
-        prisma.customer.count({ where: { tenantId, handoff: true } }),
-        prisma.order.groupBy({
-          by: ["status"],
-          where: { tenantId, createdAt: { gte: today } },
-          _count: { id: true },
-        }),
-      ]);
-
-    const revenueToday = await prisma.order.aggregate({
-      where: { tenantId, createdAt: { gte: today }, status: { not: "cancelled" } },
-      _sum: { total: true },
-    });
-
-    res.json({
-      ordersToday,
-      ordersTotal,
-      customersTotal,
-      handoffActive,
-      revenueToday: revenueToday._sum.total || 0,
-      ordersByStatus: ordersByStatus.map((s) => ({ status: s.status, count: s._count.id })),
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /dash/conversations ────────────────────────────────────
-router.get("/conversations", authDash, async (req, res) => {
-  try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-    const customers = await prisma.customer.findMany({
-      where: { tenantId },
-      orderBy: { lastInteraction: "desc" },
-      take: 50,
-      include: {
-        orders: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-      },
-    });
-
-    res.json(
-      customers.map((c) => ({
-        id: c.id,
-        phone: c.phone,
-        phoneFormatted: PhoneNormalizer.format(c.phone),
-        name: c.name || "Sem nome",
-        handoff: c.handoff,
-        lastInteraction: c.lastInteraction,
-        lastAddress: c.lastAddress,
-        visitCount: c.visitCount,
-        lastOrder: c.orders[0]
-          ? {
-              id: c.orders[0].id,
-              status: c.orders[0].status,
-              total: c.orders[0].total,
-              createdAt: c.orders[0].createdAt,
-            }
-          : null,
-      }))
-    );
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /dash/orders ───────────────────────────────────────────
-router.get("/orders", authDash, async (req, res) => {
-  try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const orders = await prisma.order.findMany({
-      where: { tenantId, createdAt: { gte: today } },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { customer: { select: { name: true, phone: true } } },
-    });
-
-    res.json(
-      orders.map((o) => ({
-        id: o.id,
-        cwOrderId: o.cwOrderId,
-        status: o.status,
-        total: o.total,
-        deliveryFee: o.deliveryFee,
-        fulfillment: o.fulfillment,
-        paymentMethodName: o.paymentMethodName,
-        createdAt: o.createdAt,
-        customer: {
-          name: o.customer.name || "Sem nome",
-          phone: PhoneNormalizer.format(o.customer.phone),
-        },
-        items: (() => {
-          try { return JSON.parse(o.itemsSnapshot); } catch { return []; }
-        })(),
-        address: (() => {
-          try { return JSON.parse(o.addressSnapshot || "null"); } catch { return null; }
-        })(),
-      }))
-    );
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /dash/queue ───────────────────────────────────────────
-// Retorna fila de espera: não reclamados + reclamados pelo atendente atual
-router.get("/queue", authDash, async (req, res) => {
-  try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-    const attendant = req.query.attendant || null;
-
-    const customers = await prisma.customer.findMany({
-      where: {
-        tenantId,
-        handoff: true,
-        queuedAt: { not: null },
-      },
-      orderBy: { queuedAt: "asc" },
-      include: {
-        orders: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
-    });
-
-    res.json(customers.map(c => ({
-      id: c.id,
-      phone: c.phone,
-      phoneFormatted: PhoneNormalizer.format(c.phone),
-      name: c.name || "Sem nome",
-      queuedAt: c.queuedAt,
-      claimedBy: c.claimedBy,
-      isMine: attendant && c.claimedBy === attendant,
-      isUnclaimed: !c.claimedBy,
-      lastOrder: c.orders[0] ? {
-        status: c.orders[0].status,
-        total: c.orders[0].total,
-      } : null,
-    })));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /dash/queue/claim ─────────────────────────────────────
-router.post("/queue/claim", authDash, async (req, res) => {
-  try {
-    const { customerId, attendant, tenantId = "tenant-pappi-001" } = req.body;
-    if (!customerId || !attendant) return res.status(400).json({ error: "customerId e attendant obrigatórios" });
-
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-    if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
-    if (customer.claimedBy && customer.claimedBy !== attendant) {
-      return res.status(409).json({ error: `Já assumido por ${customer.claimedBy}` });
+    const config = await prisma.tenant.findUnique({ where: { id: tenant } });
+    if (!config) {
+      return res.status(404).json({ error: "Tenant não encontrado" });
     }
 
-    const updated = await claimFromQueue(customerId, attendant);
-
-    // Notifica o cliente
-    try {
-      const { wa } = await getClients(tenantId);
-      await wa.sendText(customer.phone, `👨‍💼 *${attendant}* está te atendendo agora. Como posso te ajudar?`);
-    } catch { /* ignora */ }
-
-    res.json({ ok: true, claimedBy: updated.claimedBy });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /dash/queue/release ──────────────────────────────────
-// Encerra atendimento humano e volta ao fluxo do bot
-router.post("/queue/release", authDash, async (req, res) => {
-  try {
-    const { customerId, tenantId = "tenant-pappi-001" } = req.body;
-    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
-
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-    if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
-
-    await releaseHandoff(customerId);
-
-    // Avisa o cliente que voltou ao bot
-    try {
-      const { wa } = await getClients(tenantId);
-      await wa.sendText(customer.phone, "✅ Atendimento encerrado. Se precisar de algo, é só chamar! 😊");
-    } catch { /* ignora */ }
-
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PUT /dash/handoff ─────────────────────────────────────────
-router.put("/handoff", authDash, async (req, res) => {
-  try {
-    const { customerId, enabled, tenantId = "tenant-pappi-001" } = req.body;
-    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
-
-    const customer = await setHandoff(customerId, enabled);
-
-    // Notifica o cliente se for assumir
-    if (enabled) {
-      try {
-        const { wa } = await getClients(tenantId);
-        await wa.sendText(
-          customer.phone,
-          "👨‍💼 Um atendente assumiu sua conversa. Como posso te ajudar?"
-        );
-      } catch { /* ignora erro de envio */ }
-    }
-
-    res.json({ ok: true, handoff: customer.handoff });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /dash/send ───────────────────────────────────────────
-router.post("/send", authDash, async (req, res) => {
-  try {
-    const { phone, text, customerId, tenantId = "tenant-pappi-001" } = req.body;
-    if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
-
-    const normalized = PhoneNormalizer.normalize(phone);
-    if (!normalized) return res.status(400).json({ error: "Telefone inválido" });
-
-    const { wa } = await getClients(tenantId);
-    await wa.sendText(normalized, text);
-
-    // Salva no histórico temporário
-    if (customerId) {
-      const sender = getSessionData(getKey(req))?.name || req.userRole;
-      chatMemory.push(customerId, "attendant", text, sender);
-    }
-
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /dash/customer/:id/messages ───────────────────────────
-router.get("/customer/:id/messages", authDash, (req, res) => {
-  res.json(chatMemory.get(req.params.id));
-});
-
-// ── GET /dash/catalog ─────────────────────────────────────────
-router.get("/catalog", authDash, async (req, res) => {
-  try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-    const { cw } = await getClients(tenantId);
-    const catalog = await cw.getCatalog();
-    const payments = await cw.getPaymentMethods();
-    res.json({ catalog, payments });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /dash/customer/:id/orders ─────────────────────────────
-router.get("/customer/:id/orders", authDash, async (req, res) => {
-  try {
-    const orders = await prisma.order.findMany({
-      where: { customerId: req.params.id },
-      orderBy: { createdAt: "desc" },
-      take: 20,
+    const attendantsConfig = await prisma.config.findUnique({
+      where: { key: `${tenant}:attendants` },
     });
-    res.json(orders.map(o => ({
-      ...o,
-      items: (() => { try { return JSON.parse(o.itemsSnapshot); } catch { return []; } })(),
-      address: (() => { try { return JSON.parse(o.addressSnapshot || "null"); } catch { return null; } })(),
-    })));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const attendants = attendantsConfig ? JSON.parse(attendantsConfig.value) : [];
 
-// ── POST /dash/order ──────────────────────────────────────────
-// Cria pedido manual pelo painel (atendente monta o pedido)
-router.post("/order", authDash, async (req, res) => {
-  try {
-    const {
-      tenantId = "tenant-pappi-001",
-      customerId,
-      items,
-      fulfillment = "delivery",
-      address,
-      paymentMethodId,
-      paymentMethodName,
-      deliveryFee = 0,
-      discount = 0,
-    } = req.body;
+    const attendant = attendants.find(att => att.key === attendantKey);
 
-    if (!customerId || !items?.length) {
-      return res.status(400).json({ error: "customerId e items obrigatórios" });
+    if (!attendant) {
+      return res.status(401).json({ error: "Chave de atendente inválida" });
     }
 
-    const { cw } = await getClients(tenantId);
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-    if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
-
-    // Calcula total
-    const calc = validateTotal({ items, declaredTotal: 0, deliveryFee, discount });
-    const total = calc.expected;
-
-    // Monta payload CW
-    const cwPayload = {
-      customer: { phone: PhoneNormalizer.toLocal(customer.phone), name: customer.name || "" },
-      items: items.map(i => ({
-        product_id: i.id,
-        quantity: i.quantity,
-        note: i.note || "",
-        options: (i.options || i.addons || []).map(o => ({
-          option_group_id: o.option_group_id,
-          option_id: o.option_id || o.id,
-          quantity: o.quantity || 1,
-        })),
-      })),
-      fulfillment,
-      payment_method: paymentMethodId,
-      delivery_fee: deliveryFee,
-      discount,
-      ...(fulfillment === "delivery" && address ? { address } : {}),
-    };
-
-    // Envia ao CW
-    let cwResponse = null;
-    let cwOrderId = null;
-    try {
-      cwResponse = await cw.createOrder(cwPayload);
-      cwOrderId = cwResponse?.id || cwResponse?.order_id || null;
-    } catch (e) {
-      console.warn("CW createOrder falhou no painel:", e.message);
-    }
-
-    // Salva localmente com idempotência
-    const idempotencyKey = randomUUID();
-    const { order } = await createWithIdempotency({
-      tenantId,
-      customerId,
-      idempotencyKey,
-      items,
-      total,
-      fulfillment,
-      address: address ? normalizeAddress(address).address : null,
-      paymentMethodId,
-      paymentMethodName,
-      deliveryFee,
-      discount,
-      cwOrderId,
-      cwPayload,
-      cwResponse,
-    });
-
-    res.json({ ok: true, order, cwOrderId });
+    res.json({ name: attendant.name, role: attendant.role });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -488,14 +45,16 @@ router.get("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-    if (!tenant) return res.status(404).json({ error: "Tenant não encontrado" });
 
-    const [cfgAtt, cfgGoogle] = await Promise.all([
-      prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }).catch(() => null),
-      prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }).catch(() => null),
-    ]);
-    const attendants  = cfgAtt?.value    ? JSON.parse(cfgAtt.value)    : [];
-    const googleUsers = cfgGoogle?.value ? JSON.parse(cfgGoogle.value) : [];
+    const attendantsConfig = await prisma.config.findUnique({
+      where: { key: `${tenantId}:attendants` },
+    });
+    const attendants = attendantsConfig ? JSON.parse(attendantsConfig.value) : [];
+
+    const googleUsersConfig = await prisma.config.findUnique({
+      where: { key: `${tenantId}:google_users` },
+    });
+    const googleUsers = googleUsersConfig ? JSON.parse(googleUsersConfig.value) : [];
 
     res.json({
       id: tenant.id,
@@ -618,6 +177,58 @@ router.get("/google-contacts/search", authDash, async (req, res) => {
   res.json(results);
 });
 
+// ── GET /dash/messages/:customerId ───────────────────────────
+router.get("/messages/:customerId", authDash, async (req, res) => {
+  try {
+    const chatMemory = require("../services/chat-memory.service");
+    const messages = await chatMemory.get(req.params.customerId);
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/customers ──────────────────────────────────────
+router.get("/customers", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const customers = await prisma.customer.findMany({
+      where: { tenantId },
+      orderBy: { lastInteraction: "desc" },
+      take: 50,
+    });
+    res.json(customers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/whatsapp/templates ─────────────────────────────
+router.get("/whatsapp/templates", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const { wa } = await getClients(tenantId);
+    const templates = await wa.getTemplates();
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/whatsapp/send-template ─────────────────────────
+router.post("/whatsapp/send-template", authDash, async (req, res) => {
+  try {
+    const { phone, templateName, languageCode, components, tenantId = "tenant-pappi-001" } = req.body;
+    if (!phone || !templateName) return res.status(400).json({ error: "phone e templateName obrigatórios" });
+
+    const { wa } = await getClients(tenantId);
+    const result = await wa.sendTemplate(phone, templateName, languageCode || "pt_BR", components || []);
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/retention/campaigns ────────────────────────────
 router.get("/retention/campaigns", authAdmin, async (req, res) => {
   try {
@@ -703,32 +314,6 @@ router.get("/customer/:id/avatar", authDash, async (req, res) => {
     const url = await baileys.getProfilePicture(customer.phone).catch(() => null);
     res.json({ url: url || null });
   } catch { res.json({ url: null }); }
-});
-
-// ── GET /dash/whatsapp/templates ─────────────────────────────
-router.get("/whatsapp/templates", authDash, async (req, res) => {
-  try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
-    const { wa } = await getClients(tenantId);
-    const templates = await wa.getTemplates();
-    res.json(templates);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /dash/whatsapp/send-template ─────────────────────────
-router.post("/whatsapp/send-template", authDash, async (req, res) => {
-  try {
-    const { phone, templateName, languageCode, components, tenantId = "tenant-pappi-001" } = req.body;
-    if (!phone || !templateName) return res.status(400).json({ error: "phone e templateName obrigatórios" });
-
-    const { wa } = await getClients(tenantId);
-    const result = await wa.sendTemplate(phone, templateName, languageCode || "pt_BR", components || []);
-    res.json({ ok: true, result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 // ── GET /dash/wa-internal/status ─────────────────────────────

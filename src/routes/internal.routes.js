@@ -22,6 +22,14 @@ router.post("/send", async (req, res) => {
     const { wa } = await getClients(req.tenant.id);
     await wa.sendText(normalized, text);
 
+    // Salva no histórico de mensagens
+    const { findByPhone } = require("../services/customer.service");
+    const chatMemory = require("../services/chat-memory.service");
+    const customer = await findByPhone(req.tenant.id, normalized);
+    if (customer) {
+      await chatMemory.push(customer.id, "attendant", text, req.headers["x-attendant-name"] || "Atendente");
+    }
+
     res.json({ ok: true, to: normalized });
   } catch (err) {
     res.status(500).json({ error: err.message });
