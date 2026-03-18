@@ -247,6 +247,21 @@
     /* option indicator */
     .has-options-badge{font-size:10px;background:#fff3ed;color:#c04400;padding:2px 6px;border-radius:8px;font-weight:600;margin-top:2px}
 
+    /* ── ADMIN ── */
+    #viewAdmin{background:#f5f5f5}
+    .admin-tab{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;transition:.2s;white-space:nowrap}
+    .admin-tab:hover{background:rgba(255,255,255,.2)}
+    .admin-tab.active{background:#fff;color:var(--purple)}
+    .admin-panel{flex:1;overflow-y:auto}
+    .kpi-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center}
+    .kpi-card .kpi-val{font-size:28px;font-weight:800;color:var(--purple);margin-bottom:4px}
+    .kpi-card .kpi-lbl{font-size:12px;color:#888}
+    .status-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+    .status-bar-row .sb-label{font-size:12px;color:#555;min-width:120px}
+    .status-bar-row .sb-track{flex:1;height:10px;background:#f0f0f0;border-radius:10px;overflow:hidden}
+    .status-bar-row .sb-fill{height:100%;border-radius:10px;background:var(--purple);transition:.4s}
+    .status-bar-row .sb-count{font-size:12px;font-weight:700;color:#333;min-width:24px;text-align:right}
+
     /* scrollbars */
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:transparent}
@@ -261,7 +276,7 @@
     <div class="logo">🍕</div>
     <h1>Pappi Atendente</h1>
     <p>Painel de Atendimento</p>
-    <input id="loginName" type="text" placeholder="Seu nome (atendente)" autocomplete="off"/>
+    <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
     <input id="loginKey" type="password" placeholder="Chave de acesso" autocomplete="off"/>
     <button onclick="doLogin()">Entrar</button>
     <div id="loginErr" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
@@ -274,8 +289,11 @@
   <div class="stats">
     <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
     <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
-    <div class="stat" style="margin-left:8px">
-      <button onclick="openSettings()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px">⚙️ Config</button>
+    <div class="stat" style="margin-left:8px;gap:8px;display:flex;align-items:center">
+      <span id="h-role-badge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px"></span>
+      <span id="h-user-name" style="font-size:12px;opacity:.8"></span>
+      <button id="btnAdminPanel" onclick="openAdmin()" style="display:none;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">👑 Admin</button>
+      <button id="btnConfig" onclick="openSettings()" style="display:none;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">⚙️ Config</button>
     </div>
   </div>
 </header>
@@ -346,55 +364,111 @@
   </div>
 </div>
 
-<!-- VIEW: CONFIGURAÇÕES -->
-<div id="viewSettings">
-  <button class="btn-back-settings" onclick="closeSettings()">← Voltar ao painel</button>
-  <div class="settings-title">⚙️ Configurações</div>
-  <div class="settings-sub">Gerencie os dados da empresa e os atendentes autorizados.</div>
-  <div class="settings-grid">
-    <!-- Empresa -->
-    <div class="settings-card">
-      <div class="settings-card-head">🏪 Dados da Empresa</div>
-      <div class="settings-card-body">
-        <div class="settings-field"><label>Nome da loja</label><input id="cfg-name" type="text" placeholder="Ex: Pappi Pizzaria"/></div>
-        <div class="settings-field"><label>Cidade</label><input id="cfg-city" type="text" placeholder="Ex: Campinas"/></div>
-        <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
-        <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
-        <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
+<!-- VIEW: ADMIN ──────────────────────────────────────────── -->
+<div id="viewAdmin" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+  <!-- Navbar admin -->
+  <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
+    <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
+    <div id="adminTabs" style="display:flex;gap:2px">
+      <button class="admin-tab active" id="atDash"      onclick="adminTab('dash')">📊 Dashboard</button>
+      <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📈 Relatórios</button>
+      <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
+      <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
+      <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
+    </div>
+  </div>
+
+  <!-- Painel: Dashboard -->
+  <div id="adminPanelDash" class="admin-panel" style="display:flex">
+    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
+      <div class="settings-title">📊 Dashboard Geral</div>
+      <div class="settings-sub">Visão consolidada da operação</div>
+      <div id="adminDashCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-top:16px"></div>
+      <div style="margin-top:28px">
+        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:12px">Pedidos por status hoje</div>
+        <div id="adminStatusBars"></div>
       </div>
     </div>
-    <!-- Atendentes -->
-    <div class="settings-card">
-      <div class="settings-card-head">👥 Atendentes Autorizados</div>
-      <div class="settings-card-body">
-        <div class="attendant-list" id="attendantList"></div>
-        <div class="add-attendant-row">
-          <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
-          <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
-        </div>
-        <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
-      </div>
+  </div>
+
+  <!-- Painel: Relatórios -->
+  <div id="adminPanelRel" class="admin-panel" style="display:none">
+    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
+      <div class="settings-title">📈 Relatórios</div>
+      <div class="settings-sub">Em breve — métricas detalhadas por período e atendente</div>
+      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📊</div>
+      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 4</div>
     </div>
-    <!-- WhatsApp Interno (Baileys) -->
-    <div class="settings-card" style="grid-column:1/-1">
-      <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
-      <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
-        <div style="flex:1;min-width:240px">
-          <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte um segundo WhatsApp para enviar notificações à operação sem consumir créditos da API Meta.</p>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-            <span id="waIntStatus" style="font-size:13px;font-weight:600;color:#888">● desconectado</span>
-            <button id="btnWaIntConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0" onclick="waIntConnect()">Conectar</button>
-            <button id="btnWaIntDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="waIntDisconnect()">Desconectar</button>
+  </div>
+
+  <!-- Painel: Auditoria -->
+  <div id="adminPanelAudit" class="admin-panel" style="display:none">
+    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
+      <div class="settings-title">🔍 Auditoria de Atendimentos</div>
+      <div class="settings-sub">Em breve — IA avalia cada conversa e gera score de qualidade</div>
+      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">🤖</div>
+      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 3</div>
+    </div>
+  </div>
+
+  <!-- Painel: SAC -->
+  <div id="adminPanelSac" class="admin-panel" style="display:none">
+    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
+      <div class="settings-title">📩 SAC — Reclamações e Elogios</div>
+      <div class="settings-sub">Em breve — canal dedicado para feedback dos clientes</div>
+      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📬</div>
+      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 3</div>
+    </div>
+  </div>
+
+  <!-- Painel: Configurações -->
+  <div id="adminPanelCfg" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
+    <div style="max-width:860px;margin:0 auto">
+      <div class="settings-title">⚙️ Configurações</div>
+      <div class="settings-sub">Gerencie os dados da empresa e os atendentes autorizados.</div>
+      <div class="settings-grid" style="margin-top:0">
+        <div class="settings-card">
+          <div class="settings-card-head">🏪 Dados da Empresa</div>
+          <div class="settings-card-body">
+            <div class="settings-field"><label>Nome da loja</label><input id="cfg-name" type="text" placeholder="Ex: Pappi Pizzaria"/></div>
+            <div class="settings-field"><label>Cidade</label><input id="cfg-city" type="text" placeholder="Ex: Campinas"/></div>
+            <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
+            <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
+            <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
           </div>
-          <div class="settings-field">
-            <label>Números para notificar (separados por vírgula)</label>
-            <input id="waIntNumbers" type="text" placeholder="5511999990000, 5511999990001"/>
-          </div>
-          <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="waIntSaveNumbers()">Salvar números</button>
         </div>
-        <div id="waIntQrWrap" style="display:none;text-align:center">
-          <p style="font-size:12px;color:#888;margin-bottom:8px">Escaneie com o WhatsApp do celular</p>
-          <img id="waIntQr" src="" style="width:200px;height:200px;border-radius:12px;border:1px solid #eee"/>
+        <div class="settings-card">
+          <div class="settings-card-head">👥 Atendentes Autorizados</div>
+          <div class="settings-card-body">
+            <div class="attendant-list" id="attendantList"></div>
+            <div class="add-attendant-row">
+              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
+              <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
+          </div>
+        </div>
+        <div class="settings-card" style="grid-column:1/-1">
+          <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
+          <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex:1;min-width:240px">
+              <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte um segundo WhatsApp para enviar notificações à operação sem consumir créditos da API Meta.</p>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                <span id="waIntStatus" style="font-size:13px;font-weight:600;color:#888">● desconectado</span>
+                <button id="btnWaIntConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0" onclick="waIntConnect()">Conectar</button>
+                <button id="btnWaIntDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="waIntDisconnect()">Desconectar</button>
+              </div>
+              <div class="settings-field">
+                <label>Números para notificar (separados por vírgula)</label>
+                <input id="waIntNumbers" type="text" placeholder="5511999990000, 5511999990001"/>
+              </div>
+              <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="waIntSaveNumbers()">Salvar números</button>
+            </div>
+            <div id="waIntQrWrap" style="display:none;text-align:center">
+              <p style="font-size:12px;color:#888;margin-bottom:8px">Escaneie com o WhatsApp do celular</p>
+              <img id="waIntQr" src="" style="width:200px;height:200px;border-radius:12px;border:1px solid #eee"/>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -429,7 +503,8 @@ let pendingProduct = null;   // produto sendo configurado no overlay de options
 let pendingSelections = {};  // { optionGroupId: [optionId, ...] }
 let orderStep = 1;
 let ATTENDANT_NAME = "";
-let currentTab = "conv"; // "conv" | "queue"
+let USER_ROLE = "attendant"; // "attendant" | "admin"
+let currentTab = "conv"; // "conv" | "queue" | "active"
 let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
@@ -438,21 +513,41 @@ let refreshTimer = null;
 // ── LOGIN ──────────────────────────────────────────────────────
 async function doLogin() {
   const name = document.getElementById("loginName").value.trim();
-  const key = document.getElementById("loginKey").value.trim();
+  const key  = document.getElementById("loginKey").value.trim();
   if (!key || !name) { document.getElementById("loginErr").style.display = "block"; return; }
   API_KEY = key;
   ATTENDANT_NAME = name;
+
+  // Descobre role pela chave
+  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
+  if (!authRes.ok) { document.getElementById("loginErr").style.display = "block"; API_KEY = ""; return; }
+  const { role } = await authRes.json();
+  USER_ROLE = role;
+
   const ok = await fetchStats();
   if (ok) {
     document.getElementById("login").style.display = "none";
     document.getElementById("header").style.display = "flex";
     document.getElementById("app").style.display = "block";
+    applyRole();
     startRefresh();
     loadCatalog();
   } else {
     document.getElementById("loginErr").style.display = "block";
     API_KEY = "";
   }
+}
+
+function applyRole() {
+  const isAdmin = USER_ROLE === "admin";
+  const badge = document.getElementById("h-role-badge");
+  badge.style.display = "";
+  badge.textContent = isAdmin ? "👑 Admin" : "🎧 Atendente";
+  badge.style.background = isAdmin ? "rgba(255,215,0,.3)" : "rgba(255,255,255,.15)";
+  badge.style.color = isAdmin ? "#ffe066" : "#fff";
+  document.getElementById("h-user-name").textContent = ATTENDANT_NAME;
+  document.getElementById("btnAdminPanel").style.display = isAdmin ? "" : "none";
+  document.getElementById("btnConfig").style.display = isAdmin ? "" : "none";
 }
 document.getElementById("loginKey").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
 document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKey").focus(); });
@@ -1180,12 +1275,58 @@ function startRefresh() {
   refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); fetchQueue(); }, 5000);
 }
 
-// ── CONFIGURAÇÕES ─────────────────────────────────────────────
+// ── ADMIN ──────────────────────────────────────────────────────
 let settingsData = { attendants: [] };
+let currentAdminTab = "dash";
 
-async function openSettings() {
+function openAdmin() {
   document.getElementById("app").style.display = "none";
-  document.getElementById("viewSettings").style.display = "block";
+  document.getElementById("header").style.display = "none";
+  document.getElementById("viewAdmin").style.display = "flex";
+  adminTab("dash");
+}
+
+function closeAdmin() {
+  document.getElementById("viewAdmin").style.display = "none";
+  document.getElementById("header").style.display = "flex";
+  document.getElementById("app").style.display = "block";
+  clearInterval(waIntTimer); waIntTimer = null;
+}
+
+function adminTab(tab) {
+  currentAdminTab = tab;
+  const tabIds = { dash:"Dash", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
+  Object.entries(tabIds).forEach(([k, v]) => {
+    document.getElementById("at"+v).className = "admin-tab" + (k===tab?" active":"");
+    document.getElementById("adminPanel"+v).style.display = k===tab ? "flex" : "none";
+  });
+  if (tab === "dash") fetchAdminDash();
+  if (tab === "cfg")  loadAdminSettings();
+}
+
+async function fetchAdminDash() {
+  const d = await api("/stats");
+  if (!d) return;
+  const cards = [
+    { val: d.ordersToday,     lbl: "Pedidos Hoje" },
+    { val: d.ordersTotal,     lbl: "Total Pedidos" },
+    { val: d.customersTotal,  lbl: "Clientes" },
+    { val: d.handoffActive,   lbl: "Em Atendimento" },
+    { val: "R$"+Number(d.revenueToday||0).toFixed(0), lbl: "Receita Hoje" },
+  ];
+  document.getElementById("adminDashCards").innerHTML = cards.map(c => `
+    <div class="kpi-card"><div class="kpi-val">${c.val}</div><div class="kpi-lbl">${c.lbl}</div></div>
+  `).join("");
+  const maxCount = Math.max(...(d.ordersByStatus||[]).map(s => s.count), 1);
+  document.getElementById("adminStatusBars").innerHTML = (d.ordersByStatus||[]).map(s => `
+    <div class="status-bar-row">
+      <div class="sb-label">${s.status}</div>
+      <div class="sb-track"><div class="sb-fill" style="width:${Math.round(s.count/maxCount*100)}%"></div></div>
+      <div class="sb-count">${s.count}</div>
+    </div>`).join("") || '<p style="color:#bbb;font-size:13px">Sem pedidos hoje</p>';
+}
+
+async function loadAdminSettings() {
   const d = await api("/settings");
   if (!d) return;
   settingsData = d;
@@ -1196,6 +1337,9 @@ async function openSettings() {
   renderAttendantList();
   waIntRefreshStatus();
 }
+
+function openSettings() { openAdmin(); adminTab("cfg"); }
+function closeSettings() { closeAdmin(); }
 
 // ── WHATSAPP INTERNO (BAILEYS) ────────────────────────────────
 let waIntTimer = null;
@@ -1264,11 +1408,6 @@ async function waIntSaveNumbers() {
   else alert("Erro ao salvar");
 }
 
-function closeSettings() {
-  document.getElementById("viewSettings").style.display = "none";
-  document.getElementById("app").style.display = "block";
-  clearInterval(waIntTimer); waIntTimer = null;
-}
 
 function renderAttendantList() {
   const el = document.getElementById("attendantList");

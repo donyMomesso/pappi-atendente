@@ -15,17 +15,43 @@ const baileys = require("../services/baileys.service");
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// ── Autenticação simples via query param (para o painel HTML) ──
-function authDash(req, res, next) {
-  const key = req.headers["x-api-key"]
+// ── Helpers de autenticação ────────────────────────────────────
+function getKey(req) {
+  return req.headers["x-api-key"]
     || req.query.key
     || req.headers["authorization"]?.replace("Bearer ", "");
+}
+
+function getRole(key) {
   const ENV = require("../config/env");
-  if (!ENV.ATTENDANT_API_KEY || key !== ENV.ATTENDANT_API_KEY) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
+  if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) return "admin";
+  if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) return "attendant";
+  return null;
+}
+
+// Aceita admin ou atendente
+function authDash(req, res, next) {
+  const role = getRole(getKey(req));
+  if (!role) return res.status(401).json({ error: "unauthorized" });
+  req.userRole = role;
   next();
 }
+
+// Somente admin
+function authAdmin(req, res, next) {
+  const role = getRole(getKey(req));
+  if (role !== "admin") return res.status(403).json({ error: "forbidden" });
+  req.userRole = "admin";
+  next();
+}
+
+// ── GET /dash/auth ─────────────────────────────────────────────
+// Valida chave e retorna role
+router.get("/auth", (req, res) => {
+  const role = getRole(getKey(req));
+  if (!role) return res.status(401).json({ error: "unauthorized" });
+  res.json({ role });
+});
 
 // ── GET /dash/stats ────────────────────────────────────────────
 router.get("/stats", authDash, async (req, res) => {
@@ -392,7 +418,7 @@ router.post("/order", authDash, async (req, res) => {
 });
 
 // ── GET /dash/settings ────────────────────────────────────────
-router.get("/settings", authDash, async (req, res) => {
+router.get("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
@@ -418,7 +444,7 @@ router.get("/settings", authDash, async (req, res) => {
 });
 
 // ── PATCH /dash/settings ──────────────────────────────────────
-router.patch("/settings", authDash, async (req, res) => {
+router.patch("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
     const { name, city, attendants } = req.body;
@@ -454,7 +480,7 @@ router.get("/wa-internal/status", authDash, (_req, res) => {
 });
 
 // ── POST /dash/wa-internal/connect ───────────────────────────
-router.post("/wa-internal/connect", authDash, async (_req, res) => {
+router.post("/wa-internal/connect", authAdmin, async (_req, res) => {
   try {
     await baileys.start();
     res.json({ ok: true });
@@ -464,13 +490,13 @@ router.post("/wa-internal/connect", authDash, async (_req, res) => {
 });
 
 // ── POST /dash/wa-internal/disconnect ────────────────────────
-router.post("/wa-internal/disconnect", authDash, (_req, res) => {
+router.post("/wa-internal/disconnect", authAdmin, (_req, res) => {
   baileys.disconnect();
   res.json({ ok: true });
 });
 
 // ── PATCH /dash/wa-internal/numbers ──────────────────────────
-router.patch("/wa-internal/numbers", authDash, (req, res) => {
+router.patch("/wa-internal/numbers", authAdmin, (req, res) => {
   const { numbers } = req.body;
   baileys.setNotifyNumbers(Array.isArray(numbers) ? numbers : []);
   res.json({ ok: true });
