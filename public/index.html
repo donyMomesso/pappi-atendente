@@ -479,6 +479,23 @@
   </div>
 </div>
 
+<!-- MODAL: DIAGNÓSTICO WEBHOOK -->
+<div class="modal-bg" id="modalDebug" style="display:none" onclick="if(event.target===this)closeDebug()">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head">
+      <h3>🔍 Diagnóstico Webhook</h3>
+      <button onclick="closeDebug()">×</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <pre id="debugContent" style="margin:0;padding:16px 20px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;background:#1a1a1a;color:#e0e0e0;font-family:'Courier New',monospace;min-height:200px"></pre>
+    </div>
+    <div class="modal-foot">
+      <button onclick="copyDebug()" style="background:#FF6B35;color:#fff">📋 Copiar Relatório</button>
+      <button onclick="closeDebug()" style="background:#555;color:#fff">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- OVERLAY: OPÇÕES DO PRODUTO -->
 <div class="options-overlay" id="optionsOverlay" style="display:none" onclick="if(event.target===this)closeOptionsOverlay()">
   <div class="options-modal">
@@ -1346,32 +1363,70 @@ function adminTab(tab) {
 }
 
 async function openDebug() {
+  const el = document.getElementById("debugContent");
+  el.textContent = "Carregando...";
+  document.getElementById("modalDebug").style.display = "flex";
+
   const [d, wlog] = await Promise.all([
     api("/debug"),
     fetch(`/webhook-log`).then(r=>r.json()).catch(()=>[]),
   ]);
-  if (!d) { alert("Erro ao buscar diagnóstico"); return; }
+  if (!d) { el.textContent = "❌ Erro ao buscar diagnóstico — verifique a chave admin."; return; }
 
+  const now = new Date().toLocaleString("pt-BR");
   const lines = [
-    "=== DIAGNÓSTICO WEBHOOK ===",
-    "📌 Tenant: " + d.tenant.name,
-    "📞 waPhoneNumberId no banco: " + d.tenant.waPhoneNumberId,
-    "✅ Ativo: " + d.tenant.active,
+    "╔══════════════════════════════════════════════════╗",
+    "║         DIAGNÓSTICO WEBHOOK — PAPPI ATENDENTE    ║",
+    "╚══════════════════════════════════════════════════╝",
+    "Gerado em: " + now,
     "",
-    "📲 Baileys: " + d.baileysStatus.status,
-    d.baileysStatus.account ? "👤 Conta Baileys: " + d.baileysStatus.account.name + " (" + d.baileysStatus.account.phone + ")" : "",
+    "── TENANT ──────────────────────────────────────────",
+    "Nome:            " + d.tenant.name,
+    "ID:              " + d.tenant.id,
+    "waPhoneNumberId: " + d.tenant.waPhoneNumberId,
+    "Ativo:           " + (d.tenant.active ? "✅ Sim" : "❌ Não"),
     "",
-    "👥 Últimos clientes no banco:",
+    "── WHATSAPP INTERNO (BAILEYS) ───────────────────────",
+    "Status:   " + d.baileysStatus.status,
+    d.baileysStatus.account
+      ? "Conta:    " + d.baileysStatus.account.name + " (" + d.baileysStatus.account.phone + ")"
+      : "Conta:    — não conectado",
+    "Uso hora: " + (d.baileysStatus.usage?.hour||0) + "/" + (d.baileysStatus.usage?.hourMax||20) + " msgs",
+    "Uso dia:  " + (d.baileysStatus.usage?.day||0) + "/" + (d.baileysStatus.usage?.dayMax||80) + " msgs",
+    d.baileysStatus.lastAlert ? "⚠️ Alerta: " + d.baileysStatus.lastAlert : "",
+    "",
+    "── CLIENTES RECENTES NO BANCO ───────────────────────",
     ...(d.recentCustomers.length
-      ? d.recentCustomers.map(c => "  • " + (c.name||"Sem nome") + " · " + c.phone + " · " + new Date(c.lastInteraction).toLocaleString("pt-BR"))
-      : ["  ❌ NENHUM — webhook Meta não está chegando ao servidor"]),
+      ? d.recentCustomers.map((c,i) => (i+1) + ". " + (c.name||"Sem nome").padEnd(20) + " | " + c.phone + " | " + new Date(c.lastInteraction).toLocaleString("pt-BR"))
+      : ["❌ NENHUM — webhook Meta não está chegando ao servidor"]),
     "",
-    "📨 Últimos webhooks Meta recebidos:",
+    "── ÚLTIMOS WEBHOOKS RECEBIDOS (Meta) ────────────────",
     ...(wlog.length
-      ? wlog.slice(0,3).map(w => "  • " + w.at + " → " + (w.body?.object||"?") + " / phoneId: " + (w.body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id||"?"))
-      : ["  ❌ NENHUM — Meta não está enviando para este servidor"]),
+      ? wlog.map((w,i) => (i+1) + ". " + w.at + "\n   object: " + (w.body?.object||"?") + " | phoneId: " + (w.body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id||"?"))
+      : ["❌ NENHUM — Meta não está enviando para este servidor"]),
   ];
-  alert(lines.filter(l => l !== undefined).join("\n"));
+  el.textContent = lines.filter(l => l !== undefined).join("\n");
+}
+
+function closeDebug() {
+  document.getElementById("modalDebug").style.display = "none";
+}
+
+function copyDebug() {
+  const text = document.getElementById("debugContent").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = "✅ Copiado!";
+    setTimeout(() => btn.textContent = orig, 2000);
+  }).catch(() => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  });
 }
 
 async function fetchAdminDash() {
