@@ -705,6 +705,32 @@ router.get("/customer/:id/avatar", authDash, async (req, res) => {
   } catch { res.json({ url: null }); }
 });
 
+// ── GET /dash/whatsapp/templates ─────────────────────────────
+router.get("/whatsapp/templates", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const { wa } = await getClients(tenantId);
+    const templates = await wa.getTemplates();
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/whatsapp/send-template ─────────────────────────
+router.post("/whatsapp/send-template", authDash, async (req, res) => {
+  try {
+    const { phone, templateName, languageCode, components, tenantId = "tenant-pappi-001" } = req.body;
+    if (!phone || !templateName) return res.status(400).json({ error: "phone e templateName obrigatórios" });
+
+    const { wa } = await getClients(tenantId);
+    const result = await wa.sendTemplate(phone, templateName, languageCode || "pt_BR", components || []);
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/wa-internal/status ─────────────────────────────
 router.get("/wa-internal/status", authDash, (_req, res) => {
   res.json(baileys.getStatus());

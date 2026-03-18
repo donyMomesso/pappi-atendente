@@ -111,7 +111,29 @@ function createClient({ token, phoneNumberId }) {
         message_id: messageId,
       });
     },
+
+    /** Busca templates aprovados */
+    async getTemplates() {
+      const wabaId = await getWabaId(token, phoneNumberId);
+      if (!wabaId) throw new Error("Não foi possível obter o WABA ID");
+      
+      const res = await fetch(`${WA_BASE}/${wabaId}/message_templates?status=APPROVED`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Erro ao buscar templates: " + await res.text());
+      const data = await res.json();
+      return data.data || [];
+    },
   };
+}
+
+async function getWabaId(token, phoneNumberId) {
+  const res = await fetch(`${WA_BASE}/${phoneNumberId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.whatsapp_business_account_id;
 }
 
 module.exports = { createClient };
