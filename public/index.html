@@ -691,15 +691,17 @@
       if (activeLink) activeLink.classList.add('active');
       
       if (pageId === 'dashboard') renderActivityChart();
+      
+      // Limpa intervalo anterior se existir
+      if (chatInterval) clearInterval(chatInterval);
+      
       if (pageId === 'conversations') {
         loadCustomers();
-        if (chatInterval) clearInterval(chatInterval);
+        // Inicia atualização automática a cada 5 segundos
         chatInterval = setInterval(() => {
           loadCustomers();
           if (selectedCustomerId) loadMessages(selectedCustomerId);
         }, 5000);
-      } else {
-        if (chatInterval) clearInterval(chatInterval);
       }
     }
 
