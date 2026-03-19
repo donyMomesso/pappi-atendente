@@ -1,5 +1,5 @@
 // src/routes/webhook.routes.js
-// Recebe e processa eventos do WhatsApp Cloud API
+// Recebe e processa eventos do WhatsApp Cloud API, Instagram DM e Facebook Messenger
 
 const express = require("express");
 const ENV = require("../config/env");
@@ -7,7 +7,8 @@ const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.ser
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const chatMemory = require("../services/chat-memory.service");
-const baileys   = require("../services/baileys.service");
+const baileys    = require("../services/baileys.service");
+const metaSocial = require("../services/meta-social.service");
 
 const router = express.Router();
 
@@ -47,6 +48,25 @@ router.post("/webhook", async (req, res) => {
     const body = req.body;
     logWebhook(body);
     console.log("[Webhook] recebido:", JSON.stringify(body).slice(0, 200));
+
+    // ── Instagram DM ──────────────────────────────────────────
+    if (body.object === "instagram") {
+      const msgs = metaSocial.parseWebhook(body);
+      for (const m of msgs) {
+        await processSocialMessage(m);
+      }
+      return;
+    }
+
+    // ── Facebook Messenger ────────────────────────────────────
+    if (body.object === "page") {
+      const msgs = metaSocial.parseWebhook(body);
+      for (const m of msgs) {
+        await processSocialMessage(m);
+      }
+      return;
+    }
+
     if (body.object !== "whatsapp_business_account") return;
 
     for (const entry of body.entry || []) {
@@ -193,6 +213,71 @@ const HANDOFF_WORDS = [
 function isHandoffTrigger(text) {
   const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return HANDOFF_WORDS.some((w) => t.includes(w));
+}
+
+// ── Instagram / Facebook Messenger ───────────────────────────
+
+async function processSocialMessage({ platform, senderId, senderName, text }) {
+  if (!senderId || !text?.trim()) return;
+  console.log(`[${platform}] MSG de ${senderId}: ${text.slice(0, 80)}`);
+
+  try {
+    // Usa tenant padrão (futuro: multi-tenant por página)
+    const tenantId = "tenant-pappi-001";
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    await prisma.$disconnect();
+    if (!tenant) return;
+
+    // Cria/busca customer usando senderId como "phone" para plataforma social
+    const socialId = `${platform}:${senderId}`;
+    const customer = await findOrCreate(tenantId, socialId, senderName);
+    await touchInteraction(customer.id);
+    await chatMemory.push(customer.id, "customer", text.trim(), null, null, "text");
+
+    // Handoff ativo: bot silencioso
+    if (customer.handoff) return;
+
+    // Gatilho de handoff
+    if (isHandoffTrigger(text)) {
+      await setHandoff(customer.id, true);
+      const reply = "Aguarde um momento, vou te transferir para um atendente. 👨‍💼";
+      if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply);
+      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply);
+      baileys.notify(`🔔 *Nova mensagem ${platform === "instagram" ? "Instagram" : "Facebook"}!*\n👤 ${senderName || senderId}\n💬 ${text.slice(0, 60)}`).catch(() => {});
+      return;
+    }
+
+    // Gera resposta com Gemini
+    const { getClients } = require("../services/tenant.service");
+    const { cw } = await getClients(tenantId);
+    const gemini = require("../services/gemini.service");
+    const history = (await chatMemory.get(customer.id)).slice(-10);
+
+    // Resposta simples via classifyIntent
+    const catalog = await cw.getCatalog().catch(() => null);
+    const { chatOrder } = gemini;
+    let reply;
+    if (chatOrder) {
+      const result = await chatOrder({
+        history: history.map(m => ({ role: m.role === "customer" ? "customer" : "assistant", text: m.text })),
+        catalog,
+        customerName: customer.name,
+        storeName: tenant.name,
+      });
+      reply = result.reply;
+    } else {
+      reply = "Olá! Como posso ajudar? 😊";
+    }
+
+    await chatMemory.push(customer.id, "assistant", reply, "Pappi", null, "text");
+    if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply);
+    if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply);
+
+  } catch (err) {
+    console.error(`[${platform}] Erro ao processar mensagem:`, err.message);
+  }
 }
 
 module.exports = router;

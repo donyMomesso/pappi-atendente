@@ -53,6 +53,11 @@ module.exports = {
     ""
   ),
 
+  // ── Instagram + Facebook Messenger ────────────────────────
+  INSTAGRAM_PAGE_ID:   process.env.INSTAGRAM_PAGE_ID   || "",
+  FACEBOOK_PAGE_ID:    process.env.FACEBOOK_PAGE_ID    || "",
+  FACEBOOK_PAGE_TOKEN: process.env.FACEBOOK_PAGE_TOKEN || "",
+
   // ── Loja (coordenadas, fallback) ───────────────────────────
   STORE_LAT: toNumber(process.env.STORE_LAT, null),
   STORE_LNG: toNumber(process.env.STORE_LNG, null),
