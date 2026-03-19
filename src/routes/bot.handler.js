@@ -9,17 +9,17 @@ const AddressNormalizer  = require("../normalizers/AddressNormalizer");
 const Gemini             = require("../services/gemini.service");
 const chatMemory         = require("../services/chat-memory.service");
 const Maps               = require("../services/maps.service");
+const sessionService     = require("../services/session.service");
 
-// sessões em memória: "tenantId:phone" → { step, cart, orderHistory, ... }
-const sessions = new Map();
-
-function key(tenantId, phone)          { return `${tenantId}:${phone}`; }
-function clearSession(tenantId, phone) { sessions.delete(key(tenantId, phone)); }
-
-function getSession(tenantId, phone) {
-  const k = key(tenantId, phone);
-  if (!sessions.has(k)) sessions.set(k, { step: "MENU", cart: [], orderHistory: [] });
-  return sessions.get(k);
+// Wrapper síncrono para compatibilidade — sessão vem do banco
+async function getSession(tenantId, phone) {
+  return sessionService.get(tenantId, phone);
+}
+async function clearSession(tenantId, phone) {
+  return sessionService.clear(tenantId, phone);
+}
+async function saveSession(tenantId, phone, session) {
+  return sessionService.save(tenantId, phone, session);
 }
 
 // ── ViaCEP ────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ function isCep(text) { return /^\d{5}-?\d{3}$/.test(text.trim()); }
 // ── Ponto de entrada ──────────────────────────────────────────
 
 async function handle({ tenant, wa, customer, text, phone }) {
-  const session = getSession(tenant.id, phone);
+  const session = await getSession(tenant.id, phone);
   const { cw }  = await getClients(tenant.id);
 
   const open = await cw.isOpen();
@@ -54,26 +54,84 @@ async function handle({ tenant, wa, customer, text, phone }) {
     const m = "😴 Estamos fechados no momento. Em breve voltamos!";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
-    clearSession(tenant.id, phone);
+    await clearSession(tenant.id, phone);
     return;
   }
 
   const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  // Palavras que reiniciam o fluxo
+  // ── Reinicia fluxo ────────────────────────────────────────────
   if (["oi","ola","ola!","menu","inicio","comecar","cardapio","hey","oi!","olá"].includes(t)) {
-    clearSession(tenant.id, phone);
-    await sendGreeting(wa, cw, phone, customer, tenant, getSession(tenant.id, phone));
+    await clearSession(tenant.id, phone);
+    const fresh = await getSession(tenant.id, phone);
+    await sendGreeting(wa, cw, phone, customer, tenant, fresh);
+    await saveSession(tenant.id, phone, fresh);
     return;
   }
 
-  // Handoff em qualquer etapa
+  // ── Handoff em qualquer etapa ─────────────────────────────────
   if (t.includes("atendente") || t.includes("humano") || t.includes("falar com alguem")) {
     const { setHandoff } = require("../services/customer.service");
     await setHandoff(customer.id, true);
-    await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
-    clearSession(tenant.id, phone);
+    const m = "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    await clearSession(tenant.id, phone);
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
     return;
+  }
+
+  // ── Consulta de status do pedido ──────────────────────────────
+  if (
+    t.includes("onde esta") || t.includes("meu pedido") ||
+    t.includes("status") || t.includes("chegou") ||
+    t.includes("quanto tempo") || t.includes("previsao")
+  ) {
+    await handleStatusQuery(wa, phone, customer, tenant);
+    return;
+  }
+
+  // ── Cancelamento de pedido ────────────────────────────────────
+  if (
+    (t.includes("cancel") && (t.includes("pedido") || t.includes("quero"))) &&
+    session.step !== "CONFIRM"
+  ) {
+    await handleCancelRequest(wa, phone, customer, tenant);
+    return;
+  }
+
+  // ── classifyIntent no MENU para direcionar melhor ─────────────
+  if (session.step === "MENU") {
+    try {
+      const intent = await Gemini.classifyIntent(text);
+      if (intent === "STATUS") {
+        await handleStatusQuery(wa, phone, customer, tenant);
+        return;
+      }
+      if (intent === "CARDAPIO") {
+        const merchant = await cw.getMerchant().catch(() => null);
+        const url = merchant?.url || merchant?.website || "";
+        const m = url
+          ? `📱 Confira nosso cardápio completo: ${url}`
+          : "Me diga o que deseja e eu te ajudo a montar o pedido! 😊";
+        await wa.sendText(phone, m);
+        await chatMemory.push(customer.id, "bot", m);
+        return;
+      }
+      if (intent === "HANDOFF") {
+        const { setHandoff } = require("../services/customer.service");
+        await setHandoff(customer.id, true);
+        const m = "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼";
+        await wa.sendText(phone, m);
+        await chatMemory.push(customer.id, "bot", m);
+        await clearSession(tenant.id, phone);
+        const socketService = require("../services/socket.service");
+        socketService.emitQueueUpdate();
+        return;
+      }
+      // PEDIDO ou OUTRO → fluxo normal
+    } catch {}
   }
 
   switch (session.step) {
@@ -87,6 +145,91 @@ async function handle({ tenant, wa, customer, text, phone }) {
     case "PAYMENT":         await handlePayment(wa, phone, text, session, customer, tenant);               break;
     case "CONFIRM":         await handleConfirm(wa, cw, phone, text, t, session, customer, tenant);        break;
     default:                await sendGreeting(wa, cw, phone, customer, tenant, session);
+  }
+
+  if (session._cleared) {
+    await clearSession(tenant.id, phone);
+  } else {
+    await saveSession(tenant.id, phone, session);
+  }
+}
+
+// ── Consulta de status do pedido ──────────────────────────────
+async function handleStatusQuery(wa, phone, customer, tenant) {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const lastOrder = await prisma.order.findFirst({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: "desc" },
+    });
+    await prisma.$disconnect();
+
+    if (!lastOrder) {
+      const m = "Não encontrei nenhum pedido seu por aqui ainda. Quer fazer um? 😊";
+      await wa.sendText(phone, m);
+      await chatMemory.push(customer.id, "bot", m);
+      return;
+    }
+
+    const statusLabels = {
+      waiting_confirmation: "⏳ Aguardando confirmação da loja",
+      confirmed:            "✅ Confirmado pela loja",
+      in_production:        "👨‍🍳 Em produção",
+      in_preparation:       "👨‍🍳 Em produção",
+      dispatched:           "🛵 Saiu para entrega",
+      delivered:            "🎉 Entregue",
+      cancelled:            "❌ Cancelado",
+    };
+
+    const statusLabel = statusLabels[lastOrder.status] || lastOrder.status;
+    const orderNum = lastOrder.id.slice(-6).toUpperCase();
+    const time = new Date(lastOrder.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+    const m = `📦 *Pedido #${orderNum}* (${time})\nStatus: ${statusLabel}`;
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+  } catch (err) {
+    console.error("[Bot] handleStatusQuery:", err.message);
+  }
+}
+
+// ── Cancelamento de pedido ────────────────────────────────────
+async function handleCancelRequest(wa, phone, customer, tenant) {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const lastOrder = await prisma.order.findFirst({
+      where: { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
+      orderBy: { createdAt: "desc" },
+    });
+    await prisma.$disconnect();
+
+    if (!lastOrder) {
+      const m = "Não encontrei nenhum pedido ativo para cancelar.";
+      await wa.sendText(phone, m);
+      await chatMemory.push(customer.id, "bot", m);
+      return;
+    }
+
+    // Cancela no CW se tiver cwOrderId
+    if (lastOrder.cwOrderId) {
+      try {
+        const { cw } = await getClients(tenant.id);
+        await cw.cancelOrder(lastOrder.cwOrderId, "Cancelado pelo cliente via WhatsApp");
+      } catch {}
+    }
+
+    // Atualiza status local
+    const { updateStatus } = require("../services/order.service");
+    await updateStatus(lastOrder.id, "cancelled", "webhook", "Cancelado pelo cliente via WhatsApp");
+
+    const orderNum = lastOrder.id.slice(-6).toUpperCase();
+    const m = `❌ Pedido *#${orderNum}* cancelado. Se precisar de algo, é só chamar! 😊`;
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+  } catch (err) {
+    console.error("[Bot] handleCancelRequest:", err.message);
   }
 }
 
@@ -371,7 +514,7 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
 
 async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) {
   if (t.includes("cancel") || text === "CANCELAR") {
-    clearSession(tenant.id, phone);
+    session._cleared = true;
     await wa.sendText(phone, "Pedido cancelado. Quando quiser, é só chamar! 😊");
     return;
   }
@@ -405,7 +548,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
 
   if (cwOrderId) await setCwOrderId(order.id, cwOrderId, cwResponse);
   await recordOrder(customer.id, cartSummary(session.cart), session.paymentMethodName);
-  clearSession(tenant.id, phone);
+  session._cleared = true;
 
   const orderNum = order.id.slice(-6).toUpperCase();
   const addrLine = session.address ? `\n📍 ${session.address.formatted}` : "";

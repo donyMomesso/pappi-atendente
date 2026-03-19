@@ -67,6 +67,16 @@ router.post("/cw-status", async (req, res) => {
     if (msg && order.customer?.phone) {
       const { wa } = await getClients(req.tenant.id);
       await wa.sendText(order.customer.phone, msg).catch(() => {});
+
+      // Pesquisa de satisfação 30s após entrega
+      if (status === "delivered") {
+        setTimeout(async () => {
+          try {
+            const survey = "🌟 Como foi sua experiência? Responda com uma nota de *1 a 5*:\n\n1 = Ruim  |  5 = Excelente\n\nSua opinião nos ajuda a melhorar! 😊";
+            await wa.sendText(order.customer.phone, survey).catch(() => {});
+          } catch {}
+        }, 30_000);
+      }
     }
   } catch (err) {
     console.error("cw-status:", err.message);
