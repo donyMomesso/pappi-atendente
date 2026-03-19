@@ -99,4 +99,80 @@ Mensagem: "${text.slice(0, 200)}"`
   }
 }
 
-module.exports = { classifyIntent, extractAddress, answerQuestion };
+/**
+ * Conversa de pedido em texto livre — Gemini age como vendedor da pizzaria.
+ * Retorna { reply, items, done }
+ */
+async function chatOrder({ history, catalog, customerName, lastOrder, storeName, city = "Campinas", isVip = false }) {
+  try {
+    const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
+    const model  = client.getGenerativeModel({
+      model: ENV.GEMINI_MODEL || "gemini-2.0-flash",
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+    });
+
+    const catalogText = _formatCatalog(catalog);
+    const nameInfo    = customerName ? `Nome do cliente: ${customerName}` : "";
+    const vipInfo     = isVip && lastOrder
+      ? `⭐ CLIENTE VIP — último pedido: ${lastOrder}\nSeja direto: cumprimente pelo nome, sugira o mesmo pedido ou upgrade. Não pergunte o nome.`
+      : isVip ? `⭐ CLIENTE VIP — cliente recorrente. Seja direto e amigável.` : "";
+
+    const prompt = `Você é Pappi, atendente virtual simpático da pizzaria "${storeName}" em ${city}.
+${nameInfo}
+${vipInfo}
+
+CARDÁPIO COMPLETO:
+${catalogText}
+
+REGRAS:
+- Entenda pedidos em texto livre: "quero de 16", "frango com catupiry meia moda da casa", etc.
+- Informe preços consultando o cardápio acima quando perguntado.
+- Faça UMA sugestão de upsell (borda ou bebida) de forma natural e não insistente.
+- Clientes VIP: sugira o pedido anterior ou upgrade imediatamente.
+- Quando o cliente confirmar o pedido final ("isso", "pode ser", "sim", "ok", "tá bom", "confirmar"), defina done:true e preencha items com o pedido COMPLETO.
+- Só defina done:true após confirmação clara — perguntas de preço não encerram o pedido.
+- Seja conciso. Use emojis com moderação.
+
+CONVERSA:
+${history.map(m => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${m.text}`).join("\n")}
+
+Pappi (responda APENAS com JSON válido, sem markdown):
+{"reply":"...","items":[{"name":"nome exato do cardápio","quantity":1,"unit_price":0.00}],"done":false}`;
+
+    const result  = await model.generateContent(prompt);
+    const raw     = result.response.text().trim().replace(/```[\w]*\n?|```/g, "").trim();
+    const jsonStr = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+    const parsed  = JSON.parse(jsonStr);
+
+    return {
+      reply: parsed.reply || "Pode repetir o pedido? 😊",
+      items: Array.isArray(parsed.items) ? parsed.items : [],
+      done:  !!parsed.done,
+    };
+  } catch (err) {
+    console.warn("[Gemini] chatOrder falhou:", err.message);
+    return { reply: "Pode repetir o pedido? 😊", items: [], done: false };
+  }
+}
+
+function _formatCatalog(catalog) {
+  if (!catalog) return "Cardápio indisponível";
+  let cats = [];
+  if (Array.isArray(catalog))        cats = catalog;
+  else if (catalog.categories)       cats = catalog.categories;
+  else if (catalog.data?.categories) cats = catalog.data.categories;
+  if (!cats.length) return "Cardápio indisponível";
+  return cats.map(c => {
+    const items = (c.items || c.products || [])
+      .map(i => {
+        const price = parseFloat(
+          (i.promotional_price_active ? i.promotional_price : null) ?? i.price ?? 0
+        ).toFixed(2);
+        return `  - ${i.name}: R$ ${price}`;
+      })
+      .join("\n");
+    return `${c.name || c.title}:\n${items}`;
+  }).join("\n\n");
+}
+
+module.exports = { classifyIntent, extractAddress, answerQuestion, chatOrder };

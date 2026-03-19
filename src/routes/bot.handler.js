@@ -500,13 +500,20 @@ function buildCwPayload({ session, customer, calc }) {
 async function saveBaileysMessage(phone, text, tenantId, role = "assistant") {
   try {
     const { PrismaClient } = require("@prisma/client");
+    const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
     const prisma = new PrismaClient();
+
+    // Normaliza o telefone para garantir que bate com o banco
+    const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+
     const customer = await prisma.customer.findUnique({
-      where: { tenantId_phone: { tenantId, phone } },
+      where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
     });
     if (customer) {
       const sender = role === "customer" ? null : "WhatsApp Auxiliar";
       await chatMemory.push(customer.id, role, text, sender, null, "text", null);
+    } else {
+      console.warn(`[BaileysMsg] Cliente não encontrado: ${normalizedPhone} (tenant: ${tenantId})`);
     }
     await prisma.$disconnect();
   } catch (err) {

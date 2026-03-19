@@ -121,4 +121,11 @@ async function findByPhone(tenantId, rawPhone) {
   });
 }
 
-module.exports = { findOrCreate, touchInteraction, setHandoff, claimFromQueue, releaseHandoff, recordOrder, findByPhone };
+/**
+ * Salva o nome do cliente.
+ */
+async function setName(customerId, name) {
+  return prisma.customer.update({ where: { id: customerId }, data: { name } });
+}
+
+module.exports = { findOrCreate, touchInteraction, setHandoff, claimFromQueue, releaseHandoff, recordOrder, findByPhone, setName };

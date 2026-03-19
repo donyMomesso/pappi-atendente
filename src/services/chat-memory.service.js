@@ -8,28 +8,29 @@ const MAX_MEMORY = 100;
 const store = new Map(); // customerId → Message[]
 
 async function push(customerId, role, text, sender = null, mediaUrl = null, mediaType = "text", waMessageId = null) {
+  const at = new Date().toISOString();
+
   // Memória
   if (!store.has(customerId)) store.set(customerId, []);
   const msgs = store.get(customerId);
-  msgs.push({ role, text, sender, mediaUrl, mediaType, waMessageId, at: new Date().toISOString() });
+  const msg = { role, text, sender, mediaUrl, mediaType, waMessageId, at };
+  msgs.push(msg);
   if (msgs.length > MAX_MEMORY) msgs.shift();
 
   // Banco (persistente)
   try {
     await prisma.message.create({
-      data: {
-        customerId,
-        role,
-        text,
-        sender,
-        mediaUrl,
-        mediaType,
-        waMessageId
-      }
+      data: { customerId, role, text, sender, mediaUrl, mediaType, waMessageId }
     });
   } catch (err) {
     console.error(`[ChatMemory] Erro ao salvar no banco:`, err.message);
   }
+
+  // Push em tempo real via WebSocket
+  try {
+    const socketService = require("./socket.service");
+    socketService.emitMessage(customerId, msg);
+  } catch {}
 }
 
 async function updateStatus(customerId, waMessageId, status) {

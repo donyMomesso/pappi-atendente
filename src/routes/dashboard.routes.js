@@ -117,6 +117,30 @@ router.get("/queue", authDash, async (req, res) => {
   }
 });
 
+// ── PUT /dash/handoff ──────────────────────────────────────────
+// Toggle handoff (bot on/off) — chamado pelo toggle do painel
+router.put("/handoff", authDash, async (req, res) => {
+  try {
+    const { customerId, enabled } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        handoff: !!enabled,
+        handoffAt: enabled ? new Date() : null,
+        queuedAt: enabled ? new Date() : null,
+        claimedBy: enabled ? undefined : null,
+      },
+    });
+    // Notifica painel em tempo real
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /dash/queue/claim ─────────────────────────────────────
 router.post("/queue/claim", authDash, async (req, res) => {
   try {

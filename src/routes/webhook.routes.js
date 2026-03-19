@@ -147,6 +147,9 @@ async function processMessage({ tenant, wa, msg, contacts }) {
       phone,
       "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼"
     );
+    // Notifica painel em tempo real
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
     // Notifica equipe interna via Baileys
     const displayName = customer.name || phone;
     baileys.notify(

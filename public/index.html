@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Pappi Atendente</title>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -661,6 +662,77 @@ let orderAddress = {};
 let orderPayment = null;
 let refreshTimer = null;
 
+// ── WEBSOCKET (tempo real) ─────────────────────────────────────
+let _socket = null;
+
+function initSocket() {
+  if (_socket) return;
+  _socket = io({ transports: ["websocket", "polling"] });
+
+  // Nova mensagem chega em tempo real
+  _socket.on("new_message", ({ customerId, message }) => {
+    // Atualiza memória local se for o chat aberto
+    if (selectedCustomer && selectedCustomer.id === customerId) {
+      const body = document.getElementById("chatBody");
+      if (body) appendMsgToChat(body, message);
+    }
+    // Atualiza lista de conversas (badge, última mensagem)
+    fetchConvs();
+  });
+
+  // Fila ou conversa mudou (handoff toggle, novo cliente)
+  _socket.on("queue_update", () => {
+    fetchQueue();
+    fetchConvs();
+    fetchStats();
+  });
+
+  _socket.on("conv_update", ({ customerId }) => {
+    fetchConvs();
+    if (selectedCustomer?.id === customerId) fetchQueue();
+  });
+}
+
+function appendMsgToChat(body, m) {
+  // Remove placeholder "nenhuma mensagem"
+  const placeholder = body.querySelector("div[style*='Nenhuma mensagem']") || body.querySelector("div[style*='aguardando']");
+  if (placeholder) placeholder.remove();
+
+  const isOut = m.role === "attendant";
+  const isBot = m.role === "assistant" || m.role === "bot";
+  const cls = isOut ? "msg out" : "msg in";
+  const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>`
+    : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
+  const time = new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  let content = `<p style="margin:0">${esc(m.text || "")}</p>`;
+
+  const div = document.createElement("div");
+  div.className = cls;
+  div.innerHTML = `${senderTag}${content}<div class="time">${time}</div>`;
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+}
+
+// ── FINALIZAR CONVERSA ─────────────────────────────────────────
+async function finalizarConversa(customerId) {
+  if (!confirm("Finalizar atendimento? O cliente voltará para o bot.")) return;
+  const r = await api("/queue/release", {
+    method: "POST",
+    body: JSON.stringify({ customerId, tenantId: TENANT }),
+  });
+  if (r?.ok) {
+    fetchConvs();
+    fetchQueue();
+    fetchStats();
+    // Re-renderiza painel direito sem o botão Finalizar
+    if (selectedCustomer?.id === customerId) {
+      selectedCustomer = { ...selectedCustomer, handoff: false, claimedBy: null };
+      renderCenter(selectedCustomer);
+      renderRight(selectedCustomer);
+    }
+  }
+}
+
 // ── LOGIN GOOGLE ───────────────────────────────────────────────
 const GOOGLE_CLIENT_ID = "286493900825-vu5mlqqt2fcfk2m2ofsicibls8sa8mgo.apps.googleusercontent.com";
 
@@ -732,10 +804,11 @@ async function doLogin() {
 	  document.getElementById("header").style.display = "flex";
 	  document.getElementById("app").style.display = "block";
 	  applyRole();
+	  initSocket(); // WebSocket tempo real
 	  startRefresh();
 	  loadCatalog();
 	  waIntRefresh();
-	  setInterval(waIntRefresh, 10000); // Atualiza status dos Zaps a cada 10s
+	  setInterval(waIntRefresh, 10000);
 	}
 
 // ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
@@ -860,7 +933,7 @@ async function selectCustomer(c) {
   // Carrega histórico e inicia polling
   clearInterval(chatPollTimer);
   await loadChatHistory(c.id);
-  chatPollTimer = setInterval(() => loadChatHistory(c.id), 1000);
+  chatPollTimer = setInterval(() => loadChatHistory(c.id), 5000); // fallback — socket cuida do tempo real
 }
 
 async function loadChatHistory(customerId) {
@@ -939,10 +1012,11 @@ function renderCenter(c) {
   el.innerHTML = `
     <div class="chat-header">
       <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${(c.name||"?")[0].toUpperCase()}</div>
-      <div>
+      <div style="flex:1">
         <div class="name">${esc(c.name)}</div>
         <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
       </div>
+      ${c.handoff ? `<button onclick="finalizarConversa('${c.id}')" style="background:#e53935;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✅ Finalizar</button>` : ""}
     </div>
     <div class="chat-body" id="chatBody">
       <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">Carregando...</div>
@@ -1569,7 +1643,7 @@ function startRefresh() {
   fetchConvs();
   fetchStats();
   fetchQueue();
-  refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); fetchQueue(); }, 5000);
+  refreshTimer = setInterval(() => { fetchConvs(); fetchStats(); fetchQueue(); }, 10000);
 }
 
 // ── ADMIN ──────────────────────────────────────────────────────
