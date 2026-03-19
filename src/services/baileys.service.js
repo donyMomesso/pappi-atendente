@@ -22,13 +22,14 @@ const INSTANCES = new Map();
 function createInstanceData(id) {
   return {
     id,
-    socket:    null,
-    qrBase64:  null,
-    status:    "disconnected",
-    starting:  false,
-    lastAlert: null,
-    account:   null,
-    notifyTo:  [],
+    socket:     null,
+    qrBase64:   null,
+    status:     "disconnected",
+    starting:   false,
+    lastAlert:  null,
+    account:    null,
+    notifyTo:   [],
+    botEnabled: true, // bot ativo por padrão
     counters: {
       hour:      0,
       day:       0,
@@ -37,6 +38,16 @@ function createInstanceData(id) {
       alerted:   { hour: false, day: false },
     }
   };
+}
+
+// Envia texto diretamente pelo socket Baileys (sem limite de notifyTo)
+async function sendTextRaw(sock, to, text) {
+  try {
+    const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
+    await sock.sendMessage(jid, { text });
+  } catch (err) {
+    console.error("[Baileys] sendTextRaw erro:", err.message);
+  }
 }
 
 function resetCounters(inst) {
@@ -108,7 +119,7 @@ async function start(instanceId = "default") {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Captura mensagens recebidas e salva no histórico do painel
+    // Captura mensagens recebidas — roda bot ou salva no histórico
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
       for (const msg of messages) {
@@ -122,10 +133,40 @@ async function start(instanceId = "default") {
           || null;
         if (!text) continue;
         try {
+          const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+          const { PrismaClient } = require("@prisma/client");
+          const prisma = new PrismaClient();
+          const tenantId = "tenant-pappi-001";
+          const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+
+          // Salva mensagem do cliente no histórico
           const botHandler = require("../routes/bot.handler");
-          await botHandler.saveBaileysMessage(phone, text, "tenant-pappi-001", "customer");
+          await botHandler.saveBaileysMessage(phone, text, tenantId, "customer");
+
+          // Se bot habilitado para esta instância, roteia pelo fluxo do bot
+          if (inst.botEnabled !== false) {
+            const { getTenantByPhoneNumberId, getClients } = require("./tenant.service");
+            const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+            await prisma.$disconnect();
+            if (tenant) {
+              const { findOrCreate, touchInteraction } = require("./customer.service");
+              const customer = await findOrCreate(tenantId, normalizedPhone);
+              await touchInteraction(customer.id);
+
+              if (!customer.handoff) {
+                // Adaptador wa que usa Baileys para enviar
+                const wa = {
+                  sendText: (to, t) => sendTextRaw(sock, to, t),
+                  sendButtons: (to, body, buttons) => sendTextRaw(sock, to,
+                    body + "\n\n" + buttons.map((b, i) => `${i+1}. ${b.title}`).join("\n")),
+                };
+                const { getClients: gc } = require("./tenant.service");
+                await botHandler.handle({ tenant, wa, customer, text, phone: normalizedPhone });
+              }
+            }
+          }
         } catch (err) {
-          console.error(`[Baileys:${instanceId}] Erro ao salvar msg recebida:`, err.message);
+          console.error(`[Baileys:${instanceId}] Erro ao processar msg:`, err.message);
         }
       }
     });
@@ -282,4 +323,10 @@ async function getProfilePicture(phone) {
   return null;
 }
 
-module.exports = { start, initAll, sendText, notify, getStatus, getAllStatuses, setNotifyNumbers, disconnect, getProfilePicture };
+function setBotEnabled(instanceId, enabled) {
+  let inst = INSTANCES.get(instanceId);
+  if (!inst) { inst = createInstanceData(instanceId); INSTANCES.set(instanceId, inst); }
+  inst.botEnabled = !!enabled;
+}
+
+module.exports = { start, initAll, sendText, notify, getStatus, getAllStatuses, setNotifyNumbers, disconnect, getProfilePicture, setBotEnabled };

@@ -224,6 +224,7 @@ router.get("/baileys/instances", authDash, (_req, res) => {
     id: s.id,
     status: s.status,
     qr: s.qr,
+    botEnabled: s.botEnabled !== false,
     name: s.account?.name || null,
     number: s.account?.phone || null,
     usage: s.usage,
@@ -262,6 +263,13 @@ router.post("/baileys/instances/:id/disconnect", authAdmin, (req, res) => {
 router.delete("/baileys/instances/:id", authAdmin, (req, res) => {
   baileys.disconnect(req.params.id);
   res.json({ ok: true });
+});
+
+// ── PATCH /dash/baileys/instances/:id/bot ─────────────────────
+router.patch("/baileys/instances/:id/bot", authAdmin, (req, res) => {
+  const { enabled } = req.body;
+  baileys.setBotEnabled(req.params.id, !!enabled);
+  res.json({ ok: true, botEnabled: !!enabled });
 });
 
 // ── GET /dash/catalog ──────────────────────────────────────────

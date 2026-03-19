@@ -1938,13 +1938,11 @@ async function openDebug() {
     "Ativo:           " + (d.tenant.active ? "✅ Sim" : "❌ Não"),
     "",
     "── WHATSAPP INTERNO (BAILEYS) ───────────────────────",
-    "Status:   " + d.baileysStatus.status,
-    d.baileysStatus.account
-      ? "Conta:    " + d.baileysStatus.account.name + " (" + d.baileysStatus.account.phone + ")"
-      : "Conta:    — não conectado",
-    "Uso hora: " + (d.baileysStatus.usage?.hour||0) + "/" + (d.baileysStatus.usage?.hourMax||20) + " msgs",
-    "Uso dia:  " + (d.baileysStatus.usage?.day||0) + "/" + (d.baileysStatus.usage?.dayMax||80) + " msgs",
-    d.baileysStatus.lastAlert ? "⚠️ Alerta: " + d.baileysStatus.lastAlert : "",
+    ...(Array.isArray(d.baileysStatus) ? d.baileysStatus : [d.baileysStatus]).map(s =>
+      `[${s.id||'default'}] Status: ${s.status||'disconnected'} | Bot: ${s.botEnabled!==false?'🟢 ON':'🔴 OFF'}` +
+      (s.account ? ` | ${s.account.name} (${s.account.phone})` : " | não conectado") +
+      (s.usage ? ` | ${s.usage.hour}/${s.usage.hourMax}h ${s.usage.day}/${s.usage.dayMax}d` : "")
+    ),
     "",
     "── CLIENTES RECENTES NO BANCO ───────────────────────",
     ...(d.recentCustomers.length
@@ -2060,9 +2058,16 @@ function closeSettings() { closeAdmin(); }
             </div>
           ` : ''}
 
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             ${!isConnected && !isQr && !isConnecting ? `<button class="btn-confirm" style="flex:1;padding:6px;font-size:11px" onclick="waIntConnect('${d.id}')">Conectar</button>` : ''}
             ${isConnected ? `<button class="btn-cancel" style="flex:1;padding:6px;font-size:11px" onclick="waIntDisconnect('${d.id}')">Desconectar</button>` : ''}
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#555;cursor:pointer;user-select:none">
+              <label class="toggle" style="margin:0">
+                <input type="checkbox" ${d.botEnabled!==false?'checked':''} onchange="waIntToggleBot('${d.id}',this.checked)"/>
+                <span class="slider"></span>
+              </label>
+              🤖 Bot
+            </label>
           </div>
         </div>
       `;
@@ -2082,6 +2087,13 @@ function closeSettings() { closeAdmin(); }
     if (!confirm(`Desconectar o WhatsApp ${id}?`)) return;
     await api("/wa-internal/disconnect", { method: "POST", body: JSON.stringify({ instanceId: id }) });
     waIntRefreshStatus();
+  }
+
+  async function waIntToggleBot(id, enabled) {
+    await api(`/baileys/instances/${id}/bot`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
   }
 
   async function waIntAddNew() {
