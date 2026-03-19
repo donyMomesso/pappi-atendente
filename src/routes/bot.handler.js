@@ -81,7 +81,7 @@ async function handle({ tenant, wa, customer, msg, text, phone }) {
 async function sendMainMenu(wa, phone, customer) {
   const name = customer.name ? `, ${customer.name.split(" ")[0]}` : "";
   const text = `Olá${name}! 🍕 Bem-vindo ao Pappi!\n\nO que deseja fazer?`;
-  await wa.sendButtons(
+  const result = await wa.sendButtons(
     phone,
     text,
     [
@@ -90,7 +90,8 @@ async function sendMainMenu(wa, phone, customer) {
       { id: "CARDAPIO", title: "📋 Ver Cardápio" },
     ]
   );
-  await chatMemory.push(customer.id, "bot", text);
+  const waMessageId = result?.messages?.[0]?.id;
+  await chatMemory.push(customer.id, "bot", text, null, null, "text", waMessageId);
 }
 
 async function handleMenu(wa, cw, phone, text, t, session, customer, tenant) {

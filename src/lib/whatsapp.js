@@ -124,6 +124,47 @@ function createClient({ token, phoneNumberId }) {
       const data = await res.json();
       return data.data || [];
     },
+
+    /** Busca URL de mídia pelo ID */
+    async getMediaUrl(mediaId) {
+      const res = await fetch(`${WA_BASE}/${mediaId}`, { headers });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.url;
+    },
+
+    /** Envia imagem por URL */
+    sendImage(to, url, caption = "") {
+      return post({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "image",
+        image: { link: url, caption },
+      });
+    },
+
+    /** Envia áudio por URL */
+    sendAudio(to, url) {
+      return post({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "audio",
+        audio: { link: url },
+      });
+    },
+
+    /** Envia documento por URL */
+    sendDocument(to, url, filename = "documento.pdf") {
+      return post({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "document",
+        document: { link: url, filename },
+      });
+    },
   };
 }
 

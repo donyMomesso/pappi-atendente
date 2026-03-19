@@ -813,6 +813,27 @@ async function loadChatHistory(customerId) {
   const msgs = await fetch(`/dash/customer/${customerId}/messages?tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`)
     .then(r => r.json()).catch(() => null);
   if (!msgs) return;
+
+  // Verifica janela de 24h
+  const lastCustomerMsg = msgs.filter(m => m.role === 'customer').pop();
+  const isExpired = lastCustomerMsg ? (new Date() - new Date(lastCustomerMsg.at)) > (24 * 60 * 60 * 1000) : false;
+  const inputArea = document.getElementById("chatInputArea");
+  if (inputArea) {
+    if (isExpired) {
+      inputArea.innerHTML = `
+        <div style="flex:1;text-align:center;padding:10px;background:#fff3cd;border-radius:8px;font-size:12px;color:#856404">
+          ⚠️ Janela de 24h fechada. Use um template para reabrir.
+          <button onclick="openTemplateModal()" style="margin-left:10px;padding:4px 12px;background:#856404;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:bold">Enviar Modelo</button>
+        </div>`;
+    } else if (inputArea.querySelector('div[style*="background:#fff3cd"]')) {
+      inputArea.innerHTML = `
+        <textarea id="msgText" rows="1" placeholder="Digite uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+        <button onclick="sendMsg()" title="Enviar">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        </button>`;
+    }
+  }
+
   const body = document.getElementById("chatBody");
   if (!body) return;
   if (!msgs.length) {
@@ -826,7 +847,27 @@ async function loadChatHistory(customerId) {
     const cls = isOut ? "msg out" : "msg in";
     const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
     const time = new Date(m.at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-    return `<div class="${cls}">${senderTag}${esc(m.text)}<div class="time">${time}</div></div>`;
+    // Lógica de Mídia
+    let content = `<p style="margin:0">${esc(m.text)}</p>`;
+    if (m.mediaUrl) {
+      if (m.mediaType === 'image') {
+        content = `<img src="${m.mediaUrl}" style="max-width:100%;border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="window.open('${m.mediaUrl}')">` + content;
+      } else if (m.mediaType === 'audio') {
+        content = `<audio controls style="max-width:100%;margin-bottom:8px"><source src="${m.mediaUrl}" type="audio/mpeg"></audio>` + content;
+      } else if (m.mediaType === 'document') {
+        content = `<a href="${m.mediaUrl}" target="_blank" style="display:flex;align-items:center;padding:8px;background:rgba(0,0,0,0.05);border-radius:6px;color:inherit;text-decoration:none;margin-bottom:8px">📄 Ver Documento</a>` + content;
+      }
+    }
+
+    // Lógica de Status (Checks)
+    let statusIcon = '';
+    if (isOut || isBot) {
+      if (m.status === 'read') statusIcon = '<span style="color:#34B7F1;margin-left:4px">✓✓</span>';
+      else if (m.status === 'delivered') statusIcon = '<span style="color:#aaa;margin-left:4px">✓✓</span>';
+      else if (m.status === 'sent') statusIcon = '<span style="color:#aaa;margin-left:4px">✓</span>';
+    }
+
+    return `<div class="${cls}">${senderTag}${content}<div class="time" style="display:flex;align-items:center;justify-content:flex-end">${time}${statusIcon}</div></div>`;
   }).join("");
   body.scrollTop = body.scrollHeight;
 }
@@ -851,7 +892,7 @@ function renderCenter(c) {
     <div class="chat-body" id="chatBody">
       <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">Carregando...</div>
     </div>
-    <div class="chat-input">
+    <div class="chat-input" id="chatInputArea">
       <textarea id="msgText" rows="1" placeholder="Digite uma mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
       <button onclick="sendMsg()" title="Enviar">
         <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>

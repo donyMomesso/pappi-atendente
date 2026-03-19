@@ -7,11 +7,11 @@ const prisma = new PrismaClient();
 const MAX_MEMORY = 100;
 const store = new Map(); // customerId → Message[]
 
-async function push(customerId, role, text, sender = null) {
+async function push(customerId, role, text, sender = null, mediaUrl = null, mediaType = "text", waMessageId = null) {
   // Memória
   if (!store.has(customerId)) store.set(customerId, []);
   const msgs = store.get(customerId);
-  msgs.push({ role, text, sender, at: new Date().toISOString() });
+  msgs.push({ role, text, sender, mediaUrl, mediaType, waMessageId, at: new Date().toISOString() });
   if (msgs.length > MAX_MEMORY) msgs.shift();
 
   // Banco (persistente)
@@ -21,11 +21,31 @@ async function push(customerId, role, text, sender = null) {
         customerId,
         role,
         text,
-        sender
+        sender,
+        mediaUrl,
+        mediaType,
+        waMessageId
       }
     });
   } catch (err) {
     console.error(`[ChatMemory] Erro ao salvar no banco:`, err.message);
+  }
+}
+
+async function updateStatus(customerId, waMessageId, status) {
+  try {
+    await prisma.message.update({
+      where: { waMessageId },
+      data: { status }
+    });
+    // Atualiza memória se necessário
+    const msgs = store.get(customerId);
+    if (msgs) {
+      const m = msgs.find(msg => msg.waMessageId === waMessageId);
+      if (m) m.status = status;
+    }
+  } catch (err) {
+    // Ignora se não encontrar a mensagem
   }
 }
 
@@ -40,7 +60,15 @@ async function get(customerId) {
       orderBy: { createdAt: "asc" },
       take: 100,
     });
-    return rows.map(r => ({ role: r.role, text: r.text, sender: r.sender, at: r.createdAt.toISOString() }));
+    return rows.map(r => ({ 
+      role: r.role, 
+      text: r.text, 
+      sender: r.sender, 
+      mediaUrl: r.mediaUrl, 
+      mediaType: r.mediaType, 
+      status: r.status,
+      at: r.createdAt.toISOString() 
+    }));
   } catch { return []; }
 }
 

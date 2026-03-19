@@ -102,12 +102,12 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   // Atualiza última interação
   await touchInteraction(customer.id);
 
-  // ── Extrai texto da mensagem ──────────────────────────────
-  const text = extractText(msg);
+  // ── Extrai texto e mídia da mensagem ──────────────────────
+  const { text, mediaUrl, mediaType } = await extractContent(wa, msg);
 
   // Salva mensagem do cliente no histórico (memória e banco)
-  if (text) {
-    await chatMemory.push(customer.id, "customer", text);
+  if (text || mediaUrl) {
+    await chatMemory.push(customer.id, "customer", text || "", mediaUrl, mediaType);
   }
 
   // ── Handoff ativo: bot silencioso ─────────────────────────
@@ -143,23 +143,45 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
 async function processStatus({ tenant, status }) {
   // Processar status de entrega de mensagem (sent, delivered, read, failed)
-  if (status.status === "failed") {
-    console.error(`[${tenant.id}] Mensagem ${status.id} falhou:`, status.errors);
+  const { id, status: s, recipient_id } = status;
+  if (s === "failed") {
+    console.error(`[${tenant.id}] Mensagem ${id} falhou:`, status.errors);
   }
+  
+  // Atualiza status no banco para o check azul
+  await chatMemory.updateStatus(recipient_id, id, s).catch(() => {});
 }
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function extractText(msg) {
-  if (msg.type === "text") return msg.text?.body?.trim() || null;
-  if (msg.type === "interactive") {
-    return (
-      msg.interactive?.button_reply?.title ||
-      msg.interactive?.list_reply?.title ||
-      null
-    );
+async function extractContent(wa, msg) {
+  let text = null;
+  let mediaUrl = null;
+  let mediaType = "text";
+
+  if (msg.type === "text") {
+    text = msg.text?.body?.trim() || null;
+  } else if (msg.type === "interactive") {
+    text = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || null;
+  } else if (msg.type === "image") {
+    mediaType = "image";
+    text = msg.image.caption || "📷 Imagem";
+    mediaUrl = await wa.getMediaUrl(msg.image.id);
+  } else if (msg.type === "audio") {
+    mediaType = "audio";
+    text = "🎵 Áudio";
+    mediaUrl = await wa.getMediaUrl(msg.audio.id);
+  } else if (msg.type === "document") {
+    mediaType = "document";
+    text = msg.document.filename || "📄 Documento";
+    mediaUrl = await wa.getMediaUrl(msg.document.id);
+  } else if (msg.type === "video") {
+    mediaType = "video";
+    text = msg.video.caption || "🎥 Vídeo";
+    mediaUrl = await wa.getMediaUrl(msg.video.id);
   }
-  return null;
+
+  return { text, mediaUrl, mediaType };
 }
 
 const HANDOFF_WORDS = [

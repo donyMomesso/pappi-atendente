@@ -149,6 +149,15 @@ model Message {
   role       String   // "customer" | "attendant" | "bot"
   text       String
   sender     String?  // nome do atendente (quando role=attendant)
+  
+  // Mídia
+  mediaUrl   String?
+  mediaType  String   @default("text") // text | image | audio | video | document
+  
+  // Status da Meta
+  waMessageId String? @unique // ID retornado pela Meta
+  status      String? // sent | delivered | read | failed
+
   createdAt  DateTime @default(now())
 
   @@index([customerId, createdAt])

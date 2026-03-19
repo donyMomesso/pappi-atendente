@@ -22,14 +22,15 @@ router.post("/send", async (req, res) => {
     if (!normalized) return res.status(400).json({ error: "Telefone inválido" });
 
     const { wa } = await getClients(tenantId);
-    await wa.sendText(normalized, text);
+    const result = await wa.sendText(normalized, text);
+    const waMessageId = result?.messages?.[0]?.id;
 
     // Salva no histórico de mensagens
     const { findByPhone } = require("../services/customer.service");
     const chatMemory = require("../services/chat-memory.service");
     const customer = await findByPhone(tenantId, normalized);
     if (customer) {
-      await chatMemory.push(customer.id, "attendant", text, req.attendant?.name || "Atendente");
+      await chatMemory.push(customer.id, "attendant", text, req.attendant?.name || "Atendente", null, "text", waMessageId);
     }
 
     res.json({ ok: true, to: normalized });
