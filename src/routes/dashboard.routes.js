@@ -199,8 +199,13 @@ router.get("/catalog", authDash, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const { cw } = await getClients(tenantId);
-    const catalog = await cw.getCatalog();
-    res.json(catalog);
+    const [rawCatalog, payments] = await Promise.all([
+      cw.getCatalog(),
+      cw.getPaymentMethods().catch(() => []),
+    ]);
+    // Normaliza: a API pode devolver { catalog: {...} } ou diretamente { categories: [...] }
+    const catalog = rawCatalog?.catalog || rawCatalog;
+    res.json({ catalog, payments });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
