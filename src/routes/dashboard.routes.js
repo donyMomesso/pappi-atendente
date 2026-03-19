@@ -401,7 +401,32 @@ router.get("/messages/:customerId", authDash, async (req, res) => {
   try {
     const chatMemory = require("../services/chat-memory.service");
     const messages = await chatMemory.get(req.params.customerId);
-    res.json(messages);
+    res.json(Array.isArray(messages) ? messages : []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/customer/:id/messages ──────────────────────────
+router.get("/customer/:id/messages", authDash, async (req, res) => {
+  try {
+    const chatMemory = require("../services/chat-memory.service");
+    const messages = await chatMemory.get(req.params.id);
+    res.json(Array.isArray(messages) ? messages : []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/customer/:id/orders ─────────────────────────────
+router.get("/customer/:id/orders", authDash, async (req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { customerId: req.params.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    res.json(orders);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
