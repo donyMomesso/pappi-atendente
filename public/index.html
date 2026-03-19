@@ -410,7 +410,8 @@
     <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
     <div id="adminTabs" style="display:flex;gap:2px">
       <button class="admin-tab active" id="atDash"      onclick="adminTab('dash')">📊 Dashboard</button>
-      <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📈 Relatórios</button>
+      <button class="admin-tab"        id="atStats"     onclick="adminTab('stats')">📈 Estatísticas</button>
+      <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📋 Relatórios</button>
       <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
       <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
       <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
@@ -435,12 +436,64 @@
   </div>
 
   <!-- Painel: Relatórios -->
+  <!-- Painel: Estatísticas -->
+  <div id="adminPanelStats" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f0f2f5">
+    <div style="padding:24px;max-width:1000px;margin:0 auto;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div class="settings-title" style="margin:0">📈 Estatísticas de Atendimento</div>
+          <div class="settings-sub" style="margin:4px 0 0">Visão consolidada do período selecionado</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="statsPeriod" onchange="fetchStatsPanel()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:12px">
+            <option value="7">Últimos 7 dias</option>
+            <option value="14">Últimos 14 dias</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="1">Hoje</option>
+          </select>
+          <button onclick="fetchStatsPanel()" style="background:var(--purple);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">🔄 Atualizar</button>
+        </div>
+      </div>
+
+      <!-- Cards de métricas -->
+      <div id="statsCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px"></div>
+
+      <!-- Gráfico de mensagens por dia -->
+      <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+        <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:16px">Mensagens por dia</div>
+        <div id="statsMsgChart" style="display:flex;align-items:flex-end;gap:6px;height:100px;overflow-x:auto"></div>
+        <div id="statsMsgLabels" style="display:flex;gap:6px;margin-top:6px;overflow-x:auto"></div>
+      </div>
+
+      <!-- Gráfico de pedidos por dia -->
+      <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+        <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:16px">Pedidos por dia</div>
+        <div id="statsOrderChart" style="display:flex;align-items:flex-end;gap:6px;height:100px;overflow-x:auto"></div>
+        <div id="statsOrderLabels" style="display:flex;gap:6px;margin-top:6px;overflow-x:auto"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <!-- Chamados por status -->
+        <div style="background:#fff;border-radius:14px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+          <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:12px">Chamados</div>
+          <div id="statsHandoff"></div>
+        </div>
+        <!-- Top clientes -->
+        <div style="background:#fff;border-radius:14px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+          <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:12px">Top Clientes</div>
+          <div id="statsTopCustomers"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel: Relatórios -->
   <div id="adminPanelRel" class="admin-panel" style="display:none">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📈 Relatórios</div>
-      <div class="settings-sub">Em breve — métricas detalhadas por período e atendente</div>
+      <div class="settings-title">📋 Relatórios</div>
+      <div class="settings-sub">Em breve — exportação de dados por período e atendente</div>
       <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📊</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 4</div>
+      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível em breve</div>
     </div>
   </div>
 
@@ -1598,13 +1651,87 @@ function closeAdmin() {
 
 function adminTab(tab) {
   currentAdminTab = tab;
-  const tabIds = { dash:"Dash", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
+  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
   Object.entries(tabIds).forEach(([k, v]) => {
-    document.getElementById("at"+v).className = "admin-tab" + (k===tab?" active":"");
-    document.getElementById("adminPanel"+v).style.display = k===tab ? "flex" : "none";
+    const btn = document.getElementById("at"+v);
+    const panel = document.getElementById("adminPanel"+v);
+    if (btn) btn.className = "admin-tab" + (k===tab?" active":"");
+    if (panel) panel.style.display = k===tab ? "flex" : "none";
   });
-  if (tab === "dash") fetchAdminDash();
-  if (tab === "cfg")  loadAdminSettings();
+  if (tab === "dash")  fetchAdminDash();
+  if (tab === "stats") fetchStatsPanel();
+  if (tab === "cfg")   loadAdminSettings();
+}
+
+// ── ESTATÍSTICAS ──────────────────────────────────────────────
+async function fetchStatsPanel() {
+  const days = parseInt(document.getElementById("statsPeriod")?.value || "7");
+  const data = await api(`/stats/report?days=${days}`);
+  if (!data) return;
+
+  // Cards
+  const cards = [
+    { label: "Mensagens enviadas",  value: data.msgSent,      icon: "📤", color: "#2980b9" },
+    { label: "Mensagens recebidas", value: data.msgReceived,  icon: "📥", color: "#27ae60" },
+    { label: "Pedidos",             value: data.orders,       icon: "📦", color: "#8e44ad" },
+    { label: "Clientes únicos",     value: data.uniqueCustomers, icon: "👤", color: "#e67e22" },
+    { label: "Atendimentos",        value: data.handoffs,     icon: "🎧", color: "#e74c3c" },
+    { label: "Tempo médio espera",  value: data.avgWaitMin ? data.avgWaitMin+"min" : "—", icon: "⏱️", color: "#7f8c8d" },
+  ];
+  document.getElementById("statsCards").innerHTML = cards.map(c => `
+    <div style="background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-left:4px solid ${c.color}">
+      <div style="font-size:22px;margin-bottom:6px">${c.icon}</div>
+      <div style="font-size:22px;font-weight:800;color:${c.color}">${c.value ?? 0}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${c.label}</div>
+    </div>`).join("");
+
+  // Gráfico mensagens
+  renderBarChart("statsMsgChart", "statsMsgLabels", data.msgByDay || [], "#2980b9", d => d.sent + d.received);
+
+  // Gráfico pedidos
+  renderBarChart("statsOrderChart", "statsOrderLabels", data.ordersByDay || [], "#8e44ad", d => d.count);
+
+  // Chamados
+  document.getElementById("statsHandoff").innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f5f5f5;border-radius:8px">
+        <span style="font-size:12px;color:#555">🙋 Total de atendimentos</span>
+        <strong>${data.handoffs ?? 0}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f5f5f5;border-radius:8px">
+        <span style="font-size:12px;color:#555">✅ Finalizados</span>
+        <strong>${data.handoffsClosed ?? 0}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fff3cd;border-radius:8px">
+        <span style="font-size:12px;color:#856404">⏳ Em andamento</span>
+        <strong>${data.handoffsOpen ?? 0}</strong>
+      </div>
+    </div>`;
+
+  // Top clientes
+  const top = data.topCustomers || [];
+  document.getElementById("statsTopCustomers").innerHTML = top.length
+    ? top.map((c, i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0">
+          <span style="font-size:14px;font-weight:800;color:#bbb;min-width:20px">${i+1}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name || c.phone)}</div>
+            <div style="font-size:11px;color:#aaa">${c.visitCount} pedidos</div>
+          </div>
+        </div>`).join("")
+    : '<div style="color:#bbb;font-size:12px;text-align:center;padding:20px">Sem dados</div>';
+}
+
+function renderBarChart(chartId, labelsId, days, color, valFn) {
+  if (!days.length) return;
+  const max = Math.max(...days.map(valFn), 1);
+  document.getElementById(chartId).innerHTML = days.map(d => {
+    const h = Math.max(4, Math.round((valFn(d) / max) * 100));
+    return `<div title="${valFn(d)}" style="flex:1;min-width:20px;background:${color};height:${h}px;border-radius:4px 4px 0 0;opacity:.85;cursor:default"></div>`;
+  }).join("");
+  document.getElementById(labelsId).innerHTML = days.map(d =>
+    `<div style="flex:1;min-width:20px;text-align:center;font-size:9px;color:#aaa">${new Date(d.date+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</div>`
+  ).join("");
 }
 
 async function openDebug() {

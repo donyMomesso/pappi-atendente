@@ -584,6 +584,54 @@ router.post("/retention/run", authAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /dash/stats/report ────────────────────────────────────
+router.get("/stats/report", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const days = Math.min(parseInt(req.query.days || "7"), 90);
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    since.setHours(0, 0, 0, 0);
+
+    const [msgSent, msgReceived, orders, uniqueCustomers, handoffs, handoffsOpen, topCustomers, msgRows, orderRows] = await Promise.all([
+      prisma.message.count({ where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: { gte: since } } }),
+      prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: { gte: since } } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: since } } }),
+      prisma.customer.count({ where: { tenantId, lastInteraction: { gte: since } } }),
+      prisma.customer.count({ where: { tenantId, handoffAt: { gte: since } } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+      prisma.customer.findMany({ where: { tenantId, visitCount: { gt: 0 } }, orderBy: { visitCount: "desc" }, take: 5, select: { name: true, phone: true, visitCount: true } }),
+      prisma.$queryRawUnsafe(`
+        SELECT DATE(m.created_at AT TIME ZONE 'America/Sao_Paulo') as date,
+          COUNT(CASE WHEN m.role IN ('assistant','attendant') THEN 1 END) as sent,
+          COUNT(CASE WHEN m.role = 'customer' THEN 1 END) as received
+        FROM public.messages m
+        JOIN public.customers c ON c.id = m.customer_id
+        WHERE c.tenant_id = $1 AND m.created_at >= $2
+        GROUP BY DATE(m.created_at AT TIME ZONE 'America/Sao_Paulo')
+        ORDER BY date ASC
+      `, tenantId, since),
+      prisma.$queryRawUnsafe(`
+        SELECT DATE(created_at AT TIME ZONE 'America/Sao_Paulo') as date, COUNT(*) as count
+        FROM public.orders
+        WHERE tenant_id = $1 AND created_at >= $2
+        GROUP BY DATE(created_at AT TIME ZONE 'America/Sao_Paulo')
+        ORDER BY date ASC
+      `, tenantId, since),
+    ]);
+
+    res.json({
+      msgSent, msgReceived, orders, uniqueCustomers,
+      handoffs, handoffsClosed: handoffs - handoffsOpen, handoffsOpen,
+      topCustomers,
+      msgByDay: msgRows.map(r => ({ date: r.date, sent: Number(r.sent), received: Number(r.received) })),
+      ordersByDay: orderRows.map(r => ({ date: r.date, count: Number(r.count) })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/retention/stats ─────────────────────────────────
 router.get("/retention/stats", authAdmin, async (req, res) => {
   try {
