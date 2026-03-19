@@ -130,7 +130,7 @@ router.get("/debug", authAdmin, async (req, res) => {
         active: tenant?.active,
       },
       recentCustomers,
-      baileysStatus: baileys.getStatus(),
+      baileysStatus: baileys.getAllStatuses(),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -319,13 +319,14 @@ router.get("/customer/:id/avatar", authDash, async (req, res) => {
 
 // ── GET /dash/wa-internal/status ─────────────────────────────
 router.get("/wa-internal/status", authDash, (_req, res) => {
-  res.json(baileys.getStatus());
+  res.json(baileys.getAllStatuses());
 });
 
 // ── POST /dash/wa-internal/connect ───────────────────────────
-router.post("/wa-internal/connect", authAdmin, async (_req, res) => {
+router.post("/wa-internal/connect", authAdmin, async (req, res) => {
   try {
-    await baileys.start();
+    const { instanceId = "default" } = req.body;
+    await baileys.start(instanceId);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -333,15 +334,16 @@ router.post("/wa-internal/connect", authAdmin, async (_req, res) => {
 });
 
 // ── POST /dash/wa-internal/disconnect ────────────────────────
-router.post("/wa-internal/disconnect", authAdmin, (_req, res) => {
-  baileys.disconnect();
+router.post("/wa-internal/disconnect", authAdmin, (req, res) => {
+  const { instanceId = "default" } = req.body;
+  baileys.disconnect(instanceId);
   res.json({ ok: true });
 });
 
 // ── PATCH /dash/wa-internal/numbers ──────────────────────────
 router.patch("/wa-internal/numbers", authAdmin, (req, res) => {
-  const { numbers } = req.body;
-  baileys.setNotifyNumbers(Array.isArray(numbers) ? numbers : []);
+  const { numbers, instanceId = "default" } = req.body;
+  baileys.setNotifyNumbers(Array.isArray(numbers) ? numbers : [], instanceId);
   res.json({ ok: true });
 });
 

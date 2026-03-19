@@ -1,117 +1,96 @@
 // src/services/baileys.service.js
-// WhatsApp via Baileys (QR Code) para notificações INTERNAS da equipe
-//
-// ╔══════════════════════════════════════════════════════════════╗
-// ║  REGRAS DE USO — LEIA ANTES DE ALTERAR                      ║
-// ║                                                              ║
-// ║  1. Este número é EXCLUSIVO para notificações internas.      ║
-// ║     Nunca envie mensagens para clientes por aqui.            ║
-// ║                                                              ║
-// ║  2. Apenas números cadastrados em STATE.notifyTo podem       ║
-// ║     receber mensagens (equipe interna).                      ║
-// ║                                                              ║
-// ║  3. Limites de segurança (para não ser banido pelo Meta):    ║
-// ║     • Máx 20 mensagens por hora                             ║
-// ║     • Máx 80 mensagens por dia                              ║
-// ║     • Alerta em 70% do limite (14/hora ou 56/dia)           ║
-// ║     • Bloqueio automático ao atingir 100%                   ║
-// ║                                                              ║
-// ║  4. Baileys é não-oficial. Não automatize em massa.         ║
-// ║     Use apenas para alertas pontuais da operação.           ║
-// ╚══════════════════════════════════════════════════════════════╝
+// Multi-WhatsApp via Baileys (QR Code) para notificações INTERNAS da equipe
 
 const {
   default: makeWASocket,
   DisconnectReason,
   fetchLatestBaileysVersion,
 } = require("@whiskeysockets/baileys");
-const { useDbAuthState, clearDbAuth } = require("./baileys-db-auth");
+const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
 const QRCode = require("qrcode");
 
-// ── Limites de segurança ───────────────────────────────────────
+// ── Limites de segurança por instância ──────────────────────────
 const LIMITS = {
   perHour:    20,
   perDay:     80,
-  alertAt:    0.7,   // alerta em 70% do limite
+  alertAt:    0.7,
 };
 
-const COUNTERS = {
-  hour:      0,
-  day:       0,
-  hourReset: Date.now() + 3600_000,
-  dayReset:  Date.now() + 86_400_000,
-  alerted:   { hour: false, day: false },
-};
+// Mapa de instâncias: { [instanceId]: { socket, status, qr, account, counters, ... } }
+const INSTANCES = new Map();
 
-function resetCountersIfNeeded() {
+function createInstanceData(id) {
+  return {
+    id,
+    socket:    null,
+    qrBase64:  null,
+    status:    "disconnected",
+    starting:  false,
+    lastAlert: null,
+    account:   null,
+    notifyTo:  [],
+    counters: {
+      hour:      0,
+      day:       0,
+      hourReset: Date.now() + 3600_000,
+      dayReset:  Date.now() + 86_400_000,
+      alerted:   { hour: false, day: false },
+    }
+  };
+}
+
+function resetCounters(inst) {
   const now = Date.now();
-  if (now >= COUNTERS.hourReset) {
-    COUNTERS.hour = 0;
-    COUNTERS.hourReset = now + 3600_000;
-    COUNTERS.alerted.hour = false;
+  if (now >= inst.counters.hourReset) {
+    inst.counters.hour = 0;
+    inst.counters.hourReset = now + 3600_000;
+    inst.counters.alerted.hour = false;
   }
-  if (now >= COUNTERS.dayReset) {
-    COUNTERS.day = 0;
-    COUNTERS.dayReset = now + 86_400_000;
-    COUNTERS.alerted.day = false;
+  if (now >= inst.counters.dayReset) {
+    inst.counters.day = 0;
+    inst.counters.dayReset = now + 86_400_000;
+    inst.counters.alerted.day = false;
   }
 }
 
-function checkLimits() {
-  resetCountersIfNeeded();
+function checkLimits(inst) {
+  resetCounters(inst);
+  const hourPct = inst.counters.hour / LIMITS.perHour;
+  const dayPct  = inst.counters.day  / LIMITS.perDay;
 
-  const hourPct = COUNTERS.hour / LIMITS.perHour;
-  const dayPct  = COUNTERS.day  / LIMITS.perDay;
-
-  // Alerta em 70%
-  if (hourPct >= LIMITS.alertAt && !COUNTERS.alerted.hour) {
-    COUNTERS.alerted.hour = true;
-    const msg = `⚠️ [Baileys] Atenção: ${COUNTERS.hour}/${LIMITS.perHour} msgs na última hora (${Math.round(hourPct*100)}%). Reduza o uso para evitar bloqueio.`;
-    console.warn(msg);
-    STATE.lastAlert = msg;
+  if (hourPct >= LIMITS.alertAt && !inst.counters.alerted.hour) {
+    inst.counters.alerted.hour = true;
+    inst.lastAlert = `⚠️ [${inst.id}] Atenção: ${inst.counters.hour}/${LIMITS.perHour} msgs/h (${Math.round(hourPct*100)}%).`;
   }
-  if (dayPct >= LIMITS.alertAt && !COUNTERS.alerted.day) {
-    COUNTERS.alerted.day = true;
-    const msg = `⚠️ [Baileys] Atenção: ${COUNTERS.day}/${LIMITS.perDay} msgs hoje (${Math.round(dayPct*100)}%). Reduza o uso para evitar bloqueio.`;
-    console.warn(msg);
-    STATE.lastAlert = msg;
+  if (dayPct >= LIMITS.alertAt && !inst.counters.alerted.day) {
+    inst.counters.alerted.day = true;
+    inst.lastAlert = `⚠️ [${inst.id}] Atenção: ${inst.counters.day}/${LIMITS.perDay} msgs/dia (${Math.round(dayPct*100)}%).`;
   }
 
-  // Bloqueio
-  if (COUNTERS.hour >= LIMITS.perHour) {
-    const msg = `🚫 [Baileys] Limite HORÁRIO atingido (${LIMITS.perHour}/h). Mensagem bloqueada automaticamente.`;
-    console.error(msg);
-    STATE.lastAlert = msg;
+  if (inst.counters.hour >= LIMITS.perHour) {
+    inst.lastAlert = `🚫 [${inst.id}] Limite HORÁRIO atingido (${LIMITS.perHour}/h).`;
     return false;
   }
-  if (COUNTERS.day >= LIMITS.perDay) {
-    const msg = `🚫 [Baileys] Limite DIÁRIO atingido (${LIMITS.perDay}/dia). Mensagem bloqueada automaticamente.`;
-    console.error(msg);
-    STATE.lastAlert = msg;
+  if (inst.counters.day >= LIMITS.perDay) {
+    inst.lastAlert = `🚫 [${inst.id}] Limite DIÁRIO atingido (${LIMITS.perDay}/dia).`;
     return false;
   }
-
   return true;
 }
 
-// ── Estado global ──────────────────────────────────────────────
-const STATE = {
-  socket:    null,
-  qrBase64:  null,
-  status:    "disconnected",
-  notifyTo:  [],
-  starting:  false,
-  lastAlert: null,
-  account:   null,   // { phone, name } da conta conectada
-};
-
 // ── Conexão ────────────────────────────────────────────────────
-async function start() {
-  if (STATE.starting || STATE.status === "connected" || STATE.status === "qr") return;
-  STATE.starting = true;
+async function start(instanceId = "default") {
+  let inst = INSTANCES.get(instanceId);
+  if (!inst) {
+    inst = createInstanceData(instanceId);
+    INSTANCES.set(instanceId, inst);
+  }
+
+  if (inst.starting || inst.status === "connected" || inst.status === "qr") return;
+  inst.starting = true;
 
   try {
-    const { state, saveCreds } = await useDbAuthState();
+    const { state, saveCreds } = await useDbAuthState(instanceId);
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -123,125 +102,162 @@ async function start() {
       qrTimeout: 60000,
     });
 
-    STATE.socket   = sock;
-    STATE.status   = "connecting";
-    STATE.starting = false;
+    inst.socket   = sock;
+    inst.status   = "connecting";
+    inst.starting = false;
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
       if (qr) {
-        STATE.status   = "qr";
-        STATE.qrBase64 = await QRCode.toDataURL(qr);
-        console.log("[Baileys] QR Code gerado — acesse o painel para escanear");
+        inst.status   = "qr";
+        inst.qrBase64 = await QRCode.toDataURL(qr);
+        console.log(`[Baileys:${instanceId}] QR Code gerado`);
       }
 
       if (connection === "open") {
-        STATE.status   = "connected";
-        STATE.qrBase64 = null;
-        STATE.starting = false;
-        // Salva info da conta conectada
+        inst.status   = "connected";
+        inst.qrBase64 = null;
+        inst.starting = false;
         const user = sock.user;
-        STATE.account = {
+        inst.account = {
           phone: user?.id?.split(":")[0] || user?.id || "?",
           name:  user?.name || "?",
         };
-        console.log(`[Baileys] Conectado como ${STATE.account.name} (${STATE.account.phone})`);
+        console.log(`[Baileys:${instanceId}] Conectado como ${inst.account.name} (${inst.account.phone})`);
       }
 
       if (connection === "close") {
         const code      = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
-        STATE.status   = "disconnected";
-        STATE.socket   = null;
-        STATE.starting = false;
+        inst.status   = "disconnected";
+        inst.socket   = null;
+        inst.starting = false;
 
         if (loggedOut) {
-          console.log("[Baileys] Logout — limpa auth no banco e aguarda reconexão manual.");
-          await clearDbAuth();
-          STATE.qrBase64 = null;
+          console.log(`[Baileys:${instanceId}] Logout — limpando auth.`);
+          await clearDbAuth(instanceId);
+          inst.qrBase64 = null;
         } else {
-          console.log(`[Baileys] Conexão fechada (code=${code}) — reconectando em 8s...`);
-          setTimeout(start, 8000);
+          console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
+          setTimeout(() => start(instanceId), 8000);
         }
       }
     });
   } catch (err) {
-    STATE.starting = false;
-    console.error("[Baileys] Erro ao iniciar:", err.message);
-    setTimeout(start, 15000);
+    inst.starting = false;
+    console.error(`[Baileys:${instanceId}] Erro ao iniciar:`, err.message);
+    setTimeout(() => start(instanceId), 15000);
   }
 }
 
-// ── Envio protegido ────────────────────────────────────────────
-async function sendText(to, text) {
-  if (!STATE.socket || STATE.status !== "connected") return false;
+// Inicia todas as instâncias salvas no banco ao subir o servidor
+async function initAll() {
+  const ids = await listInstances();
+  if (!ids.includes("default")) ids.push("default");
+  for (const id of ids) {
+    await start(id);
+  }
+}
 
-  // Só envia para números internos cadastrados
-  if (!STATE.notifyTo.includes(to)) {
-    console.warn(`[Baileys] Envio bloqueado para ${to} — número não está na lista interna.`);
+// ── Envio ──────────────────────────────────────────────────────
+async function sendText(to, text, instanceId = "default") {
+  const inst = INSTANCES.get(instanceId);
+  if (!inst || !inst.socket || inst.status !== "connected") return false;
+
+  if (!inst.notifyTo.includes(to)) {
+    console.warn(`[Baileys:${instanceId}] Envio bloqueado para ${to} — não está na lista.`);
     return false;
   }
 
-  // Verifica limites
-  if (!checkLimits()) return false;
+  if (!checkLimits(inst)) return false;
 
   try {
     const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
-    await STATE.socket.sendMessage(jid, { text });
-    COUNTERS.hour++;
-    COUNTERS.day++;
+    await inst.socket.sendMessage(jid, { text });
+    inst.counters.hour++;
+    inst.counters.day++;
+
+    // Registrar no histórico do painel (Pappi Atendente)
+    try {
+      const botHandler = require("../routes/bot.handler");
+      const cleanPhone = to.split("@")[0];
+      // Como o Baileys é global por enquanto, usamos o tenant padrão
+      await botHandler.saveBaileysMessage(cleanPhone, text, "tenant-pappi-001");
+    } catch (err) {
+      console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
+    }
+
     return true;
   } catch (err) {
-    console.error("[Baileys] Erro ao enviar:", err.message);
+    console.error(`[Baileys:${instanceId}] Erro ao enviar:`, err.message);
     return false;
   }
 }
 
 async function notify(text) {
-  if (!STATE.notifyTo.length) return;
-  await Promise.all(STATE.notifyTo.map(n => sendText(n, text)));
+  for (const inst of INSTANCES.values()) {
+    if (inst.status === "connected" && inst.notifyTo.length) {
+      await Promise.all(inst.notifyTo.map(n => sendText(n, text, inst.id)));
+    }
+  }
 }
 
-function getStatus() {
-  resetCountersIfNeeded();
+function getStatus(instanceId = "default") {
+  const inst = INSTANCES.get(instanceId);
+  if (!inst) return { status: "disconnected" };
+  resetCounters(inst);
   return {
-    status:    STATE.status,
-    qr:        STATE.qrBase64,
-    lastAlert: STATE.lastAlert,
-    account:   STATE.account,
+    id:        inst.id,
+    status:    inst.status,
+    qr:        inst.qrBase64,
+    lastAlert: inst.lastAlert,
+    account:   inst.account,
     usage: {
-      hour:    COUNTERS.hour,
+      hour:    inst.counters.hour,
       hourMax: LIMITS.perHour,
-      day:     COUNTERS.day,
+      day:     inst.counters.day,
       dayMax:  LIMITS.perDay,
     },
   };
 }
 
-function setNotifyNumbers(numbers) {
-  STATE.notifyTo = Array.isArray(numbers) ? numbers : [];
+function getAllStatuses() {
+  return Array.from(INSTANCES.keys()).map(id => getStatus(id));
 }
 
-function disconnect() {
-  STATE.starting = false;
-  if (STATE.socket) { try { STATE.socket.end(); } catch(e) {} }
-  clearDbAuth().catch(()=>{});
-  STATE.status   = "disconnected";
-  STATE.socket   = null;
-  STATE.qrBase64 = null;
-}
-
-// ── Foto de perfil do cliente (via Baileys) ────────────────────
-async function getProfilePicture(phone) {
-  if (!STATE.socket || STATE.status !== "connected") return null;
-  try {
-    const jid = `${phone}@s.whatsapp.net`;
-    const url = await STATE.socket.profilePictureUrl(jid, "image");
-    return url || null;
-  } catch {
-    return null;
+function setNotifyNumbers(numbers, instanceId = "default") {
+  let inst = INSTANCES.get(instanceId);
+  if (!inst) {
+    inst = createInstanceData(instanceId);
+    INSTANCES.set(instanceId, inst);
   }
+  inst.notifyTo = Array.isArray(numbers) ? numbers : [];
 }
 
-module.exports = { start, sendText, notify, getStatus, setNotifyNumbers, disconnect, getProfilePicture };
+function disconnect(instanceId = "default") {
+  const inst = INSTANCES.get(instanceId);
+  if (!inst) return;
+  inst.starting = false;
+  if (inst.socket) { try { inst.socket.end(); } catch(e) {} }
+  clearDbAuth(instanceId).catch(()=>{});
+  inst.status   = "disconnected";
+  inst.socket   = null;
+  inst.qrBase64 = null;
+  if (instanceId !== "default") INSTANCES.delete(instanceId);
+}
+
+async function getProfilePicture(phone) {
+  for (const inst of INSTANCES.values()) {
+    if (inst.socket && inst.status === "connected") {
+      try {
+        const jid = `${phone}@s.whatsapp.net`;
+        const url = await inst.socket.profilePictureUrl(jid, "image");
+        if (url) return url;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+module.exports = { start, initAll, sendText, notify, getStatus, getAllStatuses, setNotifyNumbers, disconnect, getProfilePicture };

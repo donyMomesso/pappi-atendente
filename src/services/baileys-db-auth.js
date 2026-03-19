@@ -1,14 +1,15 @@
 // src/services/baileys-db-auth.js
 // Armazena as credenciais do Baileys no banco (Supabase/Postgres)
-// em vez do filesystem — resolve o problema do Render apagar arquivos
+// Suporta múltiplas instâncias (Multi-WhatsApp)
 
 const { PrismaClient } = require("@prisma/client");
 const { initAuthCreds, BufferJSON } = require("@whiskeysockets/baileys");
 
 const prisma = new PrismaClient();
-const DB_KEY = "baileys:auth";
 
-async function useDbAuthState() {
+async function useDbAuthState(instanceId = "default") {
+  const DB_KEY = `baileys:auth:${instanceId}`;
+
   // Carrega estado salvo do banco
   async function readState() {
     const row = await prisma.config.findUnique({ where: { key: DB_KEY } }).catch(() => null);
@@ -24,7 +25,7 @@ async function useDbAuthState() {
       where:  { key: DB_KEY },
       create: { key: DB_KEY, value },
       update: { value },
-    }).catch(e => console.error("[BaileysDB] Erro ao salvar auth:", e.message));
+    }).catch(e => console.error(`[BaileysDB:${instanceId}] Erro ao salvar auth:`, e.message));
   }
 
   const stored = await readState();
@@ -61,8 +62,16 @@ async function useDbAuthState() {
   return { state, saveCreds };
 }
 
-async function clearDbAuth() {
+async function clearDbAuth(instanceId = "default") {
+  const DB_KEY = `baileys:auth:${instanceId}`;
   await prisma.config.deleteMany({ where: { key: DB_KEY } }).catch(() => {});
 }
 
-module.exports = { useDbAuthState, clearDbAuth };
+async function listInstances() {
+  const configs = await prisma.config.findMany({
+    where: { key: { startsWith: "baileys:auth:" } }
+  });
+  return configs.map(c => c.key.replace("baileys:auth:", ""));
+}
+
+module.exports = { useDbAuthState, clearDbAuth, listInstances };

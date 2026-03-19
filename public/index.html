@@ -507,25 +507,13 @@
           </div>
         </div>
         <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">📲 WhatsApp Interno (Notificações sem gastar API)</div>
-          <div class="settings-card-body" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
-            <div style="flex:1;min-width:240px">
-              <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte um segundo WhatsApp para enviar notificações à operação sem consumir créditos da API Meta.</p>
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-                <span id="waIntStatus" style="font-size:13px;font-weight:600;color:#888">● desconectado</span>
-                <button id="btnWaIntConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0" onclick="waIntConnect()">Conectar</button>
-                <button id="btnWaIntDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="waIntDisconnect()">Desconectar</button>
-              </div>
-              <div class="settings-field">
-                <label>Números para notificar (separados por vírgula)</label>
-                <input id="waIntNumbers" type="text" placeholder="5511999990000, 5511999990001"/>
-              </div>
-              <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="waIntSaveNumbers()">Salvar números</button>
+          <div class="settings-card-head">📲 WhatsApp Interno (Multi-Zap)</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:16px">Conecte múltiplos números para notificações e atendimento auxiliar sem consumir créditos da API Meta.</p>
+            <div id="waIntContainer" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:16px">
+              <!-- Instâncias serão renderizadas aqui -->
             </div>
-            <div id="waIntQrWrap" style="display:none;text-align:center">
-              <p style="font-size:12px;color:#888;margin-bottom:8px">Escaneie com o WhatsApp do celular</p>
-              <img id="waIntQr" src="" style="width:200px;height:200px;border-radius:12px;border:1px solid #eee"/>
-            </div>
+            <button class="btn-save-settings" style="width:auto;padding:10px 20px;margin-top:20px" onclick="waIntAddNew()">+ Adicionar Novo WhatsApp</button>
           </div>
         </div>
       </div>
@@ -674,14 +662,16 @@ async function doLogin() {
   }
 }
 
-function enterApp() {
-  document.getElementById("login").style.display = "none";
-  document.getElementById("header").style.display = "flex";
-  document.getElementById("app").style.display = "block";
-  applyRole();
-  startRefresh();
-  loadCatalog();
-}
+	function enterApp() {
+	  document.getElementById("login").style.display = "none";
+	  document.getElementById("header").style.display = "flex";
+	  document.getElementById("app").style.display = "block";
+	  applyRole();
+	  startRefresh();
+	  loadCatalog();
+	  waIntRefresh();
+	  setInterval(waIntRefresh, 10000); // Atualiza status dos Zaps a cada 10s
+	}
 
 // ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
 (async function restoreSession() {
@@ -1652,93 +1642,77 @@ async function loadAdminSettings() {
 function openSettings() { openAdmin(); adminTab("cfg"); }
 function closeSettings() { closeAdmin(); }
 
-// ── WHATSAPP INTERNO (BAILEYS) ────────────────────────────────
-let waIntTimer = null;
+  // ── WHATSAPP INTERNO (MULTI-ZAP) ──────────────────────────
+  let waIntTimer = null;
 
-async function waIntRefreshStatus() {
-  const d = await api("/wa-internal/status");
-  if (!d) return;
-  const statusEl = document.getElementById("waIntStatus");
-  const qrWrap = document.getElementById("waIntQrWrap");
-  const qrImg = document.getElementById("waIntQr");
-  const btnConn = document.getElementById("btnWaIntConnect");
-  const btnDisc = document.getElementById("btnWaIntDisconnect");
+  async function waIntRefreshStatus() {
+    const list = await api("/wa-internal/status");
+    if (!list || !Array.isArray(list)) return;
 
-  // Exibe alerta de uso se houver
-  let alertEl = document.getElementById("waIntAlert");
-  if (!alertEl) {
-    alertEl = document.createElement("div");
-    alertEl.id = "waIntAlert";
-    alertEl.style.cssText = "margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:600;display:none";
-    document.getElementById("waIntStatus").parentElement.appendChild(alertEl);
+    const container = document.getElementById("waIntContainer");
+    if (!container) return;
+
+    container.innerHTML = list.map(d => {
+      const hPct = d.usage ? Math.round(d.usage.hour / d.usage.hourMax * 100) : 0;
+      const dPct = d.usage ? Math.round(d.usage.day  / d.usage.dayMax  * 100) : 0;
+      const isConnected = d.status === "connected";
+      const isQr = d.status === "qr" && d.qr;
+      const isConnecting = d.status === "connecting";
+
+      return `
+        <div style="background:#f9f9f9;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:13px;font-weight:700;color:${isConnected?'#25d366':(isQr||isConnecting?'#ff9800':'#888')}">
+              ● ${d.id === 'default' ? 'Principal' : d.id}: ${d.status}
+              ${d.account ? `<br><span style="font-weight:400;color:#555;font-size:11px">${d.account.name} (${d.account.phone})</span>` : ''}
+            </div>
+            ${d.id !== 'default' ? `<button onclick="waIntDisconnect('${d.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:11px">Remover</button>` : ''}
+          </div>
+
+          ${isQr ? `
+            <div style="text-align:center;margin-bottom:15px">
+              <img src="${d.qr}" style="width:160px;height:160px;border:1px solid #ddd;padding:5px;background:#fff"/>
+              <p style="font-size:11px;color:#666;margin-top:5px">Escaneie para conectar</p>
+            </div>
+          ` : ''}
+
+          ${d.usage ? `
+            <div style="font-size:11px;color:#666;margin-bottom:10px">
+              Hora: ${d.usage.hour}/${d.usage.hourMax} <span style="background:#eee;border-radius:5px;display:inline-block;width:60px;height:5px;vertical-align:middle"><span style="display:block;height:100%;border-radius:5px;background:${hPct>=70?'#e53935':'#25d366'};width:${hPct}%"></span></span>
+              &nbsp; Dia: ${d.usage.day}/${d.usage.dayMax} <span style="background:#eee;border-radius:5px;display:inline-block;width:60px;height:5px;vertical-align:middle"><span style="display:block;height:100%;border-radius:5px;background:${dPct>=70?'#e53935':'#25d366'};width:${dPct}%"></span></span>
+            </div>
+          ` : ''}
+
+          <div style="display:flex;gap:8px">
+            ${!isConnected && !isQr && !isConnecting ? `<button class="btn-confirm" style="flex:1;padding:6px;font-size:11px" onclick="waIntConnect('${d.id}')">Conectar</button>` : ''}
+            ${isConnected ? `<button class="btn-cancel" style="flex:1;padding:6px;font-size:11px" onclick="waIntDisconnect('${d.id}')">Desconectar</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    const hasActive = list.some(d => d.status === "qr" || d.status === "connecting");
+    if (hasActive && !waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 5000);
+    else if (!hasActive && waIntTimer) { clearInterval(waIntTimer); waIntTimer = null; }
   }
-  if (d.lastAlert) {
-    alertEl.style.display = "";
-    alertEl.style.background = d.lastAlert.startsWith("🚫") ? "#fde8d8" : "#fff3cd";
-    alertEl.style.color = d.lastAlert.startsWith("🚫") ? "#c04400" : "#856404";
-    alertEl.textContent = d.lastAlert;
-  } else { alertEl.style.display = "none"; }
 
-  // Barra de uso
-  if (d.usage) {
-    let usageEl = document.getElementById("waIntUsage");
-    if (!usageEl) {
-      usageEl = document.createElement("div");
-      usageEl.id = "waIntUsage";
-      usageEl.style.cssText = "margin-top:10px;font-size:12px;color:#555";
-      document.getElementById("waIntStatus").parentElement.appendChild(usageEl);
-    }
-    const hPct = Math.round(d.usage.hour / d.usage.hourMax * 100);
-    const dPct = Math.round(d.usage.day  / d.usage.dayMax  * 100);
-    usageEl.innerHTML =
-      '<div style="margin-bottom:6px">Hora: <b>'+d.usage.hour+'/'+d.usage.hourMax+'</b> <span style="background:#f0f0f0;border-radius:10px;display:inline-block;width:80px;height:7px;vertical-align:middle"><span style="display:block;height:100%;border-radius:10px;background:'+(hPct>=70?'#e53935':'#25d366')+';width:'+hPct+'%"></span></span></div>'+
-      '<div>Dia: <b>'+d.usage.day+'/'+d.usage.dayMax+'</b> <span style="background:#f0f0f0;border-radius:10px;display:inline-block;width:80px;height:7px;vertical-align:middle"><span style="display:block;height:100%;border-radius:10px;background:'+(dPct>=70?'#e53935':'#25d366')+';width:'+dPct+'%"></span></span></div>';
+  async function waIntConnect(id = "default") {
+    await api("/wa-internal/connect", { method: "POST", body: JSON.stringify({ instanceId: id }) });
+    waIntRefreshStatus();
   }
 
-  if (d.status === "connected") {
-    const acct = d.account ? ` · ${d.account.name} (${d.account.phone})` : "";
-    statusEl.textContent = "● conectado" + acct;
-    statusEl.style.color = "#25d366";
-    qrWrap.style.display = "none";
-    btnConn.style.display = "none";
-    btnDisc.style.display = "inline-block";
-    clearInterval(waIntTimer); waIntTimer = null;
-  } else if (d.status === "qr" && d.qr) {
-    statusEl.textContent = "● escaneie o QR abaixo (mantenha esta tela aberta)";
-    statusEl.style.color = "#ff9800";
-    qrImg.src = d.qr;
-    qrWrap.style.display = "block";
-    btnConn.style.display = "none";
-    btnDisc.style.display = "none";
-    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 8000);
-  } else if (d.status === "connecting") {
-    statusEl.textContent = "● conectando...";
-    statusEl.style.color = "#ff9800";
-    qrWrap.style.display = "none";
-    if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 5000);
-  } else {
-    statusEl.textContent = "● desconectado";
-    statusEl.style.color = "#888";
-    qrWrap.style.display = "none";
-    btnConn.style.display = "inline-block";
-    btnDisc.style.display = "none";
-    clearInterval(waIntTimer); waIntTimer = null;
+  async function waIntDisconnect(id = "default") {
+    if (!confirm(`Desconectar o WhatsApp ${id}?`)) return;
+    await api("/wa-internal/disconnect", { method: "POST", body: JSON.stringify({ instanceId: id }) });
+    waIntRefreshStatus();
   }
-}
 
-async function waIntConnect() {
-  document.getElementById("waIntStatus").textContent = "● iniciando...";
-  await api("/wa-internal/connect", { method: "POST", body: "{}" });
-  setTimeout(waIntRefreshStatus, 2000);
-  if (!waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 4000);
-}
-
-async function waIntDisconnect() {
-  if (!confirm("Desconectar o WhatsApp interno?")) return;
-  await api("/wa-internal/disconnect", { method: "POST", body: "{}" });
-  clearInterval(waIntTimer); waIntTimer = null;
-  waIntRefreshStatus();
-}
+  async function waIntAddNew() {
+    const name = prompt("Nome para esta instância (ex: Suporte, Vendas):");
+    if (!name) return;
+    const id = name.toLowerCase().replace(/[^a-z0-9]/g, "-");
+    await waIntConnect(id);
+  }
 
 async function waIntSaveNumbers() {
   const raw = document.getElementById("waIntNumbers").value;
@@ -1923,11 +1897,92 @@ async function gcConnect() {
   setTimeout(gcRefreshStatus, 5000);
 }
 
-async function gcDisconnect() {
-  if (!confirm("Desconectar Google Contacts?")) return;
-  await api("/google-contacts/disconnect", { method: "POST", body: "{}" });
-  gcRefreshStatus();
-}
+	async function gcDisconnect() {
+	  if (!confirm("Desconectar Google Contacts?")) return;
+	  await api("/google-contacts/disconnect", { method: "POST", body: "{}" });
+	  gcRefreshStatus();
+	}
+
+	// ── MULTI-WHATSAPP (BAILEYS) ──────────────────────────────────
+	let waIntInstances = [];
+	let waIntRefreshTimer = null;
+
+	async function waIntRefresh() {
+	  const data = await api("/baileys/instances");
+	  if (!data) return;
+	  waIntInstances = data;
+	  renderWaIntInstances();
+	}
+
+	function renderWaIntInstances() {
+	  const container = document.getElementById("waIntContainer");
+	  if (!container) return;
+	  
+	  if (waIntInstances.length === 0) {
+	    container.innerHTML = '<p style="grid-column:1/-1;text-align:center;padding:20px;color:#aaa;font-size:13px">Nenhum WhatsApp conectado.</p>';
+	    return;
+	  }
+
+	  container.innerHTML = waIntInstances.map(inst => `
+	    <div style="background:#f9f9f9;border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px">
+	      <div style="display:flex;justify-content:space-between;align-items:center">
+	        <div style="font-size:14px;font-weight:700;color:${inst.status==='connected'?'#25d366':'#888'}">
+	          ● ${inst.status==='connected'?'Conectado':'Desconectado'}
+	        </div>
+	        <button onclick="waIntDelete('${inst.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:18px;padding:0 4px">×</button>
+	      </div>
+	      
+	      <div style="font-size:13px;color:#333">
+	        <strong>ID:</strong> ${inst.id}<br/>
+	        ${inst.name ? `<strong>Nome:</strong> ${inst.name}<br/>` : ''}
+	        ${inst.number ? `<strong>Número:</strong> ${inst.number}` : ''}
+	      </div>
+
+	      ${inst.qr ? `
+	        <div style="text-align:center;background:#fff;padding:10px;border-radius:8px;border:1px solid #eee">
+	          <p style="font-size:11px;color:#888;margin-bottom:8px">Escaneie o QR Code</p>
+	          <img src="${inst.qr}" style="width:160px;height:160px"/>
+	        </div>
+	      ` : ''}
+
+	      <div style="display:flex;gap:8px;margin-top:4px">
+	        ${inst.status !== 'connected' ? `
+	          <button class="btn-confirm" style="flex:1;padding:8px;font-size:12px" onclick="waIntConnect('${inst.id}')">Conectar</button>
+	        ` : `
+	          <button class="btn-cancel" style="flex:1;padding:8px;font-size:12px;background:#e53935;color:#fff" onclick="waIntDisconnect('${inst.id}')">Desconectar</button>
+	        `}
+	      </div>
+	    </div>
+	  `).join("");
+	}
+
+	async function waIntAddNew() {
+	  const id = prompt("Dê um nome ou ID para este WhatsApp (ex: Celular01):");
+	  if (!id) return;
+	  const res = await api("/baileys/instances", {
+	    method: "POST",
+	    body: JSON.stringify({ id })
+	  });
+	  if (res?.ok) waIntRefresh();
+	  else alert("Erro ao adicionar: " + (res?.error || "Tente outro ID"));
+	}
+
+	async function waIntConnect(id) {
+	  await api(`/baileys/instances/${id}/connect`, { method: "POST", body: "{}" });
+	  waIntRefresh();
+	}
+
+	async function waIntDisconnect(id) {
+	  if (!confirm("Desconectar este WhatsApp?")) return;
+	  await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  waIntRefresh();
+	}
+
+	async function waIntDelete(id) {
+	  if (!confirm("Remover este WhatsApp permanentemente?")) return;
+	  await api(`/baileys/instances/${id}`, { method: "DELETE" });
+	  waIntRefresh();
+	}
 
 // ── USUÁRIOS GOOGLE ───────────────────────────────────────────
 function renderGoogleUserList() {

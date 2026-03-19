@@ -11,7 +11,7 @@ const dashRoutes      = require("./routes/dashboard.routes");
 // Inicia Baileys (WhatsApp Web para notificações internas) em background
 try {
   const baileys = require("./services/baileys.service");
-  baileys.start().catch(e => console.warn("[Baileys] start error:", e.message));
+  baileys.initAll().catch(e => console.warn("[Baileys] initAll error:", e.message));
 } catch (e) {
   console.warn("[Baileys] módulo não disponível:", e.message);
 }

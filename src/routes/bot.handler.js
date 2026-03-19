@@ -464,3 +464,25 @@ function buildCwPayload({ session, customer, calc }) {
 }
 
 module.exports = { handle };
+
+// ── REGISTRAR MENSAGEM DO BAILEYS NO HISTÓRICO ──────────────────
+async function saveBaileysMessage(phone, text, tenantId) {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const chatMemory = require("../services/chat-memory.service");
+    
+    const customer = await prisma.customer.findUnique({
+      where: { phone_tenantId: { phone, tenantId } }
+    });
+    
+    if (customer) {
+      await chatMemory.push(customer.id, "assistant", text, null, null, "text", null, "WhatsApp Auxiliar");
+    }
+    await prisma.$disconnect();
+  } catch (err) {
+    console.error("[Bot] Erro ao salvar msg Baileys:", err.message);
+  }
+}
+
+module.exports.saveBaileysMessage = saveBaileysMessage;
