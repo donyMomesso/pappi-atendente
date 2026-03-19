@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  schemas   = ["public", "auth"]
 }
 
 // ── Tenant (loja) ─────────────────────────────────────────────
@@ -36,6 +38,7 @@ model Tenant {
   orders          Order[]
 
   @@map("tenants")
+  @@schema("public")
 }
 
 // ── Customer (cliente por tenant) ────────────────────────────
@@ -77,6 +80,7 @@ model Customer {
 
   @@unique([tenantId, phone], name: "tenantId_phone")
   @@map("customers")
+  @@schema("public")
 }
 
 // ── Order (pedido) ────────────────────────────────────────────
@@ -125,6 +129,7 @@ model Order {
   @@index([tenantId, status])
   @@index([customerId])
   @@map("orders")
+  @@schema("public")
 }
 
 // ── OrderStatusLog (auditoria de status) ─────────────────────
@@ -139,6 +144,7 @@ model OrderStatusLog {
 
   @@index([orderId])
   @@map("order_status_logs")
+  @@schema("public")
 }
 
 // ── Message (histórico de conversa) ──────────────────────────
@@ -162,6 +168,7 @@ model Message {
 
   @@index([customerId, createdAt])
   @@map("messages")
+  @@schema("public")
 }
 
 // ── Config (chave-valor global) ───────────────────────────────
@@ -171,6 +178,7 @@ model Config {
   value String
 
   @@map("configs")
+  @@schema("public")
 }
 
 // ── RetentionCampaign (campanha de retenção) ──────────────────
@@ -189,6 +197,7 @@ model RetentionCampaign {
 
   @@index([tenantId, active])
   @@map("retention_campaigns")
+  @@schema("public")
 }
 
 // ── RetentionSend (log de envios de retenção) ─────────────────
@@ -205,4 +214,5 @@ model RetentionSend {
   @@index([campaignId, sentAt])
   @@index([customerId, sentAt])
   @@map("retention_sends")
+  @@schema("public")
 }
