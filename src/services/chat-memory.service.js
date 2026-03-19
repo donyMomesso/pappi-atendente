@@ -14,8 +14,19 @@ async function push(customerId, role, text, sender = null) {
   msgs.push({ role, text, sender, at: new Date().toISOString() });
   if (msgs.length > MAX_MEMORY) msgs.shift();
 
-  // Banco (assíncrono, não bloqueia)
-  prisma.message.create({ data: { customerId, role, text, sender } }).catch(() => {});
+  // Banco (persistente)
+  try {
+    await prisma.message.create({
+      data: {
+        customerId,
+        role,
+        text,
+        sender
+      }
+    });
+  } catch (err) {
+    console.error(`[ChatMemory] Erro ao salvar no banco:`, err.message);
+  }
 }
 
 async function get(customerId) {
