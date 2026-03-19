@@ -70,6 +70,10 @@ async function getAccessToken() {
 
   // Renova
   const { clientId, clientSecret } = cfg();
+  if (!clientId || !clientSecret) {
+    console.error("[GoogleContacts] GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não configurados no ambiente");
+    return null;
+  }
   const res = await fetch(TOKEN_URL, {
     method:  "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -78,7 +82,10 @@ async function getAccessToken() {
       client_secret: clientSecret, grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.error("[GoogleContacts] Falha no refresh:", await res.text());
+    return null;
+  }
   const refreshed = await res.json();
   await saveTokens(refreshed, tokens.refresh_token);
   return refreshed.access_token;
@@ -136,7 +143,10 @@ async function searchContacts(query) {
     const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.error("[GoogleContacts] Erro na busca:", res.status, await res.text());
+      return [];
+    }
     const data = await res.json();
 
     return (data.results || []).map(r => {
