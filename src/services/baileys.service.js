@@ -108,6 +108,28 @@ async function start(instanceId = "default") {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // Captura mensagens recebidas e salva no histórico do painel
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return;
+      for (const msg of messages) {
+        if (!msg.message || msg.key.fromMe) continue;
+        const jid = msg.key.remoteJid;
+        if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
+        const phone = jid.split("@")[0];
+        const text = msg.message?.conversation
+          || msg.message?.extendedTextMessage?.text
+          || msg.message?.imageMessage?.caption
+          || null;
+        if (!text) continue;
+        try {
+          const botHandler = require("../routes/bot.handler");
+          await botHandler.saveBaileysMessage(phone, text, "tenant-pappi-001", "customer");
+        } catch (err) {
+          console.error(`[Baileys:${instanceId}] Erro ao salvar msg recebida:`, err.message);
+        }
+      }
+    });
+
     sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
       if (qr) {
         inst.status   = "qr";

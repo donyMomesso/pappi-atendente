@@ -795,7 +795,7 @@ async function selectCustomer(c) {
   // Carrega histórico e inicia polling
   clearInterval(chatPollTimer);
   await loadChatHistory(c.id);
-  chatPollTimer = setInterval(() => loadChatHistory(c.id), 5000);
+  chatPollTimer = setInterval(() => loadChatHistory(c.id), 1000);
 }
 
 async function loadChatHistory(customerId) {
