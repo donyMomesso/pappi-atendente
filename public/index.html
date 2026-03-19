@@ -1127,12 +1127,32 @@ function openOrder() {
     state: "SP"
   } : {};
   orderPayment = null;
-  document.getElementById("modalOrder").style.display = "flex";
+  // Abre inline no col-center em vez de popup
+  const el = document.getElementById("colCenter");
+  el.innerHTML = `
+    <div class="chat-header" style="background:linear-gradient(135deg,#FF6B35 0%,#6B3FA0 100%);flex-shrink:0">
+      <div style="flex:1;font-weight:700;color:#fff;font-size:15px">🛒 Novo Pedido</div>
+      <button onclick="closeOrder()" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:13px;font-weight:600">✕ Cancelar</button>
+    </div>
+    <div class="steps" style="margin:12px 16px 0;border-radius:10px;flex-shrink:0">
+      <div class="step active" id="step1" onclick="goStep(1)">1. Produtos</div>
+      <div class="step" id="step2" onclick="goStep(2)">2. Entrega</div>
+      <div class="step" id="step3" onclick="goStep(3)">3. Pagamento</div>
+    </div>
+    <div id="orderInlineBody" style="flex:1;overflow-y:auto;padding:16px"></div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);background:#fafafa;display:flex;gap:8px;flex-shrink:0">
+      <button onclick="closeOrder()" style="flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:#eee;color:#666">Cancelar</button>
+      <button id="btnNext" onclick="nextStep()" style="flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#FF6B35,#6B3FA0);color:#fff">Próximo →</button>
+    </div>
+  `;
   renderStep();
 }
 
 function closeOrder() {
-  document.getElementById("modalOrder").style.display = "none";
+  if (selectedCustomer) {
+    renderCenter(selectedCustomer);
+    loadChatHistory(selectedCustomer.id);
+  }
 }
 
 async function loadCatalog() {
@@ -1163,7 +1183,7 @@ function renderStep() {
     const el = document.getElementById("step"+i);
     if (el) el.className = "step" + (i===orderStep?" active":"");
   });
-  const body = document.getElementById("modalBody");
+  const body = document.getElementById("orderInlineBody") || document.getElementById("modalBody");
   const btn = document.getElementById("btnNext");
   if (orderStep === 1) {
     btn.textContent = "Próximo →";
