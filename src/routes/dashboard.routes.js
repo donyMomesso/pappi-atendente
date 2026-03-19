@@ -6,8 +6,226 @@ const baileys = require("../services/baileys.service");
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const retention = require("../services/retention.service");
+const ENV = require("../config/env");
 
 const router = express.Router();
+
+// ── GET /dash/auth ─────────────────────────────────────────────
+// Valida chave e retorna role
+router.get("/auth", async (req, res) => {
+  try {
+    const key = req.query.key || req.headers["x-api-key"] || req.headers["x-attendant-key"];
+    if (!key) return res.status(401).json({ error: "unauthorized" });
+
+    // Chave admin
+    if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) {
+      return res.json({ role: "admin", name: "Admin" });
+    }
+    // Chave attendant global
+    if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) {
+      return res.json({ role: "attendant", name: "Atendente" });
+    }
+    // Chave por tenant
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
+    if (cfg) {
+      const att = JSON.parse(cfg.value).find(a => a.key === key);
+      if (att) return res.json({ role: att.role || "attendant", name: att.name });
+    }
+    return res.status(401).json({ error: "unauthorized" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/auth/google ─────────────────────────────────────
+router.post("/auth/google", async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) return res.status(400).json({ error: "credential obrigatório" });
+
+    const tokenRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || tokenData.error) return res.status(401).json({ error: "Token Google inválido" });
+
+    const email = tokenData.email;
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } });
+    const users = cfg ? JSON.parse(cfg.value) : [];
+    const user = users.find(u => u.email === email);
+    if (!user) return res.status(403).json({ error: "Email não autorizado" });
+
+    return res.json({ name: user.name, role: user.role || "attendant", token: user.key || ENV.ATTENDANT_API_KEY });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/stats ────────────────────────────────────────────
+router.get("/stats", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [ordersToday, handoffActive] = await Promise.all([
+      prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+    ]);
+    res.json({ ordersToday, handoffActive });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/conversations ────────────────────────────────────
+router.get("/conversations", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const customers = await prisma.customer.findMany({
+      where: { tenantId },
+      orderBy: { lastInteraction: "desc" },
+      take: 100,
+      include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    res.json(customers.map(c => ({
+      ...c,
+      phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+      lastOrder: c.orders[0] || null,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/queue ────────────────────────────────────────────
+router.get("/queue", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const customers = await prisma.customer.findMany({
+      where: { tenantId, handoff: true },
+      orderBy: { queuedAt: "asc" },
+      include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    res.json(customers.map(c => ({
+      ...c,
+      phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+      lastOrder: c.orders[0] || null,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/queue/claim ─────────────────────────────────────
+router.post("/queue/claim", authDash, async (req, res) => {
+  try {
+    const { customerId, attendant } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { claimedBy: attendant || req.attendant?.name || "Atendente" },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/queue/release ───────────────────────────────────
+router.post("/queue/release", authDash, async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/baileys/instances ────────────────────────────────
+router.get("/baileys/instances", authDash, (_req, res) => {
+  const statuses = baileys.getAllStatuses();
+  res.json(statuses.map(s => ({
+    id: s.id,
+    status: s.status,
+    qr: s.qr,
+    name: s.account?.name || null,
+    number: s.account?.phone || null,
+    usage: s.usage,
+  })));
+});
+
+// ── POST /dash/baileys/instances ───────────────────────────────
+router.post("/baileys/instances", authAdmin, async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: "id obrigatório" });
+    await baileys.start(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/baileys/instances/:id/connect ──────────────────
+router.post("/baileys/instances/:id/connect", authAdmin, async (req, res) => {
+  try {
+    await baileys.start(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/baileys/instances/:id/disconnect ───────────────
+router.post("/baileys/instances/:id/disconnect", authAdmin, (req, res) => {
+  baileys.disconnect(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── DELETE /dash/baileys/instances/:id ────────────────────────
+router.delete("/baileys/instances/:id", authAdmin, (req, res) => {
+  baileys.disconnect(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── GET /dash/catalog ──────────────────────────────────────────
+router.get("/catalog", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const { cw } = await getClients(tenantId);
+    const catalog = await cw.getCatalog();
+    res.json(catalog);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/send ────────────────────────────────────────────
+router.post("/send", authDash, async (req, res) => {
+  try {
+    const { phone, text, customerId, tenantId: bodyTenant } = req.body;
+    const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
+    if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
+
+    const { wa } = await getClients(tenantId);
+    const result = await wa.sendText(phone, text);
+    const waMessageId = result?.messages?.[0]?.id;
+
+    if (customerId) {
+      const chatMemory = require("../services/chat-memory.service");
+      await chatMemory.push(customerId, "attendant", text, req.attendant?.name || "Atendente", null, "text", waMessageId);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── GET /dash/login ───────────────────────────────────────────
 router.post("/login", async (req, res) => {
