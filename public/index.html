@@ -404,6 +404,42 @@
   </div>
 </div>
 
+<!-- MODAL: TRANSFERIR CONVERSA -->
+<div class="modal-bg" id="modalTransfer" style="display:none" onclick="if(event.target===this)closeTransfer()">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-head">
+      <h3>🔄 Transferir chamado</h3>
+      <button onclick="closeTransfer()">×</button>
+    </div>
+    <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+      <div>
+        <label style="font-size:13px;font-weight:600;color:#444;display:block;margin-bottom:6px">Transferir para departamento</label>
+        <select id="transferDept" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;background:#fafafa;appearance:auto">
+          <option value="">— Selecione —</option>
+          <option value="Atendimento">Atendimento</option>
+          <option value="Financeiro">Financeiro</option>
+          <option value="Suporte">Suporte</option>
+          <option value="Gerência">Gerência</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:13px;font-weight:600;color:#444;display:block;margin-bottom:6px">Transferir para atendente <span style="font-weight:400;color:#999">(opcional)</span></label>
+        <select id="transferAttendant" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;background:#fafafa;appearance:auto">
+          <option value="">— Qualquer atendente disponível —</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:13px;font-weight:600;color:#444;display:block;margin-bottom:6px">Adicionar comentário</label>
+        <textarea id="transferComment" rows="3" placeholder="Adicionar comentário..." style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;resize:none;box-sizing:border-box"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeTransfer()" style="background:#eee;color:#555;flex:1;padding:12px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer">Cancelar</button>
+      <button onclick="saveTransfer()" style="background:linear-gradient(135deg,#FF6B35,#6B3FA0);color:#fff;flex:1;padding:12px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- VIEW: ADMIN ──────────────────────────────────────────── -->
 <div id="viewAdmin" style="display:none;flex-direction:column;flex:1;overflow:hidden">
   <!-- Navbar admin -->
@@ -733,6 +769,54 @@ async function finalizarConversa(customerId) {
   }
 }
 
+// ── TRANSFERÊNCIA DE CONVERSA ──────────────────────────────────
+async function openTransfer() {
+  if (!selectedCustomer) return;
+  // Carrega lista de atendentes
+  const sel = document.getElementById("transferAttendant");
+  sel.innerHTML = '<option value="">— Qualquer atendente disponível —</option>';
+  const list = await api("/attendants").catch(() => []);
+  (list || []).forEach(a => {
+    if (a.name !== ATTENDANT_NAME) {
+      const o = document.createElement("option");
+      o.value = a.name;
+      o.textContent = a.name + (a.role === "admin" ? " (admin)" : "");
+      sel.appendChild(o);
+    }
+  });
+  document.getElementById("transferDept").value = "";
+  document.getElementById("transferComment").value = "";
+  document.getElementById("modalTransfer").style.display = "flex";
+}
+
+function closeTransfer() {
+  document.getElementById("modalTransfer").style.display = "none";
+}
+
+async function saveTransfer() {
+  if (!selectedCustomer) return;
+  const toAttendant = document.getElementById("transferAttendant").value;
+  const department  = document.getElementById("transferDept").value;
+  const comment     = document.getElementById("transferComment").value.trim();
+
+  const r = await api("/transfer", {
+    method: "POST",
+    body: JSON.stringify({ customerId: selectedCustomer.id, toAttendant, department, comment, tenantId: TENANT }),
+  });
+  if (r?.ok) {
+    closeTransfer();
+    fetchConvs();
+    fetchQueue();
+    // Atualiza o cliente selecionado
+    selectedCustomer = { ...selectedCustomer, handoff: true, claimedBy: toAttendant || null };
+    renderCenter(selectedCustomer);
+    renderRight(selectedCustomer);
+    loadChatHistory(selectedCustomer.id);
+  } else {
+    alert("Erro ao transferir: " + (r?.error || "Tente novamente"));
+  }
+}
+
 // ── LOGIN GOOGLE ───────────────────────────────────────────────
 const GOOGLE_CLIENT_ID = "286493900825-vu5mlqqt2fcfk2m2ofsicibls8sa8mgo.apps.googleusercontent.com";
 
@@ -1016,7 +1100,8 @@ function renderCenter(c) {
         <div class="name">${esc(c.name)}</div>
         <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
       </div>
-      ${c.handoff ? `<button onclick="finalizarConversa('${c.id}')" style="background:#e53935;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✅ Finalizar</button>` : ""}
+      <button onclick="openTransfer()" title="Transferir para outro atendente ou departamento" style="background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">🔄 Transferir</button>
+      <button onclick="finalizarConversa('${c.id}')" title="Finalizar atendimento e devolver ao bot" style="background:#e53935;color:#fff;border:none;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✅ Finalizar</button>
     </div>
     <div class="chat-body" id="chatBody">
       <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">Carregando...</div>

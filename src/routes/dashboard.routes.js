@@ -171,6 +171,52 @@ router.post("/queue/release", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/attendants ────────────────────────────────────────
+router.get("/attendants", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
+    const list = cfg ? JSON.parse(cfg.value) : [];
+    res.json(list.map(a => ({ name: a.name, role: a.role || "attendant" })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/transfer ─────────────────────────────────────────
+router.post("/transfer", authDash, async (req, res) => {
+  try {
+    const { customerId, toAttendant, department, comment } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        handoff: true,
+        queuedAt: new Date(),
+        claimedBy: toAttendant || null,
+      },
+    });
+
+    // Salva nota de transferência no histórico
+    if (comment || department || toAttendant) {
+      const chatMemory = require("../services/chat-memory.service");
+      const parts = [];
+      if (department) parts.push(`Departamento: ${department}`);
+      if (toAttendant) parts.push(`Atendente: ${toAttendant}`);
+      if (comment) parts.push(comment);
+      await chatMemory.push(customerId, "bot", `🔄 Transferência — ${parts.join(" | ")}`);
+    }
+
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/baileys/instances ────────────────────────────────
 router.get("/baileys/instances", authDash, (_req, res) => {
   const statuses = baileys.getAllStatuses();
