@@ -437,6 +437,49 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/orders/kanban ────────────────────────────────────
+router.get("/orders/kanban", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const orders = await prisma.order.findMany({
+      where: { tenantId, createdAt: { gte: today } },
+      orderBy: { createdAt: "desc" },
+      include: { customer: { select: { name: true, phone: true } } },
+    });
+
+    const columns = {
+      waiting_confirmation: [],
+      confirmed: [],
+      in_preparation: [],
+      dispatched: [],
+      concluded: [],
+      cancelled: [],
+    };
+
+    for (const o of orders) {
+      const col = columns[o.status] ? o.status : "waiting_confirmation";
+      const items = (() => { try { return JSON.parse(o.itemsSnapshot); } catch { return []; } })();
+      columns[col].push({
+        id: o.id,
+        cwOrderId: o.cwOrderId,
+        customerName: o.customer?.name || o.customer?.phone || "—",
+        total: o.total,
+        fulfillment: o.fulfillment,
+        paymentMethodName: o.paymentMethodName,
+        createdAt: o.createdAt,
+        items,
+      });
+    }
+
+    res.json(columns);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/customers ──────────────────────────────────────
 router.get("/customers", authDash, async (req, res) => {
   try {
