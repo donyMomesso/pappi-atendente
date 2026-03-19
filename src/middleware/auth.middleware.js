@@ -7,7 +7,7 @@ const ENV = require("../config/env");
  * Suporta tanto a chave global (ENV) quanto chaves específicas por tenant.
  */
 async function requireAttendantKey(req, res, next) {
-  const key = req.headers["x-api-key"] || req.headers["authorization"]?.replace("Bearer ", "") || req.headers["x-attendant-key"];
+  const key = req.headers["x-api-key"] || req.headers["authorization"]?.replace("Bearer ", "") || req.headers["x-attendant-key"] || req.query.key;
   const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
 
   // 1. Tenta chave global
