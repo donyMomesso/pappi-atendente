@@ -227,12 +227,20 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
     const { PrismaClient } = require("@prisma/client");
     const prisma = new PrismaClient();
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-    await prisma.$disconnect();
-    if (!tenant) return;
+    if (!tenant) { await prisma.$disconnect(); return; }
 
-    // Cria/busca customer usando senderId como "phone" para plataforma social
+    // Cria/busca customer usando senderId como identificador social
+    // Não passa pelo PhoneNormalizer pois não é telefone
     const socialId = `${platform}:${senderId}`;
-    const customer = await findOrCreate(tenantId, socialId, senderName);
+    let customer = await prisma.customer.findUnique({
+      where: { tenantId_phone: { tenantId, phone: socialId } },
+    });
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: { tenantId, phone: socialId, name: senderName || null },
+      });
+    }
+    await prisma.$disconnect();
     await touchInteraction(customer.id);
     await chatMemory.push(customer.id, "customer", text.trim(), null, null, "text");
 
