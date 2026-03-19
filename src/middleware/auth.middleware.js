@@ -17,7 +17,8 @@ async function requireAttendantKey(req, res, next) {
 
   // 2. Tenta chave específica do tenant
   if (tenantId && key) {
-    const prisma = require("../lib/prisma");
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
     const attendantsConfig = await prisma.config.findUnique({
       where: { key: `${tenantId}:attendants` },
     });
