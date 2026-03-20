@@ -6,7 +6,7 @@ const { createCardapioClient } = require("./cardapio.service");
 const { createClient: createWaClient } = require("../lib/whatsapp");
 
 const clientCache = new Map();
-const CLIENT_TTL  = 5 * 60 * 1000; // 5 min
+const CLIENT_TTL = 5 * 60 * 1000; // 5 min
 
 async function getTenantByPhoneNumberId(phoneNumberId) {
   return prisma.tenant.findFirst({
@@ -28,15 +28,15 @@ async function getClients(tenantId) {
   if (!tenant) throw new Error(`Tenant não encontrado: ${tenantId}`);
 
   const cw = createCardapioClient({
-    tenantId:   tenant.id,
-    baseUrl:    tenant.cwBaseUrl || "https://integracao.cardapioweb.com",
-    apiKey:     tenant.cwApiKey,
+    tenantId: tenant.id,
+    baseUrl: tenant.cwBaseUrl || "https://integracao.cardapioweb.com",
+    apiKey: tenant.cwApiKey,
     partnerKey: tenant.cwPartnerKey,
-    storeId:    tenant.cwStoreId,
+    storeId: tenant.cwStoreId,
   });
 
   const wa = createWaClient({
-    token:         tenant.waToken,
+    token: tenant.waToken,
     phoneNumberId: tenant.waPhoneNumberId,
   });
 

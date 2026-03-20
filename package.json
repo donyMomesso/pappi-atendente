@@ -10,7 +10,15 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "db:migrate:new": "prisma migrate dev --name"
+    "db:migrate:new": "prisma migrate dev --name",
+    "db:seed": "node prisma/seed.js",
+    "lint": "eslint . --ext .js --ignore-path .gitignore",
+    "lint:fix": "eslint . --ext .js --ignore-path .gitignore --fix",
+    "format": "prettier --write \"src/**/*.js\" \"*.js\"",
+    "format:check": "prettier --check \"src/**/*.js\" \"*.js\"",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:watch": "jest --watch --forceExit --detectOpenHandles",
+    "test:coverage": "jest --coverage --forceExit --detectOpenHandles"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -26,7 +34,11 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
     "pino-pretty": "^13.0.0",
+    "prettier": "^3.8.1",
     "prisma": "^5.10.0"
   },
   "engines": {

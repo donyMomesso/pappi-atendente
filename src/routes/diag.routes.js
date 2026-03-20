@@ -2,7 +2,7 @@
 
 const express = require("express");
 const { requireAdminKey } = require("../middleware/auth.middleware");
-const { listActive, getClients } = require("../services/tenant.service");
+const { getClients } = require("../services/tenant.service");
 
 const router = express.Router();
 
@@ -15,7 +15,9 @@ router.get("/diag/:tenantId", requireAdminKey, async (req, res) => {
     ]);
     const open = await cw.isOpen().catch(() => null);
     res.json({ tenant: config.name, open, merchant, paymentMethods });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

@@ -11,22 +11,27 @@ async function useDbAuthState(instanceId = "default") {
   async function readState() {
     const row = await prisma.config.findUnique({ where: { key: DB_KEY } }).catch(() => null);
     if (!row?.value) return {};
-    try { return JSON.parse(row.value, BufferJSON.reviver); }
-    catch { return {}; }
+    try {
+      return JSON.parse(row.value, BufferJSON.reviver);
+    } catch {
+      return {};
+    }
   }
 
   async function writeState(data) {
     const value = JSON.stringify(data, BufferJSON.replacer);
-    await prisma.config.upsert({
-      where:  { key: DB_KEY },
-      create: { key: DB_KEY, value },
-      update: { value },
-    }).catch(e => console.error(`[BaileysDB:${instanceId}] Erro ao salvar auth:`, e.message));
+    await prisma.config
+      .upsert({
+        where: { key: DB_KEY },
+        create: { key: DB_KEY, value },
+        update: { value },
+      })
+      .catch((e) => console.error(`[BaileysDB:${instanceId}] Erro ao salvar auth:`, e.message));
   }
 
   const stored = await readState();
-  const creds  = stored.creds || initAuthCreds();
-  const keys   = stored.keys  || {};
+  const creds = stored.creds || initAuthCreds();
+  const keys = stored.keys || {};
 
   const state = {
     creds,
@@ -67,7 +72,7 @@ async function listInstances() {
   const configs = await prisma.config.findMany({
     where: { key: { startsWith: "baileys:auth:" } },
   });
-  return configs.map(c => c.key.replace("baileys:auth:", ""));
+  return configs.map((c) => c.key.replace("baileys:auth:", ""));
 }
 
 module.exports = { useDbAuthState, clearDbAuth, listInstances };

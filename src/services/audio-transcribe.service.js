@@ -11,7 +11,7 @@
 const ENV = require("../config/env");
 
 const SUPPORTED_TYPES = ["audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm", "audio/opus"];
-const MAX_SIZE_BYTES  = 10 * 1024 * 1024; // 10 MB
+const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 /**
  * Baixa o áudio da URL do WhatsApp e transcreve com Gemini.
@@ -36,7 +36,7 @@ async function transcribeAudio(mediaUrl, token) {
     }
 
     const contentType = audioResp.headers.get("content-type") || "audio/ogg";
-    const buffer      = await audioResp.arrayBuffer();
+    const buffer = await audioResp.arrayBuffer();
 
     if (buffer.byteLength > MAX_SIZE_BYTES) {
       console.warn("[AudioTranscribe] Áudio muito grande:", buffer.byteLength, "bytes");
@@ -48,7 +48,7 @@ async function transcribeAudio(mediaUrl, token) {
     // 2. Envia para Gemini multimodal
     const { GoogleGenerativeAI } = require("@google/generative-ai");
     const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-    const model  = client.getGenerativeModel({
+    const model = client.getGenerativeModel({
       model: ENV.GEMINI_MODEL || "gemini-2.0-flash",
       generationConfig: { temperature: 0, maxOutputTokens: 512 },
     });
@@ -57,12 +57,13 @@ async function transcribeAudio(mediaUrl, token) {
       {
         inlineData: {
           mimeType: SUPPORTED_TYPES.includes(contentType) ? contentType : "audio/ogg",
-          data:     base64Data,
+          data: base64Data,
         },
       },
       {
-        text: "Transcreva exatamente o que está sendo dito neste áudio em português brasileiro. " +
-              "Retorne apenas o texto transcrito, sem introdução, sem aspas, sem explicações.",
+        text:
+          "Transcreva exatamente o que está sendo dito neste áudio em português brasileiro. " +
+          "Retorne apenas o texto transcrito, sem introdução, sem aspas, sem explicações.",
       },
     ]);
 
@@ -71,7 +72,6 @@ async function transcribeAudio(mediaUrl, token) {
 
     console.log(`[AudioTranscribe] Transcrito (${buffer.byteLength}b): "${transcription.slice(0, 80)}..."`);
     return transcription;
-
   } catch (err) {
     console.warn("[AudioTranscribe] Erro:", err.message);
     return null;

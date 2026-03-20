@@ -8,13 +8,13 @@
 const { randomUUID } = require("crypto");
 const { getClients } = require("../services/tenant.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
-const { round2 }        = require("../calculators/OrderCalculator");
+const { round2 } = require("../calculators/OrderCalculator");
 const AddressNormalizer = require("../normalizers/AddressNormalizer");
-const Gemini            = require("../services/gemini.service");
-const chatMemory        = require("../services/chat-memory.service");
-const Maps              = require("../services/maps.service");
-const sessionService    = require("../services/session.service");
-const metaCapi          = require("../services/meta-capi.service"); // ← CAPI adicionado
+const Gemini = require("../services/gemini.service");
+const chatMemory = require("../services/chat-memory.service");
+const Maps = require("../services/maps.service");
+const sessionService = require("../services/session.service");
+const metaCapi = require("../services/meta-capi.service"); // ← CAPI adicionado
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
@@ -36,16 +36,20 @@ async function lookupCep(raw) {
     const data = await resp.json();
     if (data.erro) return null;
     return {
-      street:       data.logradouro || "",
-      neighborhood: data.bairro     || "",
-      city:         data.localidade || "",
-      state:        data.uf         || "SP",
-      zipCode:      cep,
+      street: data.logradouro || "",
+      neighborhood: data.bairro || "",
+      city: data.localidade || "",
+      state: data.uf || "SP",
+      zipCode: cep,
     };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
-function isCep(text) { return /^\d{5}-?\d{3}$/.test(text.trim()); }
+function isCep(text) {
+  return /^\d{5}-?\d{3}$/.test(text.trim());
+}
 
 // ── Ponto de entrada — com mutex por usuário ──────────────────
 async function handle({ tenant, wa, customer, text, phone }) {
@@ -60,7 +64,7 @@ async function handle({ tenant, wa, customer, text, phone }) {
 
 async function _handle({ tenant, wa, customer, text, phone }) {
   const session = await getSession(tenant.id, phone);
-  const { cw }  = await getClients(tenant.id);
+  const { cw } = await getClients(tenant.id);
 
   const open = await cw.isOpen();
   if (!open) {
@@ -71,9 +75,12 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
-  if (["oi","ola","ola!","menu","inicio","comecar","cardapio","hey","oi!","olá"].includes(t)) {
+  if (["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "hey", "oi!", "olá"].includes(t)) {
     await clearSession(tenant.id, phone);
     const fresh = await getSession(tenant.id, phone);
     await sendGreeting(wa, cw, phone, customer, tenant, fresh);
@@ -94,18 +101,18 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   }
 
   if (
-    t.includes("onde esta") || t.includes("meu pedido") ||
-    t.includes("status") || t.includes("chegou") ||
-    t.includes("quanto tempo") || t.includes("previsao")
+    t.includes("onde esta") ||
+    t.includes("meu pedido") ||
+    t.includes("status") ||
+    t.includes("chegou") ||
+    t.includes("quanto tempo") ||
+    t.includes("previsao")
   ) {
     await handleStatusQuery(wa, phone, customer, tenant);
     return;
   }
 
-  if (
-    (t.includes("cancel") && (t.includes("pedido") || t.includes("quero"))) &&
-    session.step !== "CONFIRM"
-  ) {
+  if (t.includes("cancel") && (t.includes("pedido") || t.includes("quero")) && session.step !== "CONFIRM") {
     await handleCancelRequest(wa, phone, customer, tenant);
     return;
   }
@@ -113,11 +120,14 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   if (session.step === "MENU") {
     try {
       const intent = await Gemini.classifyIntent(text);
-      if (intent === "STATUS") { await handleStatusQuery(wa, phone, customer, tenant); return; }
+      if (intent === "STATUS") {
+        await handleStatusQuery(wa, phone, customer, tenant);
+        return;
+      }
       if (intent === "CARDAPIO") {
         const merchant = await cw.getMerchant().catch(() => null);
-        const url      = merchant?.url || merchant?.website || "";
-        const m        = url
+        const url = merchant?.url || merchant?.website || "";
+        const m = url
           ? `📱 Confira nosso cardápio completo: ${url}`
           : "Me diga o que deseja e eu te ajudo a montar o pedido! 😊";
         await wa.sendText(phone, m);
@@ -139,16 +149,35 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   }
 
   switch (session.step) {
-    case "MENU":            await sendGreeting(wa, cw, phone, customer, tenant, session);                  break;
-    case "ASK_NAME":        await handleAskName(wa, cw, phone, text, session, customer, tenant);           break;
-    case "FULFILLMENT":     await handleFulfillment(wa, cw, phone, text, t, session, customer, tenant);    break;
-    case "ADDRESS":         await handleAddress(wa, cw, phone, text, session, customer, tenant);           break;
-    case "ADDRESS_NUMBER":  await handleAddressNumber(wa, cw, phone, text, session, customer, tenant);     break;
-    case "ADDRESS_CONFIRM": await handleAddressConfirm(wa, cw, phone, text, t, session, customer, tenant); break;
-    case "ORDERING":        await handleOrdering(wa, cw, phone, text, session, customer, tenant);          break;
-    case "PAYMENT":         await handlePayment(wa, phone, text, session, customer, tenant);               break;
-    case "CONFIRM":         await handleConfirm(wa, cw, phone, text, t, session, customer, tenant);        break;
-    default:                await sendGreeting(wa, cw, phone, customer, tenant, session);
+    case "MENU":
+      await sendGreeting(wa, cw, phone, customer, tenant, session);
+      break;
+    case "ASK_NAME":
+      await handleAskName(wa, cw, phone, text, session, customer, tenant);
+      break;
+    case "FULFILLMENT":
+      await handleFulfillment(wa, cw, phone, text, t, session, customer, tenant);
+      break;
+    case "ADDRESS":
+      await handleAddress(wa, cw, phone, text, session, customer, tenant);
+      break;
+    case "ADDRESS_NUMBER":
+      await handleAddressNumber(wa, cw, phone, text, session, customer, tenant);
+      break;
+    case "ADDRESS_CONFIRM":
+      await handleAddressConfirm(wa, cw, phone, text, t, session, customer, tenant);
+      break;
+    case "ORDERING":
+      await handleOrdering(wa, cw, phone, text, session, customer, tenant);
+      break;
+    case "PAYMENT":
+      await handlePayment(wa, phone, text, session, customer, tenant);
+      break;
+    case "CONFIRM":
+      await handleConfirm(wa, cw, phone, text, t, session, customer, tenant);
+      break;
+    default:
+      await sendGreeting(wa, cw, phone, customer, tenant, session);
   }
 
   if (session._cleared) {
@@ -159,11 +188,11 @@ async function _handle({ tenant, wa, customer, text, phone }) {
 }
 
 // ── Status do pedido ──────────────────────────────────────────
-async function handleStatusQuery(wa, phone, customer, tenant) {
+async function handleStatusQuery(wa, phone, customer, _tenant) {
   try {
-    const prisma    = require("../lib/db");
+    const prisma = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
-      where:   { customerId: customer.id },
+      where: { customerId: customer.id },
       orderBy: { createdAt: "desc" },
     });
 
@@ -176,18 +205,18 @@ async function handleStatusQuery(wa, phone, customer, tenant) {
 
     const statusLabels = {
       waiting_confirmation: "⏳ Aguardando confirmação da loja",
-      confirmed:            "✅ Confirmado pela loja",
-      in_production:        "👨‍🍳 Em produção",
-      in_preparation:       "👨‍🍳 Em produção",
-      dispatched:           "🛵 Saiu para entrega",
-      delivered:            "🎉 Entregue",
-      cancelled:            "❌ Cancelado",
+      confirmed: "✅ Confirmado pela loja",
+      in_production: "👨‍🍳 Em produção",
+      in_preparation: "👨‍🍳 Em produção",
+      dispatched: "🛵 Saiu para entrega",
+      delivered: "🎉 Entregue",
+      cancelled: "❌ Cancelado",
     };
 
     const statusLabel = statusLabels[lastOrder.status] || lastOrder.status;
-    const orderNum    = lastOrder.id.slice(-6).toUpperCase();
-    const time        = new Date(lastOrder.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    const m           = `📦 *Pedido #${orderNum}* (${time})\nStatus: ${statusLabel}`;
+    const orderNum = lastOrder.id.slice(-6).toUpperCase();
+    const time = new Date(lastOrder.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const m = `📦 *Pedido #${orderNum}* (${time})\nStatus: ${statusLabel}`;
 
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
@@ -199,9 +228,9 @@ async function handleStatusQuery(wa, phone, customer, tenant) {
 // ── Cancelamento ──────────────────────────────────────────────
 async function handleCancelRequest(wa, phone, customer, tenant) {
   try {
-    const prisma    = require("../lib/db");
+    const prisma = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
-      where:   { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
+      where: { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
       orderBy: { createdAt: "desc" },
     });
 
@@ -223,7 +252,7 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
     await updateStatus(lastOrder.id, "cancelled", "webhook", "Cancelado pelo cliente via WhatsApp");
 
     const orderNum = lastOrder.id.slice(-6).toUpperCase();
-    const m        = `❌ Pedido *#${orderNum}* cancelado. Se precisar de algo, é só chamar! 😊`;
+    const m = `❌ Pedido *#${orderNum}* cancelado. Se precisar de algo, é só chamar! 😊`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
   } catch (err) {
@@ -244,7 +273,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   // ── CAPI: Contact (lead novo) ─────────────────────────────
   metaCapi.trackContact({ customer }).catch(() => {});
 
-  const isVip     = (customer.visitCount || 0) > 0;
+  const isVip = (customer.visitCount || 0) > 0;
   const firstName = customer.name.split(" ")[0];
   const storeName = tenant.name || "Pappi Pizza";
 
@@ -254,7 +283,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
     menuUrl = merchant?.url || merchant?.website || merchant?.catalog_url || "";
   } catch {}
 
-  const urlLine  = menuUrl ? `\n📱 Cardápio: ${menuUrl}` : "";
+  const urlLine = menuUrl ? `\n📱 Cardápio: ${menuUrl}` : "";
   const greeting = isVip
     ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min\n\nÉ Entrega ou Retirada?`
     : `Olá, ${firstName}! 👋 Bem-vindo(a) à ${storeName} 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min\n\nÉ Entrega ou Retirada?`;
@@ -262,7 +291,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   session.step = "FULFILLMENT";
   await wa.sendButtons(phone, greeting, [
     { id: "delivery", title: "🚚 Entrega" },
-    { id: "takeout",  title: "🏪 Retirada" },
+    { id: "takeout", title: "🏪 Retirada" },
   ]);
   await chatMemory.push(customer.id, "bot", greeting);
 }
@@ -275,8 +304,8 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
     return;
   }
   const { setName } = require("../services/customer.service");
-  const updated     = await setName(customer.id, name);
-  customer.name     = updated.name;
+  const updated = await setName(customer.id, name);
+  customer.name = updated.name;
   customer.visitCount = updated.visitCount;
 
   const firstName = name.split(" ")[0];
@@ -288,7 +317,7 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
 // ── FULFILLMENT ───────────────────────────────────────────────
 async function handleFulfillment(wa, cw, phone, text, t, session, customer, tenant) {
   const isDelivery = t.includes("entrega") || text === "delivery";
-  const isTakeout  = t.includes("retirada") || t.includes("buscar") || t.includes("retirar") || text === "takeout";
+  const isTakeout = t.includes("retirada") || t.includes("buscar") || t.includes("retirar") || text === "takeout";
 
   if (isDelivery) {
     session.fulfillment = "delivery";
@@ -297,27 +326,28 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
     if (customer.lastAddress) {
       session.step = "ADDRESS_CONFIRM";
       const addr = {
-        formatted:    customer.lastAddress,
-        street:       customer.lastStreet       || "",
-        number:       customer.lastNumber       || "",
+        formatted: customer.lastAddress,
+        street: customer.lastStreet || "",
+        number: customer.lastNumber || "",
         neighborhood: customer.lastNeighborhood || "",
-        complement:   customer.lastComplement   || "",
-        city:         customer.lastCity         || tenant.city || "",
-        lat:          customer.lastLat,
-        lng:          customer.lastLng,
+        complement: customer.lastComplement || "",
+        city: customer.lastCity || tenant.city || "",
+        lat: customer.lastLat,
+        lng: customer.lastLng,
       };
       session.address = addr;
       const m = `🛵 Usar o mesmo endereço da última vez?\n📍 *${addr.formatted}*`;
       await wa.sendButtons(phone, m, [
         { id: "confirm_addr", title: "✅ Sim, usar esse" },
-        { id: "change_addr",  title: "✏️ Outro endereço" },
+        { id: "change_addr", title: "✏️ Outro endereço" },
       ]);
       await chatMemory.push(customer.id, "bot", m);
       return;
     }
 
     session.step = "ADDRESS";
-    const m = "🛵 Entrega! ⏱️ 40 a 60 min.\nMe manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
+    const m =
+      "🛵 Entrega! ⏱️ 40 a 60 min.\nMe manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -351,7 +381,7 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
   let addr = await Gemini.extractAddress(text, tenant.city || "Campinas");
   if (!addr) {
     const ext = AddressNormalizer.fromText(text);
-    const res  = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
+    const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
     if (res.ok) addr = res.address;
   }
 
@@ -387,18 +417,22 @@ async function handleAddressNumber(wa, cw, phone, text, session, customer, tenan
 async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
   const fullAddress = [
     `${addr.street}, ${addr.number}`,
-    addr.complement, addr.neighborhood,
+    addr.complement,
+    addr.neighborhood,
     addr.city || tenant.city || "",
-    addr.state, addr.zipCode,
-  ].filter(Boolean).join(", ");
+    addr.state,
+    addr.zipCode,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   let feeText = "";
   try {
     const geo = await Maps.quote(fullAddress, cw);
     if (geo) {
       addr.formatted = geo.formatted_address || fullAddress;
-      addr.lat       = geo.lat;
-      addr.lng       = geo.lng;
+      addr.lat = geo.lat;
+      addr.lng = geo.lng;
       if (geo.delivery_fee != null) {
         session.deliveryFee = geo.delivery_fee;
         const kmStr = geo.km != null ? ` | ${geo.km} km` : "";
@@ -414,17 +448,20 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
   if (!session.deliveryFee) {
     try {
       const fee = await cw.getDeliveryFee({});
-      if (fee != null) { session.deliveryFee = fee; feeText = `\nTaxa: R$ ${fee.toFixed(2)}`; }
+      if (fee != null) {
+        session.deliveryFee = fee;
+        feeText = `\nTaxa: R$ ${fee.toFixed(2)}`;
+      }
     } catch {}
   }
 
   session.address = addr;
-  session.step    = "ADDRESS_CONFIRM";
+  session.step = "ADDRESS_CONFIRM";
 
   const m = `Confere o endereço? 📍\n*${addr.formatted}*${feeText}`;
   await wa.sendButtons(phone, m, [
     { id: "confirm_addr", title: "✅ Confirmar" },
-    { id: "change_addr",  title: "✏️ Corrigir"  },
+    { id: "change_addr", title: "✏️ Corrigir" },
   ]);
   await chatMemory.push(customer.id, "bot", m);
 }
@@ -443,14 +480,14 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
     const { touchInteraction } = require("../services/customer.service");
     await touchInteraction(customer.id, session.address).catch(() => {});
     // Atualiza objeto em memória para evitar nova busca
-    customer.lastAddress      = session.address.formatted;
-    customer.lastStreet       = session.address.street;
-    customer.lastNumber       = session.address.number;
+    customer.lastAddress = session.address.formatted;
+    customer.lastStreet = session.address.street;
+    customer.lastNumber = session.address.number;
     customer.lastNeighborhood = session.address.neighborhood;
-    customer.lastComplement   = session.address.complement;
-    customer.lastCity         = session.address.city;
-    customer.lastLat          = session.address.lat;
-    customer.lastLng          = session.address.lng;
+    customer.lastComplement = session.address.complement;
+    customer.lastCity = session.address.city;
+    customer.lastLat = session.address.lat;
+    customer.lastLng = session.address.lng;
   }
 
   await startOrdering(wa, cw, phone, session, customer, tenant);
@@ -460,20 +497,21 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
 async function startOrdering(wa, cw, phone, session, customer, tenant) {
   const [catalog] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods()]);
 
-  session.catalog      = catalog;
-  session.step         = "ORDERING";
+  session.catalog = catalog;
+  session.step = "ORDERING";
   session.orderHistory = [];
 
   // ── CAPI: ViewContent (cliente acessou o cardápio) ──────────
   metaCapi.trackViewContent({ customer, tenantName: tenant.name }).catch(() => {});
 
-  const isVip     = (customer.visitCount || 0) > 0;
+  const isVip = (customer.visitCount || 0) > 0;
   const firstName = customer.name?.split(" ")[0] || "";
-  const last      = customer.lastOrderSummary;
+  const last = customer.lastOrderSummary;
 
-  const m = isVip && last
-    ? `Fechado ✅ Pronto pra pedir, ${firstName}! 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
-    : `Fechado ✅ Agora me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
+  const m =
+    isVip && last
+      ? `Fechado ✅ Pronto pra pedir, ${firstName}! 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
+      : `Fechado ✅ Agora me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
 
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
@@ -484,13 +522,13 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
   session.orderHistory.push({ role: "customer", text });
 
   const result = await Gemini.chatOrder({
-    history:      session.orderHistory,
-    catalog:      session.catalog,
+    history: session.orderHistory,
+    catalog: session.catalog,
     customerName: customer.name,
-    lastOrder:    customer.lastOrderSummary,
-    storeName:    tenant.name || "Pappi Pizza",
-    city:         tenant.city || "Campinas",
-    isVip:        (customer.visitCount || 0) > 0,
+    lastOrder: customer.lastOrderSummary,
+    storeName: tenant.name || "Pappi Pizza",
+    city: tenant.city || "Campinas",
+    isVip: (customer.visitCount || 0) > 0,
   });
 
   session.orderHistory.push({ role: "bot", text: result.reply });
@@ -514,26 +552,27 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
     return;
   }
 
-  session.paymentMethodId   = mapped.id;
+  session.paymentMethodId = mapped.id;
   session.paymentMethodName = mapped.name;
   session.step = "CONFIRM";
 
   const { calculate } = require("../calculators/OrderCalculator");
-  const calc           = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
-  session.calc         = calc;
+  const calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
+  session.calc = calc;
 
   // ── CAPI: InitiateCheckout ────────────────────────────────
-  metaCapi.trackInitiateCheckout({ customer, cart: session.cart, deliveryFee: session.deliveryFee || 0 }).catch(() => {});
+  metaCapi
+    .trackInitiateCheckout({ customer, cart: session.cart, deliveryFee: session.deliveryFee || 0 })
+    .catch(() => {});
 
-  const addrLine = session.fulfillment === "delivery" && session.address
-    ? `📍 *Endereço:* ${session.address.formatted}\n` : "";
-  const feeLine  = session.deliveryFee
-    ? `🛵 *Taxa:* R$ ${session.deliveryFee.toFixed(2)}\n` : "";
+  const addrLine =
+    session.fulfillment === "delivery" && session.address ? `📍 *Endereço:* ${session.address.formatted}\n` : "";
+  const feeLine = session.deliveryFee ? `🛵 *Taxa:* R$ ${session.deliveryFee.toFixed(2)}\n` : "";
 
   const m = `📋 *Resumo do pedido:*\n\n${cartSummary(session.cart)}\n${feeLine}${addrLine}💳 *Pagamento:* ${mapped.name}\n\nConfirmar?`;
   await wa.sendButtons(phone, m, [
     { id: "CONFIRMAR", title: "✅ Confirmar" },
-    { id: "CANCELAR",  title: "❌ Cancelar"  },
+    { id: "CANCELAR", title: "❌ Cancelar" },
   ]);
   await chatMemory.push(customer.id, "bot", m);
 }
@@ -549,17 +588,19 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   await wa.sendText(phone, "⏳ Processando seu pedido...");
 
   const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
-  const { recordOrder }                          = require("../services/customer.service");
-  const { calculate }                            = require("../calculators/OrderCalculator");
+  const { recordOrder } = require("../services/customer.service");
+  const { calculate } = require("../calculators/OrderCalculator");
 
-  const calc      = session.calc || calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
+  const calc = session.calc || calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
   const cwPayload = buildCwPayload({ session, customer, calc });
 
-  let cwResponse = null, cwOrderId = null, cwSuccess = false;
+  let cwResponse = null,
+    cwOrderId = null,
+    cwSuccess = false;
   try {
     cwResponse = await cw.createOrder(cwPayload);
-    cwOrderId  = cwResponse?.id || cwResponse?.order_id;
-    cwSuccess  = true;
+    cwOrderId = cwResponse?.id || cwResponse?.order_id;
+    cwSuccess = true;
   } catch (err) {
     console.error(`[${tenant.id}] Erro CW createOrder:`, err.message);
 
@@ -567,29 +608,41 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
     // Pedido não se perde — fica salvo localmente com cwOrderId=null
     const baileys = require("../services/baileys.service");
     const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
-    baileys.notify(
-      `🚨 *Falha ao enviar pedido ao CardápioWeb!*\n👤 ${orderRef}\n⚠️ Erro: ${err.message}\n\nPedido salvo localmente — verifique o painel.`
-    ).catch(() => {});
+    baileys
+      .notify(
+        `🚨 *Falha ao enviar pedido ao CardápioWeb!*\n👤 ${orderRef}\n⚠️ Erro: ${err.message}\n\nPedido salvo localmente — verifique o painel.`,
+      )
+      .catch(() => {});
   }
 
   const idempotencyKey = `${customer.id}:${Date.now()}`;
-  const { order }      = await createWithIdempotency({
-    tenantId: tenant.id, customerId: customer.id, idempotencyKey,
-    items: session.cart, total: calc.expectedTotal, deliveryFee: calc.deliveryFee,
-    fulfillment: session.fulfillment, address: session.address,
-    paymentMethodId: session.paymentMethodId, paymentMethodName: session.paymentMethodName,
-    cwOrderId, cwPayload, cwResponse,
+  const { order } = await createWithIdempotency({
+    tenantId: tenant.id,
+    customerId: customer.id,
+    idempotencyKey,
+    items: session.cart,
+    total: calc.expectedTotal,
+    deliveryFee: calc.deliveryFee,
+    fulfillment: session.fulfillment,
+    address: session.address,
+    paymentMethodId: session.paymentMethodId,
+    paymentMethodName: session.paymentMethodName,
+    cwOrderId,
+    cwPayload,
+    cwResponse,
   });
 
   if (cwOrderId) await setCwOrderId(order.id, cwOrderId, cwResponse);
   await recordOrder(customer.id, cartSummary(session.cart), session.paymentMethodName);
 
   // ── CAPI: Purchase ────────────────────────────────────────
-  metaCapi.trackPurchase({
-    customer,
-    order: { id: order.id, total: calc.expectedTotal, fulfillment: session.fulfillment },
-    items: session.cart,
-  }).catch(() => {});
+  metaCapi
+    .trackPurchase({
+      customer,
+      order: { id: order.id, total: calc.expectedTotal, fulfillment: session.fulfillment },
+      items: session.cart,
+    })
+    .catch(() => {});
 
   session._cleared = true;
 
@@ -607,62 +660,68 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
 // ── Helpers ───────────────────────────────────────────────────
 function cartSummary(cart) {
   if (!cart?.length) return "Carrinho vazio";
-  const lines = cart.map(i => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`);
+  const lines = cart.map((i) => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`);
   const total = cart.reduce((s, i) => s + i.unit_price * i.quantity, 0);
   return lines.join("\n") + `\n\n*Total: R$ ${total.toFixed(2)}*`;
 }
 
 function buildCwPayload({ session, customer, calc }) {
   const localPhone = customer.phone.startsWith("55") ? customer.phone.slice(2) : customer.phone;
-  const phone11    = localPhone.replace(/\D/g, "").slice(-11);
-  const cwOrderId  = randomUUID();
-  const displayId  = cwOrderId.slice(-6).toUpperCase();
+  const phone11 = localPhone.replace(/\D/g, "").slice(-11);
+  const cwOrderId = randomUUID();
+  const displayId = cwOrderId.slice(-6).toUpperCase();
 
   const payload = {
-    order_id:   cwOrderId,
+    order_id: cwOrderId,
     display_id: displayId,
     order_type: session.fulfillment === "delivery" ? "delivery" : "takeout",
     created_at: new Date().toISOString(),
     customer: { phone: phone11, name: customer.name || "Cliente WhatsApp" },
     totals: {
-      order_amount:   calc.expectedTotal,
-      delivery_fee:   round2(calc.deliveryFee || 0),
+      order_amount: calc.expectedTotal,
+      delivery_fee: round2(calc.deliveryFee || 0),
       additional_fee: 0,
-      discounts:      round2(calc.discount    || 0),
+      discounts: round2(calc.discount || 0),
     },
-    items: session.cart.map(i => {
-      const addons    = i.addons || [];
+    items: session.cart.map((i) => {
+      const addons = i.addons || [];
       const addonsSum = addons.reduce((s, a) => s + (a.unit_price || 0) * (a.quantity || 1), 0);
       return {
         ...(i.id ? { item_id: String(i.id) } : {}),
-        name:        i.name,
-        quantity:    i.quantity,
-        unit_price:  i.unit_price,
+        name: i.name,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
         total_price: round2((i.unit_price + addonsSum) * i.quantity),
-        ...(addons.length ? {
-          options: addons.map(a => ({
-            name: a.name, quantity: a.quantity || 1, unit_price: a.unit_price || 0,
-            ...(a.id ? { option_id: String(a.id) } : {}),
-          })),
-        } : {}),
+        ...(addons.length
+          ? {
+              options: addons.map((a) => ({
+                name: a.name,
+                quantity: a.quantity || 1,
+                unit_price: a.unit_price || 0,
+                ...(a.id ? { option_id: String(a.id) } : {}),
+              })),
+            }
+          : {}),
       };
     }),
-    payments: [{
-      total:             calc.expectedTotal,
-      payment_method_id: parseInt(session.paymentMethodId, 10) || session.paymentMethodId,
-    }],
+    payments: [
+      {
+        total: calc.expectedTotal,
+        payment_method_id: parseInt(session.paymentMethodId, 10) || session.paymentMethodId,
+      },
+    ],
   };
 
   if (session.fulfillment === "delivery" && session.address) {
     payload.delivery_address = {
-      state:        session.address.state        || "SP",
-      city:         session.address.city         || "",
+      state: session.address.state || "SP",
+      city: session.address.city || "",
       neighborhood: session.address.neighborhood || "",
-      street:       session.address.street       || "",
-      number:       session.address.number       || "",
-      postal_code:  (session.address.zipCode || "").replace(/\D/g, ""),
+      street: session.address.street || "",
+      number: session.address.number || "",
+      postal_code: (session.address.zipCode || "").replace(/\D/g, ""),
       coordinates: {
-        latitude:  session.address.lat ?? 0,
+        latitude: session.address.lat ?? 0,
         longitude: session.address.lng ?? 0,
       },
       ...(session.address.complement ? { complement: session.address.complement } : {}),
@@ -675,7 +734,7 @@ function buildCwPayload({ session, customer, calc }) {
 // ── Salva mensagem enviada pelo Baileys ───────────────────────
 async function saveBaileysMessage(phone, text, tenantId, role = "assistant") {
   try {
-    const prisma          = require("../lib/db");
+    const prisma = require("../lib/db");
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
     const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
 

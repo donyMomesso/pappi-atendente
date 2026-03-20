@@ -7,9 +7,9 @@
 
 const prisma = require("../lib/db");
 
-const MAX_MEMORY    = 100;
-const STORE_TTL_MS  = 60 * 60 * 1000; // 1h sem acesso → remove do Map
-const store         = new Map(); // customerId → { msgs: Message[], lastAccess: number }
+const MAX_MEMORY = 100;
+const STORE_TTL_MS = 60 * 60 * 1000; // 1h sem acesso → remove do Map
+const store = new Map(); // customerId → { msgs: Message[], lastAccess: number }
 
 function getEntry(customerId) {
   let entry = store.get(customerId);
@@ -22,7 +22,7 @@ function getEntry(customerId) {
 }
 
 async function push(customerId, role, text, sender = null, mediaUrl = null, mediaType = "text", waMessageId = null) {
-  const at  = new Date().toISOString();
+  const at = new Date().toISOString();
   const msg = { role, text, sender, mediaUrl, mediaType, waMessageId, at };
 
   // Memória
@@ -51,13 +51,13 @@ async function updateStatus(customerId, waMessageId, status) {
   try {
     await prisma.message.updateMany({
       where: { waMessageId },
-      data:  { status },
+      data: { status },
     });
 
     // Atualiza memória
     const entry = store.get(customerId);
     if (entry) {
-      const m = entry.msgs.find(msg => msg.waMessageId === waMessageId);
+      const m = entry.msgs.find((msg) => msg.waMessageId === waMessageId);
       if (m) m.status = status;
     }
 
@@ -80,26 +80,28 @@ async function get(customerId) {
 
   try {
     const rows = await prisma.message.findMany({
-      where:   { customerId },
+      where: { customerId },
       orderBy: { createdAt: "asc" },
-      take:    100,
+      take: 100,
     });
-    const msgs = rows.map(r => ({
-      role:       r.role,
-      text:       r.text,
-      sender:     r.sender,
-      mediaUrl:   r.mediaUrl,
-      mediaType:  r.mediaType,
-      status:     r.status,
+    const msgs = rows.map((r) => ({
+      role: r.role,
+      text: r.text,
+      sender: r.sender,
+      mediaUrl: r.mediaUrl,
+      mediaType: r.mediaType,
+      status: r.status,
       waMessageId: r.waMessageId,
-      at:         r.createdAt.toISOString(),
+      at: r.createdAt.toISOString(),
     }));
 
     // Popula cache
     const e = getEntry(customerId);
     e.msgs = msgs;
     return msgs;
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function clear(customerId) {
@@ -108,18 +110,21 @@ function clear(customerId) {
 
 // ── Limpeza periódica do Map (evita memory leak) ──────────────
 // Remove customers que não interagiram há mais de STORE_TTL_MS
-setInterval(() => {
-  const now = Date.now();
-  let removed = 0;
-  for (const [id, entry] of store.entries()) {
-    if (now - entry.lastAccess > STORE_TTL_MS) {
-      store.delete(id);
-      removed++;
+setInterval(
+  () => {
+    const now = Date.now();
+    let removed = 0;
+    for (const [id, entry] of store.entries()) {
+      if (now - entry.lastAccess > STORE_TTL_MS) {
+        store.delete(id);
+        removed++;
+      }
     }
-  }
-  if (removed > 0) {
-    console.log(`[ChatMemory] Limpeza: ${removed} customers removidos do cache. Restam: ${store.size}`);
-  }
-}, 30 * 60 * 1000); // roda a cada 30 min
+    if (removed > 0) {
+      console.log(`[ChatMemory] Limpeza: ${removed} customers removidos do cache. Restam: ${store.size}`);
+    }
+  },
+  30 * 60 * 1000,
+); // roda a cada 30 min
 
 module.exports = { push, get, clear, updateStatus };

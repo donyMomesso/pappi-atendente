@@ -23,13 +23,15 @@ function format(normalized) {
   const n = normalize(normalized);
   if (!n) return normalized || "";
   const local = n.slice(2);
-  const ddd   = local.slice(0, 2);
-  const num   = local.slice(2);
+  const ddd = local.slice(0, 2);
+  const num = local.slice(2);
   if (num.length === 9) return `(${ddd}) ${num.slice(0, 5)}-${num.slice(5)}`;
   if (num.length === 8) return `(${ddd}) ${num.slice(0, 4)}-${num.slice(4)}`;
   return `(${ddd}) ${num}`;
 }
 
-function fromWhatsApp(waId) { return normalize(waId); }
+function fromWhatsApp(waId) {
+  return normalize(waId);
+}
 
 module.exports = { normalize, toLocal, format, fromWhatsApp };

@@ -9,17 +9,14 @@
 //   - Contact    → quando cliente inicia conversa pela primeira vez
 
 const crypto = require("crypto");
-const ENV    = require("../config/env");
+const ENV = require("../config/env");
 
 const CAPI_URL = "https://graph.facebook.com/v19.0";
 
 // ── Hash SHA256 (exigido pela Meta para PII) ──────────────────
 function hash(value) {
   if (!value) return null;
-  return crypto
-    .createHash("sha256")
-    .update(String(value).toLowerCase().trim())
-    .digest("hex");
+  return crypto.createHash("sha256").update(String(value).toLowerCase().trim()).digest("hex");
 }
 
 // ── Normaliza telefone para formato E.164 sem + ───────────────
@@ -49,7 +46,7 @@ function buildUserData(customer, ipAddress = null) {
 
 // ── Envia evento para a CAPI ──────────────────────────────────
 async function sendEvent(events) {
-  const pixelId    = ENV.META_PIXEL_ID;
+  const pixelId = ENV.META_PIXEL_ID;
   const accessToken = ENV.META_CAPI_TOKEN;
 
   if (!pixelId || !accessToken) {
@@ -57,7 +54,7 @@ async function sendEvent(events) {
     return null;
   }
 
-  const url  = `${CAPI_URL}/${pixelId}/events?access_token=${accessToken}`;
+  const url = `${CAPI_URL}/${pixelId}/events?access_token=${accessToken}`;
   const body = {
     data: events,
     // test_event_code: ENV.META_CAPI_TEST_CODE || undefined, // descomente para testar
@@ -65,9 +62,9 @@ async function sendEvent(events) {
 
   try {
     const resp = await fetch(url, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(body),
+      body: JSON.stringify(body),
     });
 
     const data = await resp.json();
@@ -91,28 +88,28 @@ async function trackPurchase({ customer, order, items }) {
   const eventTime = Math.floor(Date.now() / 1000);
 
   // Monta conteúdo do pedido (itens)
-  const contents = (items || []).map(i => ({
-    id:         String(i.id || i.name),
-    quantity:   i.quantity || 1,
+  const contents = (items || []).map((i) => ({
+    id: String(i.id || i.name),
+    quantity: i.quantity || 1,
     item_price: i.unit_price || 0,
-    title:      i.name,
+    title: i.name,
   }));
 
   const event = {
-    event_name:        "Purchase",
-    event_time:        eventTime,
-    action_source:     "other", // WhatsApp não é web nem app
-    event_source_url:  `https://wa.me/${normalizePhone(customer.phone)}`,
-    user_data:         buildUserData(customer),
+    event_name: "Purchase",
+    event_time: eventTime,
+    action_source: "other", // WhatsApp não é web nem app
+    event_source_url: `https://wa.me/${normalizePhone(customer.phone)}`,
+    user_data: buildUserData(customer),
     custom_data: {
-      currency:    "BRL",
-      value:       order.total,
+      currency: "BRL",
+      value: order.total,
       contents,
       content_type: "product",
-      order_id:    order.id,
+      order_id: order.id,
       // Canal de origem — útil para segmentação
       custom_properties: {
-        channel:     "whatsapp",
+        channel: "whatsapp",
         fulfillment: order.fulfillment, // delivery ou takeout
       },
     },
@@ -124,27 +121,27 @@ async function trackPurchase({ customer, order, items }) {
 // ── EVENTO: InitiateCheckout ───────────────────────────────────
 // Disparado quando cliente chega na etapa de pagamento
 async function trackInitiateCheckout({ customer, cart, deliveryFee = 0 }) {
-  const total    = cart.reduce((s, i) => s + (i.unit_price * i.quantity), 0) + deliveryFee;
+  const total = cart.reduce((s, i) => s + i.unit_price * i.quantity, 0) + deliveryFee;
   const eventTime = Math.floor(Date.now() / 1000);
 
-  const contents = cart.map(i => ({
-    id:         String(i.id || i.name),
-    quantity:   i.quantity || 1,
+  const contents = cart.map((i) => ({
+    id: String(i.id || i.name),
+    quantity: i.quantity || 1,
     item_price: i.unit_price || 0,
-    title:      i.name,
+    title: i.name,
   }));
 
   const event = {
-    event_name:    "InitiateCheckout",
-    event_time:    eventTime,
+    event_name: "InitiateCheckout",
+    event_time: eventTime,
     action_source: "other",
-    user_data:     buildUserData(customer),
+    user_data: buildUserData(customer),
     custom_data: {
-      currency:     "BRL",
-      value:        total,
+      currency: "BRL",
+      value: total,
       contents,
       content_type: "product",
-      num_items:    cart.reduce((s, i) => s + i.quantity, 0),
+      num_items: cart.reduce((s, i) => s + i.quantity, 0),
     },
   };
 
@@ -158,10 +155,10 @@ async function trackContact({ customer }) {
   if ((customer.visitCount || 0) > 0) return null;
 
   const event = {
-    event_name:    "Contact",
-    event_time:    Math.floor(Date.now() / 1000),
+    event_name: "Contact",
+    event_time: Math.floor(Date.now() / 1000),
     action_source: "other",
-    user_data:     buildUserData(customer),
+    user_data: buildUserData(customer),
     custom_data: {
       channel: "whatsapp",
     },
@@ -174,14 +171,14 @@ async function trackContact({ customer }) {
 // Disparado quando cliente pede o cardápio
 async function trackViewContent({ customer, tenantName }) {
   const event = {
-    event_name:    "ViewContent",
-    event_time:    Math.floor(Date.now() / 1000),
+    event_name: "ViewContent",
+    event_time: Math.floor(Date.now() / 1000),
     action_source: "other",
-    user_data:     buildUserData(customer),
+    user_data: buildUserData(customer),
     custom_data: {
       content_type: "product",
       content_name: `Cardápio ${tenantName || ""}`.trim(),
-      channel:      "whatsapp",
+      channel: "whatsapp",
     },
   };
 

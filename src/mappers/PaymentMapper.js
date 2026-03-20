@@ -4,13 +4,13 @@ const cache = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
 
 const KEYWORDS = {
-  pix:     ["pix", "pixzinho", "chave pix"],
-  credit:  ["crédito", "credito", "cartão crédito", "visa", "master", "elo", "amex", "credi"],
-  debit:   ["débito", "debito", "cartão débito", "cartao debito"],
-  cash:    ["dinheiro", "especie", "espécie", "troco", "cash", "nota"],
+  pix: ["pix", "pixzinho", "chave pix"],
+  credit: ["crédito", "credito", "cartão crédito", "visa", "master", "elo", "amex", "credi"],
+  debit: ["débito", "debito", "cartão débito", "cartao debito"],
+  cash: ["dinheiro", "especie", "espécie", "troco", "cash", "nota"],
   voucher: ["voucher", "vale", "ticket", "alelo", "sodexo", "vr", "refeição"],
-  ifood:   ["ifood", "ifd"],
-  online:  ["online", "link", "pague online", "pagamento online"],
+  ifood: ["ifood", "ifd"],
+  online: ["online", "link", "pague online", "pagamento online"],
 };
 
 function setMethods(tenantId, methods) {
@@ -25,7 +25,7 @@ function getMethods(tenantId) {
 }
 
 function map(tenantId, text) {
-  const methods    = getMethods(tenantId);
+  const methods = getMethods(tenantId);
   if (!methods.length) return { id: null, name: null, matched: false, candidates: [] };
 
   const normalized = normalize(text);
@@ -55,7 +55,11 @@ function listFormatted(tenantId) {
 }
 
 function normalize(str) {
-  return String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  return String(str || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 }
 
 function detectType(text) {

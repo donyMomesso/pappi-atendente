@@ -5,7 +5,7 @@ let _io = null;
 function init(server) {
   const { Server } = require("socket.io");
   _io = new Server(server, {
-    cors:       { origin: "*", methods: ["GET", "POST"] },
+    cors: { origin: "*", methods: ["GET", "POST"] },
     transports: ["websocket", "polling"],
   });
 
@@ -41,6 +41,8 @@ function emitQueueUpdate() {
   _io.emit("queue_update");
 }
 
-function getIO() { return _io; }
+function getIO() {
+  return _io;
+}
 
 module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, getIO };
