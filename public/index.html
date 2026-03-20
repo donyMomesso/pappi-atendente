@@ -566,10 +566,11 @@
         <div class="settings-card">
           <div class="settings-card-head">🔄 Departamentos de Transferência</div>
           <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados (ex: Atendimento, Financeiro, Suporte).</p>
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados. Opcionalmente, informe um número WhatsApp para receber notificação quando houver transferência.</p>
             <div class="attendant-list" id="departmentList"></div>
-            <div class="add-attendant-row">
-              <input id="newDepartmentName" type="text" placeholder="Nome do departamento" onkeydown="if(event.key==='Enter')addDepartment()"/>
+            <div class="add-attendant-row" style="flex-wrap:wrap;gap:8px">
+              <input id="newDepartmentName" type="text" placeholder="Nome (ex: SAC, Financeiro)" style="min-width:140px" onkeydown="if(event.key==='Enter')addDepartment()"/>
+              <input id="newDepartmentPhone" type="text" placeholder="Nº WhatsApp para transferir (opcional)" style="min-width:200px" onkeydown="if(event.key==='Enter')addDepartment()"/>
               <button class="btn-add-att" onclick="addDepartment()">+ Adicionar</button>
             </div>
             <button class="btn-save-settings" style="margin-top:14px" onclick="saveDepartments()">Salvar departamentos</button>
@@ -793,9 +794,11 @@ async function openTransfer() {
   selDept.innerHTML = '<option value="">— Selecione —</option>';
   const deptList = await api("/departments").catch(() => []);
   (deptList || []).forEach(d => {
+    const name = typeof d === "string" ? d : (d?.name || "");
+    if (!name) return;
     const o = document.createElement("option");
-    o.value = d;
-    o.textContent = d;
+    o.value = name;
+    o.textContent = d?.transferPhone ? `${name} (→ ${d.transferPhone})` : name;
     selDept.appendChild(o);
   });
   document.getElementById("transferDept").value = "";
@@ -2093,20 +2096,29 @@ function renderDepartmentList() {
     el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum departamento. Adicione para aparecer no transferir.</p>';
     return;
   }
-  el.innerHTML = list.map((d, i) => `
+  el.innerHTML = list.map((d, i) => {
+    const name = typeof d === "string" ? d : (d?.name || "");
+    const phone = typeof d === "object" && d?.transferPhone ? d.transferPhone : "";
+    const label = phone ? `📁 ${esc(name)} → ${esc(phone)}` : `📁 ${esc(name)}`;
+    return `
     <div class="attendant-item">
-      <span>📁 ${esc(d)}</span>
+      <span>${label}</span>
       <button class="btn-del-att" onclick="removeDepartment(${i})">×</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 function addDepartment() {
-  const input = document.getElementById("newDepartmentName");
-  const name = input.value.trim();
+  const nameInput = document.getElementById("newDepartmentName");
+  const phoneInput = document.getElementById("newDepartmentPhone");
+  const name = nameInput.value.trim();
+  const transferPhone = phoneInput.value.trim() || null;
   if (!name) return;
   if (!settingsData.departments) settingsData.departments = [];
-  if (!settingsData.departments.includes(name)) settingsData.departments.push(name);
-  input.value = "";
+  const exists = settingsData.departments.some((d) => (typeof d === "string" ? d : d?.name) === name);
+  if (!exists) settingsData.departments.push({ name, transferPhone });
+  nameInput.value = "";
+  phoneInput.value = "";
   renderDepartmentList();
 }
 

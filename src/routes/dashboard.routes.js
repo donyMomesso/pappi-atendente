@@ -15,6 +15,12 @@ const ENV = require("../config/env");
 
 const router = express.Router();
 
+// Normaliza departamento: string -> { name }, objeto -> { name, transferPhone? }
+function normalizeDepartment(d) {
+  if (typeof d === "string") return { name: d, transferPhone: null };
+  return { name: d?.name || "", transferPhone: d?.transferPhone || null };
+}
+
 // ── GET /dash/auth ─────────────────────────────────────────────
 router.get("/auth", async (req, res) => {
   try {
@@ -294,8 +300,9 @@ router.get("/departments", authDash, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
-    const list = cfg ? JSON.parse(cfg.value) : [];
-    res.json(Array.isArray(list) ? list : []);
+    const raw = cfg ? JSON.parse(cfg.value) : [];
+    const list = Array.isArray(raw) ? raw : [];
+    res.json(list.map(normalizeDepartment).filter((d) => d.name));
   } catch (err) {
     res.status(500).json([]);
   }
@@ -304,7 +311,8 @@ router.get("/departments", authDash, async (req, res) => {
 // ── POST /dash/transfer ─────────────────────────────────────────
 router.post("/transfer", authDash, async (req, res) => {
   try {
-    const { customerId, toAttendant, department, comment } = req.body;
+    const { customerId, toAttendant, department, comment, tenantId: bodyTenant } = req.body;
+    const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
 
     await setHandoff(customerId, true);
@@ -317,6 +325,39 @@ router.post("/transfer", authDash, async (req, res) => {
       if (toAttendant) parts.push(`Atendente: ${toAttendant}`);
       if (comment) parts.push(comment);
       await chatMemory.push(customerId, "bot", `🔄 Transferência — ${parts.join(" | ")}`);
+    }
+
+    // Se o departamento tem número de destino, envia notificação por WhatsApp
+    if (department) {
+      const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
+      const raw = cfg ? JSON.parse(cfg.value) : [];
+      const dept = (Array.isArray(raw) ? raw : []).map(normalizeDepartment).find((d) => d.name === department);
+      if (dept?.transferPhone) {
+        const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+        const toPhone = PhoneNormalizer.normalize(dept.transferPhone);
+        if (toPhone) {
+          const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+          if (customer) {
+            const custName = customer.name || "Cliente";
+            const custPhone = customer.phone || "—";
+            const msg = [
+              `🔄 *Transferência para ${department}*`,
+              "",
+              `Cliente: ${custName}`,
+              `Telefone: ${custPhone}`,
+              comment ? `Comentário: ${comment}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+            try {
+              const { wa } = await getClients(tenantId);
+              await wa.sendText(toPhone, msg);
+            } catch (waErr) {
+              await baileys.sendText(toPhone, msg, "default", true).catch(() => {});
+            }
+          }
+        }
+      }
     }
 
     const socketService = require("../services/socket.service");
@@ -535,6 +576,7 @@ router.get("/settings", authAdmin, async (req, res) => {
     ]);
 
     const departmentsRaw = departmentsCfg ? JSON.parse(departmentsCfg.value) : [];
+    const departments = (Array.isArray(departmentsRaw) ? departmentsRaw : []).map(normalizeDepartment);
     res.json({
       id: tenant.id,
       name: tenant.name,
@@ -545,7 +587,7 @@ router.get("/settings", authAdmin, async (req, res) => {
       active: tenant.active,
       attendants: attendantsCfg ? JSON.parse(attendantsCfg.value) : [],
       googleUsers: googleCfg ? JSON.parse(googleCfg.value) : [],
-      departments: Array.isArray(departmentsRaw) ? departmentsRaw : [],
+      departments,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -582,10 +624,14 @@ router.patch("/settings", authAdmin, async (req, res) => {
       });
     }
     if (Array.isArray(departments)) {
+      const normalized = departments.map((d) => ({
+        name: typeof d === "string" ? d : (d?.name || ""),
+        transferPhone: typeof d === "object" && d?.transferPhone ? String(d.transferPhone).trim() || null : null,
+      })).filter((d) => d.name);
       await prisma.config.upsert({
         where: { key: `${tenantId}:departments` },
-        create: { key: `${tenantId}:departments`, value: JSON.stringify(departments) },
-        update: { value: JSON.stringify(departments) },
+        create: { key: `${tenantId}:departments`, value: JSON.stringify(normalized) },
+        update: { value: JSON.stringify(normalized) },
       });
     }
     res.json({ ok: true });
