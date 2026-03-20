@@ -14,6 +14,7 @@ const Gemini            = require("../services/gemini.service");
 const chatMemory        = require("../services/chat-memory.service");
 const Maps              = require("../services/maps.service");
 const sessionService    = require("../services/session.service");
+const metaCapi          = require("../services/meta-capi.service"); // ← CAPI adicionado
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
@@ -240,6 +241,9 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
     return;
   }
 
+  // ── CAPI: Contact (lead novo) ─────────────────────────────
+  metaCapi.trackContact({ customer }).catch(() => {});
+
   const isVip     = (customer.visitCount || 0) > 0;
   const firstName = customer.name.split(" ")[0];
   const storeName = tenant.name || "Pappi Pizza";
@@ -460,6 +464,9 @@ async function startOrdering(wa, cw, phone, session, customer, tenant) {
   session.step         = "ORDERING";
   session.orderHistory = [];
 
+  // ── CAPI: ViewContent (cliente acessou o cardápio) ──────────
+  metaCapi.trackViewContent({ customer, tenantName: tenant.name }).catch(() => {});
+
   const isVip     = (customer.visitCount || 0) > 0;
   const firstName = customer.name?.split(" ")[0] || "";
   const last      = customer.lastOrderSummary;
@@ -514,6 +521,9 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
   const { calculate } = require("../calculators/OrderCalculator");
   const calc           = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
   session.calc         = calc;
+
+  // ── CAPI: InitiateCheckout ────────────────────────────────
+  metaCapi.trackInitiateCheckout({ customer, cart: session.cart, deliveryFee: session.deliveryFee || 0 }).catch(() => {});
 
   const addrLine = session.fulfillment === "delivery" && session.address
     ? `📍 *Endereço:* ${session.address.formatted}\n` : "";
@@ -573,6 +583,14 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
 
   if (cwOrderId) await setCwOrderId(order.id, cwOrderId, cwResponse);
   await recordOrder(customer.id, cartSummary(session.cart), session.paymentMethodName);
+
+  // ── CAPI: Purchase ────────────────────────────────────────
+  metaCapi.trackPurchase({
+    customer,
+    order: { id: order.id, total: calc.expectedTotal, fulfillment: session.fulfillment },
+    items: session.cart,
+  }).catch(() => {});
+
   session._cleared = true;
 
   const orderNum = order.id.slice(-6).toUpperCase();
