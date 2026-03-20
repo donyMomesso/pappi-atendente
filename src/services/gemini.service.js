@@ -56,16 +56,16 @@ async function classifyIntent(text) {
     const model = getModel();
     const safe = sanitizeInput(text, 200);
     const result = await model.generateContent(
-      `Você é um assistente de delivery de comida.
-Classifique a intenção do cliente em UMA das opções:
-- PEDIDO: quer fazer um pedido, comprar comida, "quero pedir", "vou pedir"
-- STATUS: quer saber status de pedido, onde está, previsão
-- CARDAPIO: quer ver cardápio, menu, preços, o que tem
-- HANDOFF: quer falar com humano, atendente, tem reclamação, problema com pedido
-- OUTRO: saudação, pergunta geral sobre a loja, horário, endereço, etc.
+      `Você é um assistente de delivery de comida. O cliente escreve em português.
+Classifique a intenção em UMA opção:
+- PEDIDO: fazer pedido, comprar, "quero pedir", "vou pedir", "quero uma pizza"
+- STATUS: status do pedido, "onde está", "meu pedido", "chegou?", "previsão", "rastreio", "andamento"
+- CARDAPIO: ver cardápio, menu, preços, "o que tem", "quais sabores"
+- HANDOFF: falar com humano, atendente, reclamação, problema, "quero ajuda"
+- OUTRO: saudação (oi, olá), pergunta geral, horário, endereço
 
 Mensagem: "${safe}"
-Responda APENAS com uma palavra: PEDIDO, STATUS, CARDAPIO, HANDOFF ou OUTRO`,
+Responda APENAS: PEDIDO, STATUS, CARDAPIO, HANDOFF ou OUTRO`,
     );
     const r = result.response.text().trim().toUpperCase().split(/\s/)[0];
     return ["PEDIDO", "STATUS", "CARDAPIO", "HANDOFF", "OUTRO"].includes(r) ? r : "OUTRO";

@@ -79,14 +79,31 @@ router.get("/stats", authDash, async (req, res) => {
 });
 
 // ── GET /dash/conversations ────────────────────────────────────
+// Lista conversas: quem tem mensagem nas últimas 24h OU lastInteraction OU handoff ativo
 router.get("/conversations", authDash, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // IDs de clientes com mensagens nas últimas 24h (histórico real, não só lastInteraction)
+    const recentMsgRows = await prisma.message.findMany({
+      where: {
+        createdAt: { gte: since24h },
+        customer: { tenantId },
+      },
+      select: { customerId: true },
+      distinct: ["customerId"],
+    });
+    const idsFromMessages = recentMsgRows.map((r) => r.customerId);
+
     const customers = await prisma.customer.findMany({
       where: {
         tenantId,
-        OR: [{ lastInteraction: { gte: since24h } }, { handoff: true }],
+        OR: [
+          { lastInteraction: { gte: since24h } },
+          { handoff: true },
+          ...(idsFromMessages.length ? [{ id: { in: idsFromMessages } }] : []),
+        ],
       },
       orderBy: { lastInteraction: "desc" },
       take: 200,

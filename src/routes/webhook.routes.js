@@ -241,7 +241,7 @@ function extractEchoContent(msg) {
   return null;
 }
 
-// Palavras que ativam handoff — SEM "cancelar"/"errado" (conflitavam com pedidos)
+// Comandos PT-BR que ativam handoff (falar com humano) — SEM "cancelar"/"errado" (conflitam com pedidos)
 const HANDOFF_WORDS = [
   "atendente",
   "humano",
@@ -250,6 +250,7 @@ const HANDOFF_WORDS = [
   "falar com alguem",
   "quero ajuda",
   "preciso de ajuda",
+  "preciso ajuda",
   "reclamação",
   "reclamacao",
   "reclamar",
@@ -265,6 +266,9 @@ const HANDOFF_WORDS = [
   "problema",
   "devolução",
   "devolucao",
+  "urgente",
+  "emergência",
+  "emergencia",
 ];
 
 function isHandoffTrigger(text) {

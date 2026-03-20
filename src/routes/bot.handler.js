@@ -84,13 +84,17 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     require("../services/socket.service").emitQueueUpdate();
     return;
   }
+  // Status do pedido — comandos PT-BR (t já normalizado)
   if (
     t.includes("onde esta") ||
     t.includes("meu pedido") ||
     t.includes("status") ||
+    t.includes("situacao") ||
     t.includes("chegou") ||
     t.includes("quanto tempo") ||
-    t.includes("previsao")
+    t.includes("previsao") ||
+    t.includes("rastreio") ||
+    t.includes("andamento")
   ) {
     await handleStatusQuery(wa, phone, customer, tenant);
     return;
@@ -136,7 +140,9 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     session.isLeadOrder = true;
   }
 
-  if (["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "hey", "oi!", "olá"].includes(t)) {
+  // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
+  const menuTriggers = ["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "opa", "e ai", "fala"];
+  if (menuTriggers.includes(t)) {
     await clearSession(tenant.id, phone);
     const fresh = await getSession(tenant.id, phone);
     if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
@@ -145,7 +151,11 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  if (t.includes("cancel") && (t.includes("pedido") || t.includes("quero")) && session.step !== "CONFIRM") {
+  if (
+    (t.includes("cancelar") || t.includes("cancel")) &&
+    (t.includes("pedido") || t.includes("quero")) &&
+    session.step !== "CONFIRM"
+  ) {
     await handleCancelRequest(wa, phone, customer, tenant);
     return;
   }
