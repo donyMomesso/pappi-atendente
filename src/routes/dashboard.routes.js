@@ -289,6 +289,18 @@ router.get("/attendants", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/departments ────────────────────────────────────────
+router.get("/departments", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
+    const list = cfg ? JSON.parse(cfg.value) : [];
+    res.json(Array.isArray(list) ? list : []);
+  } catch (err) {
+    res.status(500).json([]);
+  }
+});
+
 // ── POST /dash/transfer ─────────────────────────────────────────
 router.post("/transfer", authDash, async (req, res) => {
   try {
@@ -379,9 +391,18 @@ router.post("/send", authDash, async (req, res) => {
     const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
     if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
 
-    const { wa } = await getClients(tenantId);
-    const result = await wa.sendText(phone, text);
-    const waMessageId = result?.messages?.[0]?.id;
+    const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+    const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+
+    let waMessageId = null;
+    try {
+      const { wa } = await getClients(tenantId);
+      const result = await wa.sendText(normalizedPhone, text);
+      waMessageId = result?.messages?.[0]?.id;
+    } catch (waErr) {
+      const sent = await baileys.sendText(normalizedPhone, text, "default", true);
+      if (!sent) throw waErr;
+    }
 
     if (customerId) {
       const chatMemory = require("../services/chat-memory.service");

@@ -9,8 +9,8 @@ const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-aut
 const QRCode = require("qrcode");
 const prisma = require("../lib/db");
 
-// ── Limites de segurança por instância ──────────────────────────
-const LIMITS = { perHour: 20, perDay: 80, alertAt: 0.7 };
+// ── Limites de segurança por instância (bot + notificações) ─────
+const LIMITS = { perHour: 60, perDay: 200, alertAt: 0.7 };
 
 const INSTANCES = new Map();
 
@@ -192,11 +192,12 @@ async function start(instanceId = "default") {
           await touchInteraction(customer.id);
 
           const botHandler = require("../routes/bot.handler");
-          await botHandler.saveBaileysMessage(phone, text, tenantId, "customer");
+          await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer");
 
           if (inst.botEnabled !== false) {
             try {
               const convState = require("./conversation-state.service");
+              await convState.resetIfEncerrado(customer);
               const botMayRespond = await convState.shouldBotRespond(customer);
               if (!botMayRespond) continue;
               const wa = {
@@ -206,7 +207,8 @@ async function start(instanceId = "default") {
                 sendImage: () => {},
                 sendDocument: () => {},
               };
-              await botHandler.handle({ tenant, wa, customer, text, phone });
+              await botHandler.handle({ tenant, wa, customer, text, phone: customer.phone });
+              require("./socket.service").emitConvUpdate(customer.id);
             } catch (e) {
               console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);
             }
