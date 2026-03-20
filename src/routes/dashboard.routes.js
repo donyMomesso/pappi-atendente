@@ -246,7 +246,7 @@ router.post("/transfer", authDash, async (req, res) => {
 // ── GET /dash/baileys/instances ────────────────────────────────
 router.get("/baileys/instances", authDash, (_req, res) => {
   res.json(baileys.getAllStatuses().map(s => ({
-    id: s.id, status: s.status, qr: s.qr,
+    id: s.id, status: s.status, qr: s.qr, botEnabled: s.botEnabled !== false,
     name: s.account?.name || null, number: s.account?.phone || null, usage: s.usage,
   })));
 });
@@ -263,6 +263,7 @@ router.post("/baileys/instances", authAdmin, async (req, res) => {
 
 router.post("/baileys/instances/:id/connect",    authAdmin, async (req, res) => { await baileys.start(req.params.id); res.json({ ok: true }); });
 router.post("/baileys/instances/:id/disconnect", authAdmin, (req, res)         => { baileys.disconnect(req.params.id); res.json({ ok: true }); });
+router.patch("/baileys/instances/:id/bot",       authAdmin, (req, res)         => { baileys.setBotEnabled(req.params.id, req.body.enabled !== false); res.json({ ok: true }); });
 router.delete("/baileys/instances/:id",          authAdmin, (req, res)         => { baileys.disconnect(req.params.id); res.json({ ok: true }); });
 
 // ── GET /dash/catalog ──────────────────────────────────────────

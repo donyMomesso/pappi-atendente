@@ -339,31 +339,23 @@
 <div id="app">
   <div class="layout">
 
-    <!-- COL 1: CONVERSAS + FILA -->
+    <!-- COL 1: CONVERSAS -->
     <div class="col-conv">
-      <div class="col-tabs">
-        <div class="col-tab active" id="tabConv" onclick="switchTab('conv')">💬 Conversas</div>
-        <div class="col-tab" id="tabQueue" onclick="switchTab('queue')">🙋 Fila <span id="queueBadgeCount" style="display:none;background:var(--purple);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">0</span></div>
-        <div class="col-tab" id="tabActive" onclick="switchTab('active')">🎧 Em Atendimento</div>
-      </div>
-      <div id="panelConv" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
-        <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--violet-l)">
-          <div style="display:flex;gap:6px;align-items:center">
-            <div class="search-box" style="flex:1">
-              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-              <input id="searchInput" placeholder="Pesquisar..." oninput="filterConv()"/>
-            </div>
-            <button onclick="openContacts()" title="Buscar contato Google" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
+      <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--violet-l)">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+          <div class="search-box" style="flex:1">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input id="searchInput" placeholder="Pesquisar..." oninput="filterConv()"/>
           </div>
+          <button onclick="openContacts()" title="Buscar contato Google" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
         </div>
-        <div class="conv-list" id="convList"></div>
+        <div style="display:flex;gap:6px;font-size:11px">
+          <span id="filterBtnAll" onclick="setConvFilter('all')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700">Todos</span>
+          <span id="filterBtnBot" onclick="setConvFilter('bot')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">🤖 Bot</span>
+          <span id="filterBtnHuman" onclick="setConvFilter('human')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">🙋 Humano <span id="queueBadgeCount" style="display:none;background:#e53935;color:#fff;border-radius:8px;padding:0 5px;font-size:10px">0</span></span>
+        </div>
       </div>
-      <div id="panelQueue" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-        <div class="queue-list" id="queueList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Carregando fila...</div></div>
-      </div>
-      <div id="panelActive" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-        <div class="queue-list" id="activeList"><div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div></div>
-      </div>
+      <div class="conv-list" id="convList"></div>
     </div>
 
     <!-- COL 2: CENTRO -->
@@ -692,7 +684,7 @@ let pendingSelections = {};  // { optionGroupId: [optionId, ...] }
 let orderStep = 1;
 let ATTENDANT_NAME = "";
 let USER_ROLE = "attendant"; // "attendant" | "admin"
-let currentTab = "conv"; // "conv" | "queue" | "active"
+let convFilter = "all"; // "all" | "bot" | "human"
 let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
@@ -972,21 +964,31 @@ async function fetchConvs() {
 
 function renderConvs(list) {
   const el = document.getElementById("convList");
-  // Conversas = apenas clientes no bot (handoff=false)
-  const botOnly = list.filter(c => !c.handoff);
-  if (!botOnly.length) { el.innerHTML = '<p style="text-align:center;padding:24px;color:#bbb;font-size:13px">Nenhuma conversa com o bot</p>'; return; }
-  el.innerHTML = botOnly.map(c => `
-    <div class="conv-item${selectedCustomer?.id===c.id?" active":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
-      <div class="avatar">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+  // Aplica filtro por tab: all / bot / human
+  const filtered = list.filter(c => {
+    if (convFilter === "bot")   return !c.handoff;
+    if (convFilter === "human") return  c.handoff;
+    return true;
+  });
+  if (!filtered.length) {
+    el.innerHTML = '<p style="text-align:center;padding:24px;color:#bbb;font-size:13px">Nenhuma conversa</p>';
+    return;
+  }
+  el.innerHTML = filtered.map(c => {
+    const isHandoff = c.handoff;
+    const badge = isHandoff
+      ? `<span class="badge-handoff">🙋 Humano</span>`
+      : `<span class="badge-bot">🤖 Bot</span>`;
+    return `
+    <div class="conv-item${selectedCustomer?.id===c.id?" active":""}${isHandoff?" handoff":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
+      <div class="avatar${isHandoff?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
       <div class="conv-info">
         <div class="conv-name">${esc(c.name)}</div>
         <div class="conv-sub">${esc(c.phoneFormatted)}${c.lastOrder?" · "+statusLabel(c.lastOrder.status):""}</div>
       </div>
-      <div class="conv-badge">
-        <span class="badge-bot">🤖 Bot</span>
-      </div>
-    </div>
-  `).join("");
+      <div class="conv-badge">${badge}</div>
+    </div>`;
+  }).join("");
 }
 
 function filterConv() {
@@ -996,12 +998,11 @@ function filterConv() {
   ));
 }
 
-// ── SELECIONA CLIENTE POR ID (da fila/aba em atendimento) ─────
+// ── SELECIONA CLIENTE POR ID ──────────────────────────────────
 function selectConv(id) {
   const c = allConvs.find(x => x.id === id);
   if (c) selectCustomer(c);
   else { fetchConvs().then(() => { const c2 = allConvs.find(x=>x.id===id); if(c2) selectCustomer(c2); }); }
-  switchTab("conv");
 }
 
 // ── SELECIONA CLIENTE ────────────────────────────────────────
@@ -1092,16 +1093,25 @@ function appendLastOrder(body, order) {
 }
 
 function renderCenter(c) {
+  const botOn = !c.handoff;
   const el = document.getElementById("colCenter");
   el.innerHTML = `
     <div class="chat-header">
       <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${(c.name||"?")[0].toUpperCase()}</div>
-      <div style="flex:1">
+      <div style="flex:1;min-width:0">
         <div class="name">${esc(c.name)}</div>
         <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
       </div>
-      <button onclick="openTransfer()" title="Transferir para outro atendente ou departamento" style="background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">🔄 Transferir</button>
-      <button onclick="finalizarConversa('${c.id}')" title="Finalizar atendimento e devolver ao bot" style="background:#e53935;color:#fff;border:none;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✅ Finalizar</button>
+      <!-- Toggle BOT individual por conversa -->
+      <div style="display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.2);border-radius:8px;padding:4px 8px;cursor:pointer" onclick="headerToggleBot()" title="${botOn?'Bot ativo — clique para assumir':'Humano ativo — clique para devolver ao bot'}">
+        <span style="font-size:11px;font-weight:700;color:${botOn?'#a8f5c0':'#ffd3b0'}">${botOn?'🤖 BOT':'🙋 HUMANO'}</span>
+        <label class="toggle" style="pointer-events:none;margin:0">
+          <input type="checkbox" id="headerBotToggle" ${botOn?'checked':''} style="pointer-events:none"/>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <button onclick="openTransfer()" title="Transferir" style="background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">🔄</button>
+      <button onclick="finalizarConversa('${c.id}')" title="Finalizar atendimento" style="background:#e53935;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✅</button>
     </div>
     <div class="chat-body" id="chatBody">
       <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">Carregando...</div>
@@ -1113,6 +1123,16 @@ function renderCenter(c) {
       </button>
     </div>
   `;
+}
+
+async function headerToggleBot() {
+  if (!selectedCustomer) return;
+  const botOn = !selectedCustomer.handoff;
+  const newBotOn = !botOn; // toggle
+  await toggleHandoff(newBotOn);
+  selectedCustomer = { ...selectedCustomer, handoff: !newBotOn };
+  renderCenter(selectedCustomer);
+  renderRight(selectedCustomer);
 }
 
 function renderRight(c) {
@@ -1177,10 +1197,22 @@ async function toggleHandoff(botEnabled) {
   const handoff = !botEnabled;
   await api("/handoff", {
     method: "PUT",
-    body: JSON.stringify({ customerId: selectedCustomer.id, enabled: handoff, tenantId: TENANT })
+    body: JSON.stringify({ phone: selectedCustomer.phone, enabled: handoff, tenantId: TENANT })
   });
   selectedCustomer.handoff = handoff;
   allConvs = allConvs.map(c => c.id === selectedCustomer.id ? {...c, handoff} : c);
+  renderConvs(allConvs);
+}
+
+// ── FILTRO DE CONVERSAS ───────────────────────────────────────
+function setConvFilter(f) {
+  convFilter = f;
+  ["all","bot","human"].forEach(k => {
+    const el = document.getElementById("filterBtn" + k.charAt(0).toUpperCase() + k.slice(1));
+    if (el) el.style.cssText = k === f
+      ? "cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700"
+      : "cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600";
+  });
   renderConvs(allConvs);
 }
 
@@ -1617,17 +1649,7 @@ async function confirmOrder() {
   }
 }
 
-// ── ABAS CONVERSAS / FILA / EM ATENDIMENTO ────────────────────
-function switchTab(tab) {
-  currentTab = tab;
-  document.getElementById("tabConv").className = "col-tab" + (tab==="conv"?" active":"");
-  document.getElementById("tabQueue").className = "col-tab" + (tab==="queue"?" active":"");
-  document.getElementById("tabActive").className = "col-tab" + (tab==="active"?" active":"");
-  document.getElementById("panelConv").style.display = tab==="conv" ? "flex" : "none";
-  document.getElementById("panelQueue").style.display = tab==="queue" ? "flex" : "none";
-  document.getElementById("panelActive").style.display = tab==="active" ? "flex" : "none";
-  if (tab === "queue" || tab === "active") fetchQueue();
-}
+// ── (switchTab removido — layout simplificado para lista única) ──
 
 // ── CAMPANINHA ────────────────────────────────────────────────
 let _bellTimer = null;
@@ -1659,61 +1681,16 @@ async function fetchQueue() {
   if (!d) return;
 
   const unclaimed = d.filter(c => c.isUnclaimed);
-  const active = d.filter(c => c.claimedBy);
 
   // Campainha: toca enquanto houver clientes sem atendente
   if (unclaimed.length > 0) startBell();
   else stopBell();
 
-  // Badge da aba fila
+  // Badge no filtro "Humano"
   const badge = document.getElementById("queueBadgeCount");
-  if (unclaimed.length > 0) { badge.style.display = ""; badge.textContent = unclaimed.length; }
-  else { badge.style.display = "none"; }
-
-  // Renderiza aba Fila (apenas não assumidos)
-  const el = document.getElementById("queueList");
-  if (!unclaimed.length) {
-    el.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum cliente aguardando</div>';
-  } else {
-    el.innerHTML = unclaimed.map(c => {
-      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
-      return `
-        <div class="queue-item" onclick="selectConv('${c.id}')">
-          <div class="avatar">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
-          <div class="conv-info">
-            <div class="conv-name">${esc(c.name)}</div>
-            <div class="conv-sub">${esc(c.phoneFormatted)}</div>
-            <div class="queue-wait">⏳ Aguardando há ${wait}min</div>
-          </div>
-          <button class="btn-claim" onclick="event.stopPropagation();claimCustomer('${c.id}')">Assumir</button>
-        </div>`;
-    }).join("");
-  }
-
-  // Renderiza aba Em Atendimento
-  // Atendente vê só as suas; admin vê todas
-  const myActive = USER_ROLE === "admin"
-    ? active
-    : active.filter(c => c.claimedBy === ATTENDANT_NAME);
-
-  const elA = document.getElementById("activeList");
-  if (!myActive.length) {
-    elA.innerHTML = '<div style="text-align:center;padding:32px;color:#bbb;font-size:13px">Nenhum atendimento em curso</div>';
-  } else {
-    elA.innerHTML = myActive.map(c => {
-      const wait = c.queuedAt ? Math.round((Date.now() - new Date(c.queuedAt)) / 60000) : 0;
-      const isMine = c.claimedBy === ATTENDANT_NAME;
-      return `
-        <div class="queue-item claimed-mine" onclick="selectConv('${c.id}')">
-          <div class="avatar orange">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
-          <div class="conv-info">
-            <div class="conv-name">${esc(c.name)}</div>
-            <div class="conv-sub">${esc(c.phoneFormatted)}</div>
-            <div class="queue-wait">${USER_ROLE==="admin"&&!isMine?"👤 "+esc(c.claimedBy):"🎯 Você"} · ${wait}min</div>
-          </div>
-          ${isMine?`<button class="btn-release" onclick="event.stopPropagation();releaseCustomer('${c.id}')">Encerrar</button>`:""}
-        </div>`;
-    }).join("");
+  if (badge) {
+    if (unclaimed.length > 0) { badge.style.display = ""; badge.textContent = unclaimed.length; }
+    else { badge.style.display = "none"; }
   }
 }
 
@@ -2011,97 +1988,14 @@ async function loadAdminSettings() {
   renderAttendantList();
   renderGoogleUserList();
   gcRefreshStatus();
-  waIntRefreshStatus();
+  waIntRefresh();
 }
 
 function openSettings() { openAdmin(); adminTab("cfg"); }
 function closeSettings() { closeAdmin(); }
 
-  // ── WHATSAPP INTERNO (MULTI-ZAP) ──────────────────────────
-  let waIntTimer = null;
-
-  async function waIntRefreshStatus() {
-    const list = await api("/wa-internal/status");
-    if (!list || !Array.isArray(list)) return;
-
-    const container = document.getElementById("waIntContainer");
-    if (!container) return;
-
-    container.innerHTML = list.map(d => {
-      const hPct = d.usage ? Math.round(d.usage.hour / d.usage.hourMax * 100) : 0;
-      const dPct = d.usage ? Math.round(d.usage.day  / d.usage.dayMax  * 100) : 0;
-      const isConnected = d.status === "connected";
-      const isQr = d.status === "qr" && d.qr;
-      const isConnecting = d.status === "connecting";
-
-      return `
-        <div style="background:#f9f9f9;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <div style="font-size:13px;font-weight:700;color:${isConnected?'#25d366':(isQr||isConnecting?'#ff9800':'#888')}">
-              ● ${d.id === 'default' ? 'Principal' : d.id}: ${d.status}
-              ${d.account ? `<br><span style="font-weight:400;color:#555;font-size:11px">${d.account.name} (${d.account.phone})</span>` : ''}
-            </div>
-            ${d.id !== 'default' ? `<button onclick="waIntDisconnect('${d.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:11px">Remover</button>` : ''}
-          </div>
-
-          ${isQr ? `
-            <div style="text-align:center;margin-bottom:15px">
-              <img src="${d.qr}" style="width:160px;height:160px;border:1px solid #ddd;padding:5px;background:#fff"/>
-              <p style="font-size:11px;color:#666;margin-top:5px">Escaneie para conectar</p>
-            </div>
-          ` : ''}
-
-          ${d.usage ? `
-            <div style="font-size:11px;color:#666;margin-bottom:10px">
-              Hora: ${d.usage.hour}/${d.usage.hourMax} <span style="background:#eee;border-radius:5px;display:inline-block;width:60px;height:5px;vertical-align:middle"><span style="display:block;height:100%;border-radius:5px;background:${hPct>=70?'#e53935':'#25d366'};width:${hPct}%"></span></span>
-              &nbsp; Dia: ${d.usage.day}/${d.usage.dayMax} <span style="background:#eee;border-radius:5px;display:inline-block;width:60px;height:5px;vertical-align:middle"><span style="display:block;height:100%;border-radius:5px;background:${dPct>=70?'#e53935':'#25d366'};width:${dPct}%"></span></span>
-            </div>
-          ` : ''}
-
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            ${!isConnected && !isQr && !isConnecting ? `<button class="btn-confirm" style="flex:1;padding:6px;font-size:11px" onclick="waIntConnect('${d.id}')">Conectar</button>` : ''}
-            ${isConnected ? `<button class="btn-cancel" style="flex:1;padding:6px;font-size:11px" onclick="waIntDisconnect('${d.id}')">Desconectar</button>` : ''}
-            <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#555;cursor:pointer;user-select:none">
-              <label class="toggle" style="margin:0">
-                <input type="checkbox" ${d.botEnabled!==false?'checked':''} onchange="waIntToggleBot('${d.id}',this.checked)"/>
-                <span class="slider"></span>
-              </label>
-              🤖 Bot
-            </label>
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    const hasActive = list.some(d => d.status === "qr" || d.status === "connecting");
-    if (hasActive && !waIntTimer) waIntTimer = setInterval(waIntRefreshStatus, 5000);
-    else if (!hasActive && waIntTimer) { clearInterval(waIntTimer); waIntTimer = null; }
-  }
-
-  async function waIntConnect(id = "default") {
-    await api("/wa-internal/connect", { method: "POST", body: JSON.stringify({ instanceId: id }) });
-    waIntRefreshStatus();
-  }
-
-  async function waIntDisconnect(id = "default") {
-    if (!confirm(`Desconectar o WhatsApp ${id}?`)) return;
-    await api("/wa-internal/disconnect", { method: "POST", body: JSON.stringify({ instanceId: id }) });
-    waIntRefreshStatus();
-  }
-
-  async function waIntToggleBot(id, enabled) {
-    await api(`/baileys/instances/${id}/bot`, {
-      method: "PATCH",
-      body: JSON.stringify({ enabled }),
-    });
-  }
-
-  async function waIntAddNew() {
-    const name = prompt("Nome para esta instância (ex: Suporte, Vendas):");
-    if (!name) return;
-    const id = name.toLowerCase().replace(/[^a-z0-9]/g, "-");
-    await waIntConnect(id);
-  }
+  // ── WHATSAPP INTERNO — funções legacy redirecionadas para o novo sistema ──
+  function waIntRefreshStatus() { waIntRefresh(); }
 
 async function waIntSaveNumbers() {
   const raw = document.getElementById("waIntNumbers").value;
@@ -2301,48 +2195,81 @@ async function gcConnect() {
 	  if (!data) return;
 	  waIntInstances = data;
 	  renderWaIntInstances();
+	  // Auto-refresh durante QR/connecting
+	  const hasActive = data.some(d => d.status === "qr" || d.status === "connecting");
+	  if (hasActive && !waIntRefreshTimer) waIntRefreshTimer = setInterval(waIntRefresh, 5000);
+	  else if (!hasActive && waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
+	}
+
+	async function waIntToggleBot(id, enabled) {
+	  await api(`/baileys/instances/${id}/bot`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+	  // Atualiza localmente sem re-fetch para evitar re-render que reseta o toggle
+	  const inst = waIntInstances.find(i => i.id === id);
+	  if (inst) inst.botEnabled = enabled;
 	}
 
 	function renderWaIntInstances() {
 	  const container = document.getElementById("waIntContainer");
 	  if (!container) return;
-	  
+
 	  if (waIntInstances.length === 0) {
 	    container.innerHTML = '<p style="grid-column:1/-1;text-align:center;padding:20px;color:#aaa;font-size:13px">Nenhum WhatsApp conectado.</p>';
 	    return;
 	  }
 
-	  container.innerHTML = waIntInstances.map(inst => `
-	    <div style="background:#f9f9f9;border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px">
-	      <div style="display:flex;justify-content:space-between;align-items:center">
-	        <div style="font-size:14px;font-weight:700;color:${inst.status==='connected'?'#25d366':'#888'}">
-	          ● ${inst.status==='connected'?'Conectado':'Desconectado'}
+	  container.innerHTML = waIntInstances.map(inst => {
+	    const isConn = inst.status === 'connected';
+	    const isQr   = inst.status === 'qr' && inst.qr;
+	    const botOn  = inst.botEnabled !== false;
+	    const hPct   = inst.usage ? Math.round(inst.usage.hour / inst.usage.hourMax * 100) : 0;
+	    const dPct   = inst.usage ? Math.round(inst.usage.day  / inst.usage.dayMax  * 100) : 0;
+	    const statusColor = isConn ? '#25d366' : (isQr ? '#ff9800' : '#aaa');
+	    return `
+	      <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+	        <div style="display:flex;align-items:flex-start;justify-content:space-between">
+	          <div>
+	            <div style="font-size:14px;font-weight:800;color:#1a1a1a">${inst.id === 'default' ? 'Principal' : inst.id}</div>
+	            <div style="font-size:12px;color:#555;margin-top:2px">${inst.name || '—'} ${inst.number ? '('+inst.number+')' : ''}</div>
+	          </div>
+	          ${inst.id !== 'default' ? `<button onclick="waIntDelete('${inst.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:12px;padding:0;font-weight:700">Remover</button>` : ''}
 	        </div>
-	        <button onclick="waIntDelete('${inst.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:18px;padding:0 4px">×</button>
-	      </div>
-	      
-	      <div style="font-size:13px;color:#333">
-	        <strong>ID:</strong> ${inst.id}<br/>
-	        ${inst.name ? `<strong>Nome:</strong> ${inst.name}<br/>` : ''}
-	        ${inst.number ? `<strong>Número:</strong> ${inst.number}` : ''}
-	      </div>
-
-	      ${inst.qr ? `
-	        <div style="text-align:center;background:#fff;padding:10px;border-radius:8px;border:1px solid #eee">
-	          <p style="font-size:11px;color:#888;margin-bottom:8px">Escaneie o QR Code</p>
-	          <img src="${inst.qr}" style="width:160px;height:160px"/>
+	        <div style="display:flex;align-items:center;gap:6px">
+	          <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
+	          <span style="font-size:12px;color:${statusColor};font-weight:700">${isConn?'connected':inst.status}</span>
 	        </div>
-	      ` : ''}
-
-	      <div style="display:flex;gap:8px;margin-top:4px">
-	        ${inst.status !== 'connected' ? `
-	          <button class="btn-confirm" style="flex:1;padding:8px;font-size:12px" onclick="waIntConnect('${inst.id}')">Conectar</button>
-	        ` : `
-	          <button class="btn-cancel" style="flex:1;padding:8px;font-size:12px;background:#e53935;color:#fff" onclick="waIntDisconnect('${inst.id}')">Desconectar</button>
-	        `}
-	      </div>
-	    </div>
-	  `).join("");
+	        ${isQr ? `
+	          <div style="text-align:center">
+	            <p style="font-size:11px;color:#888;margin-bottom:6px">Escaneie para conectar</p>
+	            <img src="${inst.qr}" style="width:150px;height:150px;border:1px solid #ddd;padding:4px;background:#fff"/>
+	          </div>
+	        ` : ''}
+	        ${inst.usage ? `
+	          <div style="font-size:11px;color:#666">
+	            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+	              <span style="width:60px">Hora: ${inst.usage.hour}/${inst.usage.hourMax}</span>
+	              <div style="flex:1;height:5px;background:#eee;border-radius:5px"><div style="height:100%;border-radius:5px;background:${hPct>=70?'#e53935':'#25d366'};width:${hPct}%"></div></div>
+	            </div>
+	            <div style="display:flex;align-items:center;gap:6px">
+	              <span style="width:60px">Dia: ${inst.usage.day}/${inst.usage.dayMax}</span>
+	              <div style="flex:1;height:5px;background:#eee;border-radius:5px"><div style="height:100%;border-radius:5px;background:${dPct>=70?'#e53935':'#25d366'};width:${dPct}%"></div></div>
+	            </div>
+	          </div>
+	        ` : ''}
+	        <div style="display:flex;align-items:center;gap:8px">
+	          ${isConn
+	            ? `<button style="flex:1;background:#e53935;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntDisconnect('${inst.id}')">Desconectar</button>`
+	            : `<button style="flex:1;background:var(--violet);color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntConnect('${inst.id}')">Conectar</button>`
+	          }
+	          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;font-weight:700;color:#555">
+	            <label class="toggle" style="margin:0">
+	              <input type="checkbox" ${botOn?'checked':''} onchange="waIntToggleBot('${inst.id}',this.checked)"/>
+	              <span class="slider"></span>
+	            </label>
+	            🤖 Bot
+	          </label>
+	        </div>
+	      </div>`;
+	  }).join("");
 	}
 
 	async function waIntAddNew() {

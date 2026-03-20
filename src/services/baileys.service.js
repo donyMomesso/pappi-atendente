@@ -22,6 +22,8 @@ function createInstanceData(id) {
   return {
     id, socket: null, qrBase64: null, status: "disconnected",
     starting: false, lastAlert: null, account: null, notifyTo: [],
+    botEnabled: true,
+    _reconnectDelay: 8000,
     counters: {
       hour: 0, day: 0,
       hourReset: Date.now() + 3600_000,
@@ -120,7 +122,7 @@ async function start(instanceId = "default") {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Captura mensagens recebidas e salva no histórico do painel
+    // Captura mensagens recebidas
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
       for (const msg of messages) {
@@ -136,7 +138,6 @@ async function start(instanceId = "default") {
         if (!text) continue;
 
         try {
-          // CORREÇÃO: detecta o tenantId pelo telefone em vez de usar valor fixo
           const tenantId = await detectTenantByPhone(phone);
           if (!tenantId) {
             console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);
@@ -144,9 +145,33 @@ async function start(instanceId = "default") {
           }
 
           const botHandler = require("../routes/bot.handler");
+          // Salva no histórico
           await botHandler.saveBaileysMessage(phone, text, tenantId, "customer");
+
+          // Roteia para o bot se estiver ativo nesta instância
+          if (inst.botEnabled !== false) {
+            try {
+              const { findOrCreate, touchInteraction } = require("../services/customer.service");
+              const tenant   = await prisma.tenant.findUnique({ where: { id: tenantId } });
+              if (tenant) {
+                const customer = await findOrCreate(tenantId, phone, null);
+                await touchInteraction(customer.id);
+                if (!customer.handoff) {
+                  // Adaptador wa para Baileys (skipNotifyCheck=true — bot responde livremente)
+                  const wa = {
+                    sendText: (to, msg) => sendText(to, msg, instanceId, true),
+                    sendImage: () => {},
+                    sendDocument: () => {},
+                  };
+                  await botHandler.handle({ tenant, wa, customer, text, phone });
+                }
+              }
+            } catch (e) {
+              console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);
+            }
+          }
         } catch (err) {
-          console.error(`[Baileys:${instanceId}] Erro ao salvar msg recebida:`, err.message);
+          console.error(`[Baileys:${instanceId}] Erro ao processar msg:`, err.message);
         }
       }
     });
@@ -173,6 +198,7 @@ async function start(instanceId = "default") {
       if (connection === "close") {
         const code      = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
+        const replaced  = code === DisconnectReason.connectionReplaced; // 440
         inst.status   = "disconnected";
         inst.socket   = null;
         inst.starting = false;
@@ -181,7 +207,14 @@ async function start(instanceId = "default") {
           console.log(`[Baileys:${instanceId}] Logout — limpando auth.`);
           await clearDbAuth(instanceId);
           inst.qrBase64 = null;
+          inst._reconnectDelay = 8000;
+        } else if (replaced) {
+          // Outra sessão substituiu esta — espera mais antes de reconectar
+          inst._reconnectDelay = Math.min((inst._reconnectDelay || 8000) * 2, 300_000);
+          console.log(`[Baileys:${instanceId}] Sessão substituída (440) — reconectando em ${inst._reconnectDelay / 1000}s...`);
+          setTimeout(() => start(instanceId), inst._reconnectDelay);
         } else {
+          inst._reconnectDelay = 8000;
           console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
           setTimeout(() => start(instanceId), 8000);
         }
@@ -201,11 +234,12 @@ async function initAll() {
 }
 
 // ── Envio ──────────────────────────────────────────────────────
-async function sendText(to, text, instanceId = "default") {
+async function sendText(to, text, instanceId = "default", skipNotifyCheck = false) {
   const inst = INSTANCES.get(instanceId);
   if (!inst || !inst.socket || inst.status !== "connected") return false;
 
-  if (!inst.notifyTo.includes(to)) {
+  // notifyTo só se aplica a notificações internas — bot e respostas diretas são liberados
+  if (!skipNotifyCheck && inst.notifyTo.length > 0 && !inst.notifyTo.includes(to)) {
     console.warn(`[Baileys:${instanceId}] Envio bloqueado para ${to} — não está na lista.`);
     return false;
   }
@@ -250,11 +284,12 @@ function getStatus(instanceId = "default") {
   if (!inst) return { status: "disconnected" };
   resetCounters(inst);
   return {
-    id:        inst.id,
-    status:    inst.status,
-    qr:        inst.qrBase64,
-    lastAlert: inst.lastAlert,
-    account:   inst.account,
+    id:         inst.id,
+    status:     inst.status,
+    qr:         inst.qrBase64,
+    lastAlert:  inst.lastAlert,
+    account:    inst.account,
+    botEnabled: inst.botEnabled !== false,
     usage: {
       hour:    inst.counters.hour,
       hourMax: LIMITS.perHour,
@@ -262,6 +297,11 @@ function getStatus(instanceId = "default") {
       dayMax:  LIMITS.perDay,
     },
   };
+}
+
+function setBotEnabled(instanceId = "default", enabled) {
+  const inst = INSTANCES.get(instanceId);
+  if (inst) inst.botEnabled = !!enabled;
 }
 
 function getAllStatuses() {
@@ -304,5 +344,5 @@ async function getProfilePicture(phone) {
 
 module.exports = {
   start, initAll, sendText, notify,
-  getStatus, getAllStatuses, setNotifyNumbers, disconnect, getProfilePicture,
+  getStatus, getAllStatuses, setNotifyNumbers, setBotEnabled, disconnect, getProfilePicture,
 };
