@@ -62,13 +62,16 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   const session = await getSession(tenant.id, phone);
   const { cw }  = await getClients(tenant.id);
 
-  const open = await cw.isOpen();
-  if (!open) {
-    const m = "😴 Estamos fechados no momento. Em breve voltamos!";
-    await wa.sendText(phone, m);
-    await chatMemory.push(customer.id, "bot", m);
-    await clearSession(tenant.id, phone);
-    return;
+  const skipHours = process.env.SKIP_HOURS_CHECK === "true";
+  if (!skipHours) {
+    const open = await cw.isOpen();
+    if (!open) {
+      const m = "😴 Estamos fechados no momento. Em breve voltamos!";
+      await wa.sendText(phone, m);
+      await chatMemory.push(customer.id, "bot", m);
+      await clearSession(tenant.id, phone);
+      return;
+    }
   }
 
   const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");

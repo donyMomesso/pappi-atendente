@@ -74,11 +74,19 @@ router.get("/stats", authDash, async (req, res) => {
 // ── GET /dash/conversations ────────────────────────────────────
 router.get("/conversations", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId  = req.query.tenant || "tenant-pappi-001";
+    // Mostra apenas quem interagiu nas últimas 24h OU está em handoff (fila humana)
+    const since24h  = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const customers = await prisma.customer.findMany({
-      where:   { tenantId },
+      where:   {
+        tenantId,
+        OR: [
+          { lastInteraction: { gte: since24h } },
+          { handoff: true },
+        ],
+      },
       orderBy: { lastInteraction: "desc" },
-      take:    100,
+      take:    200,
       include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
     res.json(customers.map(c => ({
