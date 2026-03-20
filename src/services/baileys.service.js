@@ -177,44 +177,54 @@ async function start(instanceId = "default") {
             await sock.sendPresenceUpdate("composing", jid);
           } catch {}
 
-          const tenantId = await detectTenantByPhone(phone);
-          if (!tenantId) {
-            console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);
-            continue;
-          }
-
-          const { findOrCreate, touchInteraction } = require("../services/customer.service");
-          const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-          if (!tenant) continue;
-
-          // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
-          const customer = await findOrCreate(tenantId, phone, null);
-          await touchInteraction(customer.id);
-
-          const botHandler = require("../routes/bot.handler");
-          await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer");
-
-          if (inst.botEnabled !== false) {
-            try {
-              const convState = require("./conversation-state.service");
-              await convState.resetIfEncerrado(customer);
-              const botMayRespond = await convState.shouldBotRespond(customer);
-              if (!botMayRespond) continue;
-              const wa = {
-                sendText: (to, msg) => sendText(to, msg, instanceId, true),
-                sendButtons: (to, body, buttons) =>
-                  sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true),
-                sendImage: () => {},
-                sendDocument: () => {},
-              };
-              await botHandler.handle({ tenant, wa, customer, text, phone: customer.phone });
-              require("./socket.service").emitConvUpdate(customer.id);
-            } catch (e) {
-              console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);
+          try {
+            const tenantId = await detectTenantByPhone(phone);
+            if (!tenantId) {
+              console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);
+              continue;
             }
+
+            const { findOrCreate, touchInteraction } = require("../services/customer.service");
+            const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+            if (!tenant) continue;
+
+            // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
+            const customer = await findOrCreate(tenantId, phone, null);
+            await touchInteraction(customer.id);
+
+            const botHandler = require("../routes/bot.handler");
+            await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer");
+
+            if (inst.botEnabled !== false) {
+              try {
+                const convState = require("./conversation-state.service");
+                await convState.resetIfEncerrado(customer);
+                const botMayRespond = await convState.shouldBotRespond(customer);
+                if (!botMayRespond) continue;
+                const wa = {
+                  sendText: (to, msg) => sendText(to, msg, instanceId, true),
+                  sendButtons: (to, body, buttons) =>
+                    sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true),
+                  sendImage: () => {},
+                  sendDocument: () => {},
+                };
+                await botHandler.handle({ tenant, wa, customer, text, phone: customer.phone });
+                require("./socket.service").emitConvUpdate(customer.id);
+              } catch (e) {
+                console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);
+              }
+            }
+          } finally {
+            // Para o "digitando" — evita ficar travado quando não há resposta
+            try {
+              await sock.sendPresenceUpdate("paused", jid);
+            } catch {}
           }
         } catch (err) {
           console.error(`[Baileys:${instanceId}] Erro ao processar msg:`, err.message);
+          try {
+            await sock.sendPresenceUpdate("paused", jid);
+          } catch {}
         }
       }
     });

@@ -96,8 +96,8 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return;
 
-  // Lido + digitando imediatamente (Cloud API) — cliente vê ✓✓ e "digitando..."
-  if (!isEcho && msg.id) wa.markRead(msg.id, true).catch(() => {});
+  // Marca como lido (sem "digitando" — evita ficar travado quando não há resposta)
+  if (!isEcho && msg.id) wa.markRead(msg.id, false).catch(() => {});
 
   const rl = checkWebhook(phone);
 
