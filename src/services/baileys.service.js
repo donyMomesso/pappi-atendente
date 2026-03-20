@@ -157,12 +157,26 @@ async function start(instanceId = "default") {
           const btnResp = msg.message?.buttonsResponseMessage;
           if (btnResp) {
             const id = btnResp.selectedButtonId;
-            text = id === "delivery" || id === "takeout" ? id : (btnResp.selectedDisplayText || id || "");
+            const flowIds = ["delivery", "takeout", "confirm_addr", "change_addr", "CONFIRMAR", "CANCELAR", "AVISE_ABERTURA"];
+            text = flowIds.includes(id) ? id : (btnResp.selectedDisplayText || id || "");
           }
+        }
+        // Botões enviados como texto: mapeia respostas comuns para ids (Corrigir, Cancelar)
+        if (text) {
+          const t = text.toLowerCase().replace(/[✅✏️❌]/g, "").trim();
+          if (t === "corrigir") text = "change_addr";
+          else if (t === "cancelar") text = "CANCELAR";
+          else if (t === "confirmar" || t === "confirma") text = "confirm_addr"; // address ou order — handler trata
         }
         if (!text) continue;
 
         try {
+          // Lido + digitando (Baileys) — cliente vê ✓✓ e "digitando..."
+          try {
+            await sock.readMessages([msg.key]);
+            await sock.sendPresenceUpdate("composing", jid);
+          } catch {}
+
           const tenantId = await detectTenantByPhone(phone);
           if (!tenantId) {
             console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);

@@ -74,8 +74,14 @@ function createClient({ token, phoneNumberId }) {
         template: { name, language: { code: language }, components },
       });
     },
-    markRead(messageId) {
-      return post({ messaging_product: "whatsapp", status: "read", message_id: messageId });
+    markRead(messageId, withTyping = false) {
+      const payload = {
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: messageId,
+      };
+      if (withTyping) payload.typing_indicator = { type: "text" };
+      return post(payload);
     },
     async getTemplates() {
       const wabaId = await getWabaId(token, phoneNumberId);

@@ -96,21 +96,29 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return;
 
-  // ── Rate limiting por telefone ────────────────────────────
+  // Lido + digitando imediatamente (Cloud API) — cliente vê ✓✓ e "digitando..."
+  if (!isEcho && msg.id) wa.markRead(msg.id, true).catch(() => {});
+
   const rl = checkWebhook(phone);
-  if (!rl.allowed) {
-    console.warn(`[RateLimit] ${phone} bloqueado — muitas mensagens (reset em ${Math.ceil(rl.resetIn / 1000)}s)`);
-    return;
-  }
 
   const contact = contacts.find((c) => c.wa_id === rawPhone);
   const name = contact?.profile?.name || null;
   const customer = await findOrCreate(tenant.id, phone, name);
 
-  await wa.markRead(msg.id).catch(() => {});
   await touchInteraction(customer.id);
 
   const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
+
+  // Salva mensagem SEMPRE (mesmo rate limited) — para aparecer no painel
+  if (!isEcho && (text || mediaUrl)) {
+    await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
+  }
+
+  // Rate limit: bloqueia processamento do bot, mas mensagem já foi salva e aparece no painel
+  if (!rl.allowed) {
+    console.warn(`[RateLimit] ${phone} bloqueado — muitas mensagens (reset em ${Math.ceil(rl.resetIn / 1000)}s)`);
+    return;
+  }
 
   if (isEcho) {
     const echoText = extractEchoContent(msg) || text;
@@ -121,10 +129,7 @@ async function processMessage({ tenant, wa, msg, contacts }) {
     }
     return;
   }
-
-  if (text || mediaUrl) {
-    await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
-  }
+  // Mensagem do cliente já foi salva acima (antes do rate limit)
 
   await convState.resetIfEncerrado(customer);
 
@@ -180,8 +185,8 @@ async function extractContent(wa, msg, waToken) {
     const list = msg.interactive?.list_reply;
     if (btn) {
       const id = btn.id;
-      if (id === "delivery" || id === "takeout") text = id;
-      else text = btn.title || id || null;
+      const flowIds = ["delivery", "takeout", "confirm_addr", "change_addr", "CONFIRMAR", "CANCELAR", "AVISE_ABERTURA"];
+      text = flowIds.includes(id) ? id : (btn.title || id || null);
     } else if (list) {
       text = list.title || list.id || null;
     }

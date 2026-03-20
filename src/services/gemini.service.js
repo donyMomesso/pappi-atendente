@@ -156,9 +156,10 @@ ${catalogText}
 
 REGRAS:
 - Se o cliente perguntar "qual pizza tem", "quais sabores", "o que tem" — LISTE os sabores/itens do cardápio acima.
-- "Calabresa" = sabor. "Grande", "8 fatias", "8 pedaços" = tamanho. Sempre pergunte o que faltar.
-- Entenda: "Calabresa de 8" = Pizza Grande Calabresa. "Calabresa com mussarela" = pode ser calabresa (mussarela é base) ou meia calabresa meia mussarela — pergunte se tiver dúvida.
-- ALIASES: moda=Moda da Casa, calab=Calabresa, marguerita=Margherita, catup=Catupiry. Use nomes EXATOS do cardápio no items.
+- "Calabresa" = sabor. Use o cardápio para tamanhos: "8/12/16 fatias" mapeiam para Broto/Média/Grande conforme disponível. "meia" ou "meio" = meia pizza.
+- "calabresa de 16" = pizza grande calabresa. "meio frango" ou "meia frango" = meia pizza sabor Frango. Interprete com flexibilidade.
+- "Calabresa com mussarela" = calabresa (mussarela é base) ou meia calabresa meia mussarela — pergunte se dúvida.
+- ALIASES: moda=Moda da Casa, calab/calabresa=Calabresa, marguerita=Margherita, catup=Catupiry. Use nomes EXATOS do cardápio no items.
 - Quando o cliente confirmar ("isso", "pode ser", "sim", "ok"), defina done:true e preencha items.
 - Faça UMA sugestão de upsell (borda ou bebida) de forma natural.
 - Seja conciso. Máx 5-6 linhas. Emojis com moderação.
@@ -177,7 +178,12 @@ Pappi (responda APENAS JSON, sem markdown):
       .replace(/```[\w]*\n?|```/g, "")
       .trim();
     const jsonStr = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
-    const parsed = JSON.parse(jsonStr);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      throw new Error(`JSON inválido: ${parseErr.message}`);
+    }
 
     // Validação extra: não aceita done:true com carrinho vazio (possível injection)
     const done = !!parsed.done && Array.isArray(parsed.items) && parsed.items.length > 0;
@@ -189,11 +195,16 @@ Pappi (responda APENAS JSON, sem markdown):
       done,
     };
   } catch (err) {
-    console.warn("[Gemini] chatOrder falhou:", err.message, err.stack?.slice(0, 200));
+    const hasKey = !!(ENV.GEMINI_API_KEY && ENV.GEMINI_API_KEY.length > 10);
+    console.warn(
+      "[Gemini] chatOrder falhou:",
+      err.message,
+      hasKey ? "" : "(GEMINI_API_KEY ausente ou inválido)",
+    );
     const catalogOk = catalog && _formatCatalog(catalog) !== "Cardápio indisponível";
     return {
       reply: catalogOk
-        ? "Desculpe, tive um instante de dificuldade. Pode repetir? Ex: Pizza grande de calabresa 😊"
+        ? "Pode repetir o pedido? Ex: 1 pizza grande de calabresa, ou meia calabresa meia mussarela 😊"
         : "O cardápio está indisponível no momento. Digite *atendente* para falar com alguém! 🙏",
       items: [],
       done: false,
