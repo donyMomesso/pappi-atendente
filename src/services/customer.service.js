@@ -2,6 +2,7 @@
 
 const prisma = require("../lib/db");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+const convState = require("./conversation-state.service");
 
 async function findOrCreate(tenantId, rawPhone, name = null) {
   const phone = PhoneNormalizer.normalize(rawPhone);
@@ -47,7 +48,7 @@ async function touchInteraction(customerId, addressData = null) {
 }
 
 async function setHandoff(customerId, enabled) {
-  return prisma.customer.update({
+  const customer = await prisma.customer.update({
     where: { id: customerId },
     data: {
       handoff: enabled,
@@ -56,20 +57,38 @@ async function setHandoff(customerId, enabled) {
       claimedBy: enabled ? undefined : null,
     },
   });
+  await convState.setState(customerId, enabled ? convState.STATES.AGUARDANDO_HUMANO : convState.STATES.BOT_ATIVO);
+  return customer;
 }
 
 async function claimFromQueue(customerId, attendantName) {
-  return prisma.customer.update({
+  const customer = await prisma.customer.update({
     where: { id: customerId },
     data: { claimedBy: attendantName },
   });
+  await convState.setState(customerId, convState.STATES.HUMANO_ATIVO);
+  return customer;
 }
 
 async function releaseHandoff(customerId) {
-  return prisma.customer.update({
+  const customer = await prisma.customer.update({
     where: { id: customerId },
     data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
   });
+  await convState.setState(customerId, convState.STATES.BOT_ATIVO);
+  return customer;
+}
+
+/** Encerra a conversa (não devolve ao robô até nova mensagem do cliente). Limpa sessão para fresh start. */
+async function closeConversation(customerId) {
+  const customer = await prisma.customer.update({
+    where: { id: customerId },
+    data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
+  });
+  await convState.setState(customerId, convState.STATES.ENCERRADO);
+  const sessionService = require("./session.service");
+  await sessionService.clear(customer.tenantId, customer.phone);
+  return customer;
 }
 
 async function recordOrder(customerId, summary, payment = null) {
@@ -101,6 +120,7 @@ module.exports = {
   setHandoff,
   claimFromQueue,
   releaseHandoff,
+  closeConversation,
   recordOrder,
   findByPhone,
   setName,

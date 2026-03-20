@@ -69,6 +69,35 @@ router.delete("/tenants/:id", async (req, res) => {
   }
 });
 
+// POST /admin/avise-abertura — dispara "Estamos Abertos!" para quem clicou em "Me avise"
+// Chamar às 18h (cron) ou manualmente. Limpa a lista após enviar.
+router.post("/avise-abertura", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || req.body.tenantId;
+    const aviseAbertura = require("../services/avise-abertura.service");
+    const results = await aviseAbertura.notificarClientesAbertura(tenantId);
+    res.json({ ok: true, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/avise-abertura — lista quantos estão na fila (sem enviar)
+router.get("/avise-abertura", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant;
+    const aviseAbertura = require("../services/avise-abertura.service");
+    const { listActive } = require("../services/tenant.service");
+    const tenants = tenantId ? [{ id: tenantId }] : await listActive();
+    const counts = await Promise.all(
+      tenants.map(async (t) => ({ tenantId: t.id, count: (await aviseAbertura.getAberturaList(t.id)).length })),
+    );
+    res.json(counts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /admin/cw-retry — força reprocessamento da fila de pedidos com falha no CW
 router.post("/cw-retry", async (req, res) => {
   try {

@@ -6,6 +6,8 @@ const express = require("express");
 const prisma = require("../lib/db");
 const { authAdmin, authDash } = require("../middleware/auth.middleware");
 const { getClients } = require("../services/tenant.service");
+const { setHandoff, releaseHandoff, claimFromQueue, closeConversation } = require("../services/customer.service");
+const convState = require("../services/conversation-state.service");
 const googleContacts = require("../services/google-contacts.service");
 const baileys = require("../services/baileys.service");
 const retention = require("../services/retention.service");
@@ -80,7 +82,6 @@ router.get("/stats", authDash, async (req, res) => {
 router.get("/conversations", authDash, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
-    // Mostra apenas quem interagiu nas últimas 24h OU está em handoff (fila humana)
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const customers = await prisma.customer.findMany({
       where: {
@@ -91,13 +92,18 @@ router.get("/conversations", authDash, async (req, res) => {
       take: 200,
       include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
-    res.json(
-      customers.map((c) => ({
-        ...c,
-        phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
-        lastOrder: c.orders[0] || null,
-      })),
+    const withState = await Promise.all(
+      customers.map(async (c) => {
+        const state = await convState.getState(c);
+        return {
+          ...c,
+          phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+          lastOrder: c.orders[0] || null,
+          conversationState: state,
+        };
+      }),
     );
+    res.json(withState);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -112,13 +118,20 @@ router.get("/queue", authDash, async (req, res) => {
       orderBy: { queuedAt: "asc" },
       include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
-    res.json(
-      customers.map((c) => ({
-        ...c,
-        phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
-        lastOrder: c.orders[0] || null,
-      })),
+    const withState = await Promise.all(
+      customers.map(async (c) => {
+        const state = await convState.getState(c);
+        const isUnclaimed = !c.claimedBy;
+        return {
+          ...c,
+          phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+          lastOrder: c.orders[0] || null,
+          conversationState: state,
+          isUnclaimed,
+        };
+      }),
     );
+    res.json(withState);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -127,17 +140,15 @@ router.get("/queue", authDash, async (req, res) => {
 // ── PUT /dash/handoff ──────────────────────────────────────────
 router.put("/handoff", authDash, async (req, res) => {
   try {
-    const { customerId, enabled } = req.body;
-    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: {
-        handoff: !!enabled,
-        handoffAt: enabled ? new Date() : null,
-        queuedAt: enabled ? new Date() : null,
-        claimedBy: enabled ? undefined : null,
-      },
-    });
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    let { customerId, phone, enabled } = req.body;
+    if (!customerId && phone) {
+      const { findByPhone } = require("../services/customer.service");
+      const c = await findByPhone(tenantId, phone);
+      if (c) customerId = c.id;
+    }
+    if (!customerId) return res.status(400).json({ error: "customerId ou phone obrigatório" });
+    await setHandoff(customerId, !!enabled);
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
@@ -151,10 +162,9 @@ router.post("/queue/claim", authDash, async (req, res) => {
   try {
     const { customerId, attendant } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: { claimedBy: attendant || req.attendant?.name || "Atendente" },
-    });
+    await claimFromQueue(customerId, attendant || req.attendant?.name || "Atendente");
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -166,10 +176,23 @@ router.post("/queue/release", authDash, async (req, res) => {
   try {
     const { customerId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
-    });
+    await releaseHandoff(customerId);
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/queue/close ─────────────────────────────────────
+router.post("/queue/close", authDash, async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+    await closeConversation(customerId);
+    const socketService = require("../services/socket.service");
+    socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -255,10 +278,8 @@ router.post("/transfer", authDash, async (req, res) => {
     const { customerId, toAttendant, department, comment } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
 
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: { handoff: true, queuedAt: new Date(), claimedBy: toAttendant || null },
-    });
+    await setHandoff(customerId, true);
+    if (toAttendant) await claimFromQueue(customerId, toAttendant);
 
     if (comment || department || toAttendant) {
       const chatMemory = require("../services/chat-memory.service");

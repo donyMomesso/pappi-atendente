@@ -148,11 +148,18 @@ async function start(instanceId = "default") {
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
 
         const phone = jid.split("@")[0];
-        const text =
+        let text =
           msg.message?.conversation ||
           msg.message?.extendedTextMessage?.text ||
           msg.message?.imageMessage?.caption ||
           null;
+        if (!text) {
+          const btnResp = msg.message?.buttonsResponseMessage;
+          if (btnResp) {
+            const id = btnResp.selectedButtonId;
+            text = id === "delivery" || id === "takeout" ? id : (btnResp.selectedDisplayText || id || "");
+          }
+        }
         if (!text) continue;
 
         try {
@@ -174,15 +181,23 @@ async function start(instanceId = "default") {
               if (tenant) {
                 const customer = await findOrCreate(tenantId, phone, null);
                 await touchInteraction(customer.id);
-                if (!customer.handoff) {
-                  // Adaptador wa para Baileys (skipNotifyCheck=true — bot responde livremente)
-                  const wa = {
-                    sendText: (to, msg) => sendText(to, msg, instanceId, true),
-                    sendImage: () => {},
-                    sendDocument: () => {},
-                  };
-                  await botHandler.handle({ tenant, wa, customer, text, phone });
-                }
+                const convState = require("./conversation-state.service");
+                const botMayRespond = await convState.shouldBotRespond(customer);
+                if (!botMayRespond) continue;
+                // Adaptador wa para Baileys (skipNotifyCheck=true — bot responde livremente)
+                const wa = {
+                  sendText: (to, msg) => sendText(to, msg, instanceId, true),
+                  sendButtons: (to, body, buttons) =>
+                    sendText(
+                      to,
+                      body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""),
+                      instanceId,
+                      true,
+                    ),
+                  sendImage: () => {},
+                  sendDocument: () => {},
+                };
+                await botHandler.handle({ tenant, wa, customer, text, phone });
               }
             } catch (e) {
               console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);

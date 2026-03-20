@@ -17,6 +17,7 @@ const Maps = require("../services/maps.service");
 const sessionService = require("../services/session.service");
 const metaCapi = require("../services/meta-capi.service");
 const { routeByTime } = require("../services/time-routing.service");
+const aviseAbertura = require("../services/avise-abertura.service");
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
@@ -104,12 +105,34 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   let storeOpen = skipHours ? true : timeSlot.isOpen;
 
   if (!storeOpen && !closedAsLead) {
-    if (!closedAsLead) {
-      await wa.sendText(phone, timeSlot.message);
-      await chatMemory.push(customer.id, "bot", timeSlot.message);
+    // Detectar "Me avise quando abrir" (botão envia title, texto pode ser "me avise")
+    const isAviseIntent =
+      t.includes("avise") ||
+      t.includes("avisar") ||
+      t.includes("me avise quando abrir") ||
+      (text || "").trim() === "AVISE_ABERTURA";
+    if (timeSlot.hasAviseButton && isAviseIntent) {
+      const added = await aviseAbertura.addToAberturaList(tenant.id, phone);
+      const m =
+        "Perfeito! Assim que o forno atingir a temperatura ideal e abrirmos oficialmente, você será o primeiro a receber um toque aqui no Zap! 🍕🔥";
+      await wa.sendText(phone, m);
+      await chatMemory.push(customer.id, "bot", m);
       await clearSession(tenant.id, phone);
       return;
     }
+    // Enviar mensagem do slot — com botão em Tarde e Pré-Abertura
+    if (timeSlot.hasAviseButton) {
+      await wa.sendButtons(phone, timeSlot.message, [
+        { id: "AVISE_ABERTURA", title: "🔔 Me avise quando abrir" },
+      ]);
+    } else {
+      await wa.sendText(phone, timeSlot.message);
+    }
+    await chatMemory.push(customer.id, "bot", timeSlot.message);
+    await clearSession(tenant.id, phone);
+    return;
+  }
+  if (!storeOpen && closedAsLead) {
     session.isLeadOrder = true;
   }
 
@@ -160,7 +183,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
 
   switch (session.step) {
     case "MENU":
-      await sendGreeting(wa, cw, phone, customer, tenant, session);
+      await sendFulfillmentPromptOnly(wa, phone, customer, tenant, session);
       break;
     case "ASK_NAME":
       await handleAskName(wa, cw, phone, text, session, customer, tenant);
@@ -187,7 +210,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       await handleConfirm(wa, cw, phone, text, t, session, customer, tenant);
       break;
     default:
-      await sendGreeting(wa, cw, phone, customer, tenant, session);
+      await sendFulfillmentPromptOnly(wa, phone, customer, tenant, session);
   }
 
   if (session._cleared) {
@@ -309,6 +332,17 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   await chatMemory.push(customer.id, "bot", greeting);
 }
 
+// Prompt curto: só "É Entrega ou Retirada?" (sem repetir o greeting completo)
+async function sendFulfillmentPromptOnly(wa, phone, customer, tenant, session) {
+  session.step = "FULFILLMENT";
+  const m = "É Entrega ou Retirada? Escolha uma opção abaixo 👇";
+  await wa.sendButtons(phone, m, [
+    { id: "delivery", title: "🚚 Entrega" },
+    { id: "takeout", title: "🏪 Retirada" },
+  ]);
+  await chatMemory.push(customer.id, "bot", m);
+}
+
 // ── ASK_NAME ──────────────────────────────────────────────────
 async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
   const name = text.trim();
@@ -329,8 +363,14 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
 
 // ── FULFILLMENT ───────────────────────────────────────────────
 async function handleFulfillment(wa, cw, phone, text, t, session, customer, tenant) {
-  const isDelivery = t.includes("entrega") || text === "delivery";
-  const isTakeout = t.includes("retirada") || t.includes("buscar") || t.includes("retirar") || text === "takeout";
+  const isDelivery =
+    t.includes("entrega") || text === "delivery" || (text || "").trim() === "delivery";
+  const isTakeout =
+    t.includes("retirada") ||
+    t.includes("buscar") ||
+    t.includes("retirar") ||
+    text === "takeout" ||
+    (text || "").trim() === "takeout";
 
   if (isDelivery) {
     session.fulfillment = "delivery";
@@ -372,11 +412,28 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
     return;
   }
 
-  await sendGreeting(wa, cw, phone, customer, tenant, { ...session, step: "MENU" });
+  await sendFulfillmentPromptOnly(wa, phone, customer, tenant, session);
 }
 
 // ── ADDRESS ───────────────────────────────────────────────────
 async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
+  const t = (text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const isFulfillmentClick =
+    t.includes("entrega") ||
+    t.includes("retirada") ||
+    t.includes("retirar") ||
+    t === "delivery" ||
+    t === "takeout";
+  if (isFulfillmentClick) {
+    const m = "🛵 Me manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
   if (isCep(text.trim())) {
     const cepData = await lookupCep(text.trim());
     if (cepData) {

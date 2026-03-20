@@ -69,22 +69,22 @@ function getTimeSlot(minutesParam) {
 
   // POST_CLOSE: 23:31 (23*60+31=1411) até 07:59 (7*60+59=479)
   if (mins >= 1411 || mins < 480) {
-    return { flowId: "POST_CLOSE", message: MESSAGES.POST_CLOSE, isOpen: false };
+    return { flowId: "POST_CLOSE", message: MESSAGES.POST_CLOSE, isOpen: false, hasAviseButton: false };
   }
   // MORNING: 08:00 (480) até 12:00 (720)
   if (mins >= 480 && mins <= 720) {
-    return { flowId: "MORNING", message: MESSAGES.MORNING, isOpen: false };
+    return { flowId: "MORNING", message: MESSAGES.MORNING, isOpen: false, hasAviseButton: false };
   }
   // AFTERNOON: 12:01 (721) até 17:00 (1020)
   if (mins >= 721 && mins <= 1020) {
-    return { flowId: "AFTERNOON", message: MESSAGES.AFTERNOON, isOpen: false };
+    return { flowId: "AFTERNOON", message: MESSAGES.AFTERNOON, isOpen: false, hasAviseButton: true };
   }
   // PRE_OPEN: 17:01 (1021) até 17:59 (1079)
   if (mins >= 1021 && mins <= 1079) {
-    return { flowId: "PRE_OPEN", message: MESSAGES.PRE_OPEN, isOpen: false };
+    return { flowId: "PRE_OPEN", message: MESSAGES.PRE_OPEN, isOpen: false, hasAviseButton: true };
   }
   // OPEN: 18:00 (1080) até 23:30 (1410)
-  return { flowId: "OPEN", message: null, isOpen: true };
+  return { flowId: "OPEN", message: null, isOpen: true, hasAviseButton: false };
 }
 
 /**

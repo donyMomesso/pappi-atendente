@@ -63,6 +63,8 @@
     .conv-badge{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
     .badge-handoff{background:var(--orange);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
     .badge-bot{background:var(--violet);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
+    .badge-encerrado{background:#888;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:500}
+    .badge-fila{background:#f59e0b;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
 
     /* ── COL 2: CENTRO ── */
     .col-center{background:#ece5dd;display:flex;flex-direction:column;overflow:hidden;position:relative}
@@ -729,10 +731,11 @@ function appendMsgToChat(body, m) {
   const placeholder = body.querySelector("div[style*='Nenhuma mensagem']") || body.querySelector("div[style*='aguardando']");
   if (placeholder) placeholder.remove();
 
-  const isOut = m.role === "attendant";
+  const isOut = m.role === "attendant" || m.role === "human";
   const isBot = m.role === "assistant" || m.role === "bot";
   const cls = isOut ? "msg out" : "msg in";
   const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>`
+    : isOut ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>`
     : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
   const time = new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   let content = `<p style="margin:0">${esc(m.text || "")}</p>`;
@@ -979,7 +982,14 @@ function renderConvs(list) {
   }
   el.innerHTML = filtered.map(c => {
     const isHandoff = c.handoff;
-    const badge = isHandoff
+    const state = c.conversationState;
+    const badge = state === "humano_ativo"
+      ? `<span class="badge-handoff">🙋 Humano</span>`
+      : state === "aguardando_humano"
+      ? `<span class="badge-fila">⏳ Fila</span>`
+      : state === "encerrado"
+      ? `<span class="badge-encerrado">✓ Encerrado</span>`
+      : isHandoff
       ? `<span class="badge-handoff">🙋 Humano</span>`
       : `<span class="badge-bot">🤖 Bot</span>`;
     return `
@@ -1058,10 +1068,10 @@ async function loadChatHistory(customerId) {
     return;
   }
   body.innerHTML = msgs.map(m => {
-    const isOut = m.role === "attendant";
-    const isBot = m.role === "bot";
+    const isOut = m.role === "attendant" || m.role === "human";
+    const isBot = m.role === "bot" || m.role === "assistant";
     const cls = isOut ? "msg out" : "msg in";
-    const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
+    const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isOut ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
     const time = new Date(m.at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
     // Lógica de Mídia
     let content = `<p style="margin:0">${esc(m.text)}</p>`;
@@ -1709,8 +1719,25 @@ async function claimCustomer(customerId) {
 }
 
 async function releaseCustomer(customerId) {
-  if (!confirm("Encerrar atendimento? O cliente voltará ao bot automaticamente.")) return;
+  if (!confirm("Devolver ao robô? O cliente voltará a ser atendido pelo bot.")) return;
   const r = await api("/queue/release", {
+    method: "POST",
+    body: JSON.stringify({ customerId, tenantId: TENANT }),
+  });
+  if (r?.ok) {
+    fetchQueue();
+    fetchConvs();
+    if (selectedCustomer?.id === customerId) {
+      selectedCustomer = { ...selectedCustomer, handoff: false, claimedBy: null };
+      renderCenter(selectedCustomer);
+      renderRight(selectedCustomer);
+    }
+  } else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+async function closeCustomer(customerId) {
+  if (!confirm("Encerrar atendimento? A conversa será fechada. O próximo contato do cliente iniciará novo fluxo.")) return;
+  const r = await api("/queue/close", {
     method: "POST",
     body: JSON.stringify({ customerId, tenantId: TENANT }),
   });
@@ -2361,13 +2388,14 @@ function handoffBar(c) {
     ? "👤 " + esc(c.claimedBy) + " está atendendo"
     : "⏳ Na fila de espera";
   const btn = isMine
-    ? "<button class='btn-release' onclick=\"releaseCustomer('" + c.id + "')\">Encerrar</button>"
+    ? "<button class='btn-release' onclick=\"releaseCustomer('" + c.id + "')\">Devolver ao robô</button>"
+    + " <button class='btn-release' onclick=\"closeCustomer('" + c.id + "')\" style='background:#e8e8e8'>Encerrar</button>"
     : !c.claimedBy
     ? "<button class='btn-claim' onclick=\"claimCustomer('" + c.id + "')\">Assumir</button>"
     : "";
   return "<div style='padding:8px 14px;border-bottom:1px solid var(--border);background:#fff8f5;display:flex;align-items:center;justify-content:space-between;gap:8px'>"
     + "<span style='font-size:12px;color:#c04400;font-weight:600'>" + label + "</span>"
-    + btn + "</div>";
+    + "<span style='display:flex;gap:6px'>" + btn + "</span></div>";
 }
 
 function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }

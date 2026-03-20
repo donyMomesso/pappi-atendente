@@ -43,4 +43,6 @@ module.exports = {
   SKIP_HOURS_CHECK: process.env.SKIP_HOURS_CHECK === "true",
   // HORÁRIO: CLOSED_AS_LEAD=true permite receber pedidos quando fechado (salva como lead para contato)
   CLOSED_AS_LEAD: process.env.CLOSED_AS_LEAD === "true",
+  // Híbrido: minutos de inatividade para devolver ao robô (0 = desativado)
+  CONVERSATION_HANDOFF_TIMEOUT_MIN: toNumber(process.env.CONVERSATION_HANDOFF_TIMEOUT_MIN, 0),
 };

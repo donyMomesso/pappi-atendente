@@ -7,6 +7,7 @@ const express = require("express");
 const ENV = require("../config/env");
 const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.service");
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
+const convState = require("../services/conversation-state.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const chatMemory = require("../services/chat-memory.service");
 const baileys = require("../services/baileys.service");
@@ -90,7 +91,8 @@ router.post("/webhook", async (req, res) => {
 // ── Processamento de Mensagem ────────────────────────────────
 
 async function processMessage({ tenant, wa, msg, contacts }) {
-  const rawPhone = msg.from;
+  const isEcho = isMessageEcho(msg, tenant.waPhoneNumberId);
+  const rawPhone = isEcho ? msg.to || msg.recipient_id : msg.from;
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return;
 
@@ -110,12 +112,25 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
 
+  if (isEcho) {
+    const echoText = extractEchoContent(msg) || text;
+    if (echoText) {
+      await chatMemory.push(customer.id, "human", echoText, "WhatsApp App", null, "text", msg.id);
+      const socketService = require("../services/socket.service");
+      socketService.emitMessage(customer.id, { role: "human", text: echoText, sender: "WhatsApp App", at: new Date().toISOString() });
+    }
+    return;
+  }
+
   if (text || mediaUrl) {
     await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
   }
 
-  if (customer.handoff) {
-    console.log(`[${tenant.id}] Handoff ativo para ${phone} — bot silencioso`);
+  await convState.resetIfEncerrado(customer);
+
+  const botMayRespond = await convState.shouldBotRespond(customer);
+  if (!botMayRespond) {
+    console.log(`[${tenant.id}] Estado ${await convState.getState(customer)} para ${phone} — bot silencioso`);
     return;
   }
 
@@ -161,7 +176,15 @@ async function extractContent(wa, msg, waToken) {
   if (msg.type === "text") {
     text = msg.text?.body?.trim() || null;
   } else if (msg.type === "interactive") {
-    text = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || null;
+    const btn = msg.interactive?.button_reply;
+    const list = msg.interactive?.list_reply;
+    if (btn) {
+      const id = btn.id;
+      if (id === "delivery" || id === "takeout") text = id;
+      else text = btn.title || id || null;
+    } else if (list) {
+      text = list.title || list.id || null;
+    }
   } else if (msg.type === "image") {
     mediaType = "image";
     mediaUrl = await wa.getMediaUrl(msg.image.id);
@@ -200,6 +223,19 @@ async function extractContent(wa, msg, waToken) {
   return { text, mediaUrl, mediaType };
 }
 
+function isMessageEcho(msg, phoneNumberId) {
+  if (!msg || !phoneNumberId) return false;
+  if (msg.from === String(phoneNumberId)) return true;
+  if (msg.context?.from === String(phoneNumberId)) return true;
+  return false;
+}
+
+function extractEchoContent(msg) {
+  if (msg?.text?.body) return msg.text.body.trim();
+  if (msg?.caption) return msg.caption.trim();
+  return null;
+}
+
 // Palavras que ativam handoff — SEM "cancelar"/"errado" (conflitavam com pedidos)
 const HANDOFF_WORDS = [
   "atendente",
@@ -211,8 +247,19 @@ const HANDOFF_WORDS = [
   "preciso de ajuda",
   "reclamação",
   "reclamacao",
+  "reclamar",
   "não recebi",
   "nao recebi",
+  "erro no pedido",
+  "pedido errado",
+  "cobrança",
+  "cobranca",
+  "motoboy",
+  "entregador",
+  "cancelamento",
+  "problema",
+  "devolução",
+  "devolucao",
 ];
 
 function isHandoffTrigger(text) {
@@ -267,7 +314,10 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
     await touchInteraction(customer.id);
     await chatMemory.push(customer.id, "customer", text.trim(), null, null, "text");
 
-    if (customer.handoff) return;
+    await convState.resetIfEncerrado(customer);
+
+    const botMayRespond = await convState.shouldBotRespond(customer);
+    if (!botMayRespond) return;
 
     if (isHandoffTrigger(text)) {
       await setHandoff(customer.id, true);

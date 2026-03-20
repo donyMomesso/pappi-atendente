@@ -37,6 +37,22 @@ try {
   console.warn("[CW-Retry] scheduler error:", e.message);
 }
 
+// ── Agendador "Me avise quando abrir" — disparo às 18h ────────
+try {
+  const aviseScheduler = require("./services/avise-abertura-scheduler");
+  aviseScheduler.startScheduler();
+} catch (e) {
+  console.warn("[AviseAbertura] scheduler error:", e.message);
+}
+
+// ── Timeout de handoff (devolve ao robô após inatividade) ─────
+try {
+  const handoffTimeout = require("./services/handoff-timeout-scheduler");
+  handoffTimeout.start();
+} catch (e) {
+  console.warn("[HandoffTimeout] scheduler error:", e.message);
+}
+
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "../public")));
