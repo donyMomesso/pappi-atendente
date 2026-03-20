@@ -2288,12 +2288,17 @@ async function gcConnect() {
 
 	// ── MULTI-WHATSAPP (BAILEYS) ──────────────────────────────────
 	let waIntInstances = [];
+	let waIntTenants = [];
 	let waIntRefreshTimer = null;
 
 	async function waIntRefresh() {
-	  const data = await api("/baileys/instances");
+	  const [data, tenants] = await Promise.all([
+	    api("/baileys/instances"),
+	    api("/tenants").catch(() => []),
+	  ]);
 	  if (!data) return;
 	  waIntInstances = data;
+	  waIntTenants = Array.isArray(tenants) ? tenants : [];
 	  renderWaIntInstances();
 	  // Auto-refresh durante QR/connecting
 	  const hasActive = data.some(d => d.status === "qr" || d.status === "connecting");
@@ -2355,6 +2360,13 @@ async function gcConnect() {
 	            </div>
 	          </div>
 	        ` : ''}
+	        <div style="font-size:11px;color:#666">
+	          <label style="display:block;margin-bottom:4px">Tenant (quem responde):</label>
+	          <select onchange="waIntSetTenant('${inst.id}',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff">
+	            <option value="">— Primeiro ativo —</option>
+	            ${(waIntTenants||[]).map(t=>`<option value="${t.id}" ${inst.instanceTenant===t.id?'selected':''}>${(t.name||t.id)}</option>`).join('')}
+	          </select>
+	        </div>
 	        <div style="display:flex;align-items:center;gap:8px">
 	          ${isConn
 	            ? `<button style="flex:1;background:#e53935;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntDisconnect('${inst.id}')">Desconectar</button>`
@@ -2398,6 +2410,15 @@ async function gcConnect() {
 	  if (!confirm("Remover este WhatsApp permanentemente?")) return;
 	  await api(`/baileys/instances/${id}`, { method: "DELETE" });
 	  waIntRefresh();
+	}
+
+	async function waIntSetTenant(instanceId, tenantId) {
+	  const r = await api(`/baileys/instances/${instanceId}/tenant`, {
+	    method: "PATCH",
+	    body: JSON.stringify({ tenantId: tenantId || null }),
+	  });
+	  if (r?.ok) waIntRefresh();
+	  else alert("Erro ao salvar: " + (r?.error || "Tente novamente"));
 	}
 
 // ── USUÁRIOS GOOGLE ───────────────────────────────────────────

@@ -368,10 +368,22 @@ router.post("/transfer", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/tenants (lista para selector) ────────────────────
+router.get("/tenants", authDash, async (_req, res) => {
+  try {
+    const { listActive } = await import("../services/tenant.service");
+    const tenants = await listActive();
+    res.json((tenants || []).map((t) => ({ id: t.id, name: t.name })));
+  } catch {
+    res.json([]);
+  }
+});
+
 // ── GET /dash/baileys/instances ────────────────────────────────
-router.get("/baileys/instances", authDash, (_req, res) => {
+router.get("/baileys/instances", authDash, async (_req, res) => {
+  const list = await baileys.getAllStatuses();
   res.json(
-    baileys.getAllStatuses().map((s) => ({
+    list.map((s) => ({
       id: s.id,
       status: s.status,
       qr: s.qr,
@@ -379,6 +391,7 @@ router.get("/baileys/instances", authDash, (_req, res) => {
       name: s.account?.name || null,
       number: s.account?.phone || null,
       usage: s.usage,
+      instanceTenant: s.instanceTenant || null,
     })),
   );
 });
@@ -406,6 +419,15 @@ router.post("/baileys/instances/:id/disconnect", authAdmin, (req, res) => {
 router.patch("/baileys/instances/:id/bot", authAdmin, (req, res) => {
   baileys.setBotEnabled(req.params.id, req.body.enabled !== false);
   res.json({ ok: true });
+});
+router.patch("/baileys/instances/:id/tenant", authDash, async (req, res) => {
+  try {
+    const { tenantId } = req.body;
+    await baileys.setInstanceTenant(req.params.id, tenantId || null);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 router.delete("/baileys/instances/:id", authAdmin, (req, res) => {
   baileys.disconnect(req.params.id);
@@ -436,13 +458,21 @@ router.post("/send", authDash, async (req, res) => {
     const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
 
     let waMessageId = null;
-    try {
-      const { wa } = await getClients(tenantId);
-      const result = await wa.sendText(normalizedPhone, text);
-      waMessageId = result?.messages?.[0]?.id;
-    } catch (waErr) {
-      const sent = await baileys.sendText(normalizedPhone, text, "default", true);
-      if (!sent) throw waErr;
+    const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
+    const useBaileysInstance = replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
+
+    if (useBaileysInstance) {
+      const sent = await baileys.sendText(normalizedPhone, text, useBaileysInstance, true);
+      if (!sent) throw new Error("Falha ao enviar via WhatsApp interno");
+    } else {
+      try {
+        const { wa } = await getClients(tenantId);
+        const result = await wa.sendText(normalizedPhone, text);
+        waMessageId = result?.messages?.[0]?.id;
+      } catch (waErr) {
+        const sent = await baileys.sendText(normalizedPhone, text, "default", true);
+        if (!sent) throw waErr;
+      }
     }
 
     if (customerId) {
@@ -774,7 +804,7 @@ router.get("/retention/stats", authAdmin, async (req, res) => {
   }
 });
 
-router.get("/wa-internal/status", authDash, (_req, res) => res.json(baileys.getAllStatuses()));
+router.get("/wa-internal/status", authDash, async (_req, res) => res.json(await baileys.getAllStatuses()));
 router.post("/wa-internal/connect", authAdmin, async (req, res) => {
   try {
     await baileys.start(req.body.instanceId || "default");
@@ -818,7 +848,7 @@ router.get("/debug", authAdmin, async (req, res) => {
     res.json({
       tenant: { id: tenant?.id, name: tenant?.name, waPhoneNumberId: tenant?.waPhoneNumberId, active: tenant?.active },
       recentCustomers,
-      baileysStatus: baileys.getAllStatuses(),
+      baileysStatus: await baileys.getAllStatuses(),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

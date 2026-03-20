@@ -1,8 +1,9 @@
 // src/services/baileys.service.js
 // Multi-WhatsApp via Baileys (QR Code) para notificações INTERNAS da equipe
-// CORREÇÕES:
-//   - tenantId não é mais hardcoded — detectado pelo número do remetente
-//   - Usa singleton do PrismaClient
+//
+// IMPORTANTE: Toda a lógica usa o instanceId (a CONEXÃO), nunca o número conectado.
+// Qualquer número pode ser conectado a qualquer instância — ao reconectar/reescanear
+// o QR, o número pode mudar. O que importa é a instância (ex: "default", "drmlogistica").
 
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
@@ -76,8 +77,8 @@ function checkLimits(inst) {
 
 // ── Detecta tenantId a partir do número do remetente ──────────
 // Busca o customer no banco pelo telefone e retorna o tenantId dele.
-// Retorna null se não encontrar (mensagem de número desconhecido).
-async function detectTenantByPhone(phone) {
+// instanceId: se informado e número for novo, usa tenant do Config baileys:instance:{id}
+async function detectTenantByPhone(phone, instanceId = null) {
   try {
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
     const normalized = PhoneNormalizer.normalize(phone);
@@ -91,8 +92,23 @@ async function detectTenantByPhone(phone) {
 
     if (customer?.tenantId) return customer.tenantId;
 
-    // Fallback: se o número é novo (sem customer), usa o primeiro tenant ativo.
-    // Sem isso, mensagens de números novos via Baileys são silenciosamente descartadas.
+    // Número novo: tenta tenant da instância (Config baileys:instance:{id})
+    if (instanceId) {
+      const cfg = await prisma.config.findUnique({
+        where: { key: `baileys:instance:${instanceId}` },
+      });
+      if (cfg?.value) {
+        try {
+          const { tenantId } = JSON.parse(cfg.value);
+          if (tenantId) {
+            console.log(`[Baileys] Número novo ${normalized} — tenant da instância ${instanceId}`);
+            return tenantId;
+          }
+        } catch {}
+      }
+    }
+
+    // Fallback: primeiro tenant ativo
     const fallbackTenant = await prisma.tenant.findFirst({
       where: { active: true },
       select: { id: true },
@@ -106,6 +122,31 @@ async function detectTenantByPhone(phone) {
     return fallbackTenant?.id || null;
   } catch {
     return null;
+  }
+}
+
+// Salva o canal de resposta para o customer (cloud ou baileys:instanceId)
+async function setReplyChannel(customerId, channel) {
+  try {
+    await prisma.config.upsert({
+      where: { key: `reply_channel:${customerId}` },
+      create: { key: `reply_channel:${customerId}`, value: channel },
+      update: { value: channel },
+    });
+  } catch (e) {
+    console.error("[Baileys] Erro ao salvar reply_channel:", e.message);
+  }
+}
+
+// Retorna o canal de resposta do customer (cloud | baileys:instanceId)
+async function getReplyChannel(customerId) {
+  try {
+    const cfg = await prisma.config.findUnique({
+      where: { key: `reply_channel:${customerId}` },
+    });
+    return cfg?.value || "cloud";
+  } catch {
+    return "cloud";
   }
 }
 
@@ -178,7 +219,7 @@ async function start(instanceId = "default") {
           } catch {}
 
           try {
-            const tenantId = await detectTenantByPhone(phone);
+            const tenantId = await detectTenantByPhone(phone, instanceId);
             if (!tenantId) {
               console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);
               continue;
@@ -191,6 +232,7 @@ async function start(instanceId = "default") {
             // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
             const customer = await findOrCreate(tenantId, phone, null);
             await touchInteraction(customer.id);
+            await setReplyChannel(customer.id, `baileys:${instanceId}`);
 
             const botHandler = require("../routes/bot.handler");
             await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer");
@@ -334,10 +376,32 @@ async function notify(text) {
   }
 }
 
-function getStatus(instanceId = "default") {
+async function getInstanceTenant(instanceId) {
+  try {
+    const cfg = await prisma.config.findUnique({
+      where: { key: `baileys:instance:${instanceId}` },
+    });
+    if (cfg?.value) {
+      const { tenantId } = JSON.parse(cfg.value);
+      return tenantId || null;
+    }
+  } catch {}
+  return null;
+}
+
+async function setInstanceTenant(instanceId, tenantId) {
+  await prisma.config.upsert({
+    where: { key: `baileys:instance:${instanceId}` },
+    create: { key: `baileys:instance:${instanceId}`, value: JSON.stringify({ tenantId: tenantId || null }) },
+    update: { value: JSON.stringify({ tenantId: tenantId || null }) },
+  });
+}
+
+async function getStatus(instanceId = "default") {
   const inst = INSTANCES.get(instanceId);
   if (!inst) return { status: "disconnected" };
   resetCounters(inst);
+  const instanceTenant = await getInstanceTenant(instanceId);
   return {
     id: inst.id,
     status: inst.status,
@@ -345,6 +409,7 @@ function getStatus(instanceId = "default") {
     lastAlert: inst.lastAlert,
     account: inst.account,
     botEnabled: inst.botEnabled !== false,
+    instanceTenant: instanceTenant,
     usage: {
       hour: inst.counters.hour,
       hourMax: LIMITS.perHour,
@@ -359,8 +424,8 @@ function setBotEnabled(instanceId = "default", enabled) {
   if (inst) inst.botEnabled = !!enabled;
 }
 
-function getAllStatuses() {
-  return Array.from(INSTANCES.keys()).map((id) => getStatus(id));
+async function getAllStatuses() {
+  return Promise.all(Array.from(INSTANCES.keys()).map((id) => getStatus(id)));
 }
 
 function setNotifyNumbers(numbers, instanceId = "default") {
@@ -410,6 +475,9 @@ module.exports = {
   getAllStatuses,
   setNotifyNumbers,
   setBotEnabled,
+  setInstanceTenant,
   disconnect,
   getProfilePicture,
+  getReplyChannel,
+  setReplyChannel,
 };

@@ -106,6 +106,7 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const customer = await findOrCreate(tenant.id, phone, name);
 
   await touchInteraction(customer.id);
+  baileys.setReplyChannel(customer.id, "cloud").catch(() => {});
 
   const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
 
