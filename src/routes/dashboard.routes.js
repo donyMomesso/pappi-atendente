@@ -528,11 +528,13 @@ router.get("/settings", authAdmin, async (req, res) => {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
-    const [attendantsCfg, googleCfg] = await Promise.all([
+    const [attendantsCfg, googleCfg, departmentsCfg] = await Promise.all([
       prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }),
       prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }),
+      prisma.config.findUnique({ where: { key: `${tenantId}:departments` } }),
     ]);
 
+    const departmentsRaw = departmentsCfg ? JSON.parse(departmentsCfg.value) : [];
     res.json({
       id: tenant.id,
       name: tenant.name,
@@ -543,6 +545,7 @@ router.get("/settings", authAdmin, async (req, res) => {
       active: tenant.active,
       attendants: attendantsCfg ? JSON.parse(attendantsCfg.value) : [],
       googleUsers: googleCfg ? JSON.parse(googleCfg.value) : [],
+      departments: Array.isArray(departmentsRaw) ? departmentsRaw : [],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -553,7 +556,7 @@ router.get("/settings", authAdmin, async (req, res) => {
 router.patch("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
-    const { name, city, attendants, googleUsers } = req.body;
+    const { name, city, attendants, googleUsers, departments } = req.body;
 
     const data = {};
     if (name !== undefined) data.name = name;
@@ -576,6 +579,13 @@ router.patch("/settings", authAdmin, async (req, res) => {
         where: { key: `${tenantId}:google_users` },
         create: { key: `${tenantId}:google_users`, value: JSON.stringify(googleUsers) },
         update: { value: JSON.stringify(googleUsers) },
+      });
+    }
+    if (Array.isArray(departments)) {
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:departments` },
+        create: { key: `${tenantId}:departments`, value: JSON.stringify(departments) },
+        update: { value: JSON.stringify(departments) },
       });
     }
     res.json({ ok: true });

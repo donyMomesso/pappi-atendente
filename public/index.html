@@ -413,10 +413,6 @@
         <label style="font-size:13px;font-weight:600;color:#444;display:block;margin-bottom:6px">Transferir para departamento</label>
         <select id="transferDept" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;background:#fafafa;appearance:auto">
           <option value="">— Selecione —</option>
-          <option value="Atendimento">Atendimento</option>
-          <option value="Financeiro">Financeiro</option>
-          <option value="Suporte">Suporte</option>
-          <option value="Gerência">Gerência</option>
         </select>
       </div>
       <div>
@@ -565,6 +561,18 @@
             <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
             <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
             <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-head">🔄 Departamentos de Transferência</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados (ex: Atendimento, Financeiro, Suporte).</p>
+            <div class="attendant-list" id="departmentList"></div>
+            <div class="add-attendant-row">
+              <input id="newDepartmentName" type="text" placeholder="Nome do departamento" onkeydown="if(event.key==='Enter')addDepartment()"/>
+              <button class="btn-add-att" onclick="addDepartment()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveDepartments()">Salvar departamentos</button>
           </div>
         </div>
         <div class="settings-card">
@@ -770,17 +778,25 @@ async function finalizarConversa(customerId) {
 // ── TRANSFERÊNCIA DE CONVERSA ──────────────────────────────────
 async function openTransfer() {
   if (!selectedCustomer) return;
-  // Carrega lista de atendentes
-  const sel = document.getElementById("transferAttendant");
-  sel.innerHTML = '<option value="">— Qualquer atendente disponível —</option>';
-  const list = await api("/attendants").catch(() => []);
-  (list || []).forEach(a => {
+  const selAtt = document.getElementById("transferAttendant");
+  selAtt.innerHTML = '<option value="">— Qualquer atendente disponível —</option>';
+  const attList = await api("/attendants").catch(() => []);
+  (attList || []).forEach(a => {
     if (a.name !== ATTENDANT_NAME) {
       const o = document.createElement("option");
       o.value = a.name;
       o.textContent = a.name + (a.role === "admin" ? " (admin)" : "");
-      sel.appendChild(o);
+      selAtt.appendChild(o);
     }
+  });
+  const selDept = document.getElementById("transferDept");
+  selDept.innerHTML = '<option value="">— Selecione —</option>';
+  const deptList = await api("/departments").catch(() => []);
+  (deptList || []).forEach(d => {
+    const o = document.createElement("option");
+    o.value = d;
+    o.textContent = d;
+    selDept.appendChild(o);
   });
   document.getElementById("transferDept").value = "";
   document.getElementById("transferComment").value = "";
@@ -1761,7 +1777,7 @@ function startRefresh() {
 }
 
 // ── ADMIN ──────────────────────────────────────────────────────
-let settingsData = { attendants: [] };
+let settingsData = { attendants: [], departments: [] };
 let currentAdminTab = "dash";
 
 // ── KANBAN ───────────────────────────────────────────────────
@@ -2017,7 +2033,9 @@ async function loadAdminSettings() {
   document.getElementById("cfg-city").value = d.city || "";
   document.getElementById("cfg-storeId").value = d.cwStoreId || "";
   document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
+  if (!settingsData.departments) settingsData.departments = [];
   renderAttendantList();
+  renderDepartmentList();
   renderGoogleUserList();
   gcRefreshStatus();
   waIntRefresh();
@@ -2066,6 +2084,44 @@ function addAttendant() {
 function removeAttendant(idx) {
   settingsData.attendants.splice(idx, 1);
   renderAttendantList();
+}
+
+function renderDepartmentList() {
+  const el = document.getElementById("departmentList");
+  const list = settingsData.departments || [];
+  if (!list.length) {
+    el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum departamento. Adicione para aparecer no transferir.</p>';
+    return;
+  }
+  el.innerHTML = list.map((d, i) => `
+    <div class="attendant-item">
+      <span>📁 ${esc(d)}</span>
+      <button class="btn-del-att" onclick="removeDepartment(${i})">×</button>
+    </div>`).join("");
+}
+
+function addDepartment() {
+  const input = document.getElementById("newDepartmentName");
+  const name = input.value.trim();
+  if (!name) return;
+  if (!settingsData.departments) settingsData.departments = [];
+  if (!settingsData.departments.includes(name)) settingsData.departments.push(name);
+  input.value = "";
+  renderDepartmentList();
+}
+
+function removeDepartment(idx) {
+  settingsData.departments.splice(idx, 1);
+  renderDepartmentList();
+}
+
+async function saveDepartments() {
+  const r = await api("/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ tenantId: TENANT, departments: settingsData.departments || [] }),
+  });
+  if (r?.ok) alert("✅ Departamentos salvos!");
+  else alert("Erro: " + (r?.error || "Tente novamente"));
 }
 
 async function saveCompany() {
