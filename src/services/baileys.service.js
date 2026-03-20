@@ -187,8 +187,10 @@ async function start(instanceId = "default") {
         if (!msg.message || msg.key.fromMe) continue;
         const jid = msg.key.remoteJid;
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
+        if (jid.endsWith("@lid")) continue; // LID não tem número de telefone direto
 
-        const phone = jid.split("@")[0];
+        // Extrai o telefone: remove sufixo :0 do multi-device (ex: 5511999999999:0 -> 5511999999999)
+        const phone = jid.split("@")[0].split(":")[0];
         let text =
           msg.message?.conversation ||
           msg.message?.extendedTextMessage?.text ||
@@ -236,6 +238,7 @@ async function start(instanceId = "default") {
 
             const botHandler = require("../routes/bot.handler");
             await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer");
+            require("./socket.service").emitConvUpdate(customer.id);
 
             if (inst.botEnabled !== false) {
               try {
