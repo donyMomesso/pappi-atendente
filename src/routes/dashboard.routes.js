@@ -825,11 +825,12 @@ router.patch("/wa-internal/numbers", authAdmin, (req, res) => {
 router.get("/customer/:id/avatar", authDash, async (req, res) => {
   try {
     const customer = await prisma.customer.findUnique({ where: { id: req.params.id }, select: { phone: true } });
-    if (!customer) return res.json({ url: null });
+    if (!customer) return res.status(404).end();
     const url = await baileys.getProfilePicture(customer.phone).catch(() => null);
-    res.json({ url: url || null });
+    if (url) return res.redirect(url);
+    res.status(204).end();
   } catch {
-    res.json({ url: null });
+    res.status(204).end();
   }
 });
 
