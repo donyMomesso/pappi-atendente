@@ -654,10 +654,12 @@ router.patch("/settings", authAdmin, async (req, res) => {
       });
     }
     if (Array.isArray(departments)) {
-      const normalized = departments.map((d) => ({
-        name: typeof d === "string" ? d : (d?.name || ""),
-        transferPhone: typeof d === "object" && d?.transferPhone ? String(d.transferPhone).trim() || null : null,
-      })).filter((d) => d.name);
+      const normalized = departments
+        .map((d) => ({
+          name: typeof d === "string" ? d : d?.name || "",
+          transferPhone: typeof d === "object" && d?.transferPhone ? String(d.transferPhone).trim() || null : null,
+        }))
+        .filter((d) => d.name);
       await prisma.config.upsert({
         where: { key: `${tenantId}:departments` },
         create: { key: `${tenantId}:departments`, value: JSON.stringify(normalized) },

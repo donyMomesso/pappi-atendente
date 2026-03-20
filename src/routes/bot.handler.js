@@ -116,7 +116,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       t.includes("me avise quando abrir") ||
       (text || "").trim() === "AVISE_ABERTURA";
     if (timeSlot.hasAviseButton && isAviseIntent) {
-      const added = await aviseAbertura.addToAberturaList(tenant.id, phone);
+      await aviseAbertura.addToAberturaList(tenant.id, phone);
       const m =
         "Perfeito! Assim que o forno atingir a temperatura ideal e abrirmos oficialmente, você será o primeiro a receber um toque aqui no Zap! 🍕🔥";
       await wa.sendText(phone, m);
@@ -126,9 +126,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     }
     // Enviar mensagem do slot — com botão em Tarde e Pré-Abertura
     if (timeSlot.hasAviseButton) {
-      await wa.sendButtons(phone, timeSlot.message, [
-        { id: "AVISE_ABERTURA", title: "🔔 Me avise quando abrir" },
-      ]);
+      await wa.sendButtons(phone, timeSlot.message, [{ id: "AVISE_ABERTURA", title: "🔔 Me avise quando abrir" }]);
     } else {
       await wa.sendText(phone, timeSlot.message);
     }
@@ -373,8 +371,7 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
 
 // ── FULFILLMENT ───────────────────────────────────────────────
 async function handleFulfillment(wa, cw, phone, text, t, session, customer, tenant) {
-  const isDelivery =
-    t.includes("entrega") || text === "delivery" || (text || "").trim() === "delivery";
+  const isDelivery = t.includes("entrega") || text === "delivery" || (text || "").trim() === "delivery";
   const isTakeout =
     t.includes("retirada") ||
     t.includes("buscar") ||
@@ -433,11 +430,7 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   const isFulfillmentClick =
-    t.includes("entrega") ||
-    t.includes("retirada") ||
-    t.includes("retirar") ||
-    t === "delivery" ||
-    t === "takeout";
+    t.includes("entrega") || t.includes("retirada") || t.includes("retirar") || t === "delivery" || t === "takeout";
   if (isFulfillmentClick) {
     session.addressBuffer = [];
     session.addressFailCount = 0;

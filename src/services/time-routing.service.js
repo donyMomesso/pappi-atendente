@@ -3,11 +3,11 @@
 // Usa hora local (America/Sao_Paulo).
 
 const SLOTS = {
-  MORNING: "08:00-12:00",      // Produção artesanal, agendar para noite
-  AFTERNOON: "12:01-17:00",    // Antecipação, benefício para agendar
-  PRE_OPEN: "17:01-17:59",     // Urgência, forno aquecendo, topo da fila
-  OPEN: "18:00-23:30",         // Fluxo normal de vendas
-  POST_CLOSE: "23:31-07:59",   // Pós-fechamento, deixar contato
+  MORNING: "08:00-12:00", // Produção artesanal, agendar para noite
+  AFTERNOON: "12:01-17:00", // Antecipação, benefício para agendar
+  PRE_OPEN: "17:01-17:59", // Urgência, forno aquecendo, topo da fila
+  OPEN: "18:00-23:30", // Fluxo normal de vendas
+  POST_CLOSE: "23:31-07:59", // Pós-fechamento, deixar contato
 };
 
 const MESSAGES = {

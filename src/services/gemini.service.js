@@ -196,11 +196,7 @@ Pappi (responda APENAS JSON, sem markdown):
     };
   } catch (err) {
     const hasKey = !!(ENV.GEMINI_API_KEY && ENV.GEMINI_API_KEY.length > 10);
-    console.warn(
-      "[Gemini] chatOrder falhou:",
-      err.message,
-      hasKey ? "" : "(GEMINI_API_KEY ausente ou inválido)",
-    );
+    console.warn("[Gemini] chatOrder falhou:", err.message, hasKey ? "" : "(GEMINI_API_KEY ausente ou inválido)");
     const catalogOk = catalog && _formatCatalog(catalog) !== "Cardápio indisponível";
     return {
       reply: catalogOk

@@ -200,13 +200,24 @@ async function start(instanceId = "default") {
           const btnResp = msg.message?.buttonsResponseMessage;
           if (btnResp) {
             const id = btnResp.selectedButtonId;
-            const flowIds = ["delivery", "takeout", "confirm_addr", "change_addr", "CONFIRMAR", "CANCELAR", "AVISE_ABERTURA"];
-            text = flowIds.includes(id) ? id : (btnResp.selectedDisplayText || id || "");
+            const flowIds = [
+              "delivery",
+              "takeout",
+              "confirm_addr",
+              "change_addr",
+              "CONFIRMAR",
+              "CANCELAR",
+              "AVISE_ABERTURA",
+            ];
+            text = flowIds.includes(id) ? id : btnResp.selectedDisplayText || id || "";
           }
         }
         // Botões enviados como texto: mapeia respostas comuns para ids (Corrigir, Cancelar)
         if (text) {
-          const t = text.toLowerCase().replace(/[✅✏️❌]/g, "").trim();
+          const t = text
+            .toLowerCase()
+            .replace(/✅|✏️|❌/g, "")
+            .trim();
           if (t === "corrigir") text = "change_addr";
           else if (t === "cancelar") text = "CANCELAR";
           else if (t === "confirmar" || t === "confirma") text = "confirm_addr"; // address ou order — handler trata

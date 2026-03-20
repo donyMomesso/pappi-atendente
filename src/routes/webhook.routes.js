@@ -126,7 +126,12 @@ async function processMessage({ tenant, wa, msg, contacts }) {
     if (echoText) {
       await chatMemory.push(customer.id, "human", echoText, "WhatsApp App", null, "text", msg.id);
       const socketService = require("../services/socket.service");
-      socketService.emitMessage(customer.id, { role: "human", text: echoText, sender: "WhatsApp App", at: new Date().toISOString() });
+      socketService.emitMessage(customer.id, {
+        role: "human",
+        text: echoText,
+        sender: "WhatsApp App",
+        at: new Date().toISOString(),
+      });
     }
     return;
   }
@@ -187,7 +192,7 @@ async function extractContent(wa, msg, waToken) {
     if (btn) {
       const id = btn.id;
       const flowIds = ["delivery", "takeout", "confirm_addr", "change_addr", "CONFIRMAR", "CANCELAR", "AVISE_ABERTURA"];
-      text = flowIds.includes(id) ? id : (btn.title || id || null);
+      text = flowIds.includes(id) ? id : btn.title || id || null;
     } else if (list) {
       text = list.title || list.id || null;
     }
