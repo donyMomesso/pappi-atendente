@@ -183,36 +183,30 @@ async function start(instanceId = "default") {
             continue;
           }
 
+          const { findOrCreate, touchInteraction } = require("../services/customer.service");
+          const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+          if (!tenant) continue;
+
+          // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
+          const customer = await findOrCreate(tenantId, phone, null);
+          await touchInteraction(customer.id);
+
           const botHandler = require("../routes/bot.handler");
-          // Salva no histórico
           await botHandler.saveBaileysMessage(phone, text, tenantId, "customer");
 
-          // Roteia para o bot se estiver ativo nesta instância
           if (inst.botEnabled !== false) {
             try {
-              const { findOrCreate, touchInteraction } = require("../services/customer.service");
-              const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-              if (tenant) {
-                const customer = await findOrCreate(tenantId, phone, null);
-                await touchInteraction(customer.id);
-                const convState = require("./conversation-state.service");
-                const botMayRespond = await convState.shouldBotRespond(customer);
-                if (!botMayRespond) continue;
-                // Adaptador wa para Baileys (skipNotifyCheck=true — bot responde livremente)
-                const wa = {
-                  sendText: (to, msg) => sendText(to, msg, instanceId, true),
-                  sendButtons: (to, body, buttons) =>
-                    sendText(
-                      to,
-                      body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""),
-                      instanceId,
-                      true,
-                    ),
-                  sendImage: () => {},
-                  sendDocument: () => {},
-                };
-                await botHandler.handle({ tenant, wa, customer, text, phone });
-              }
+              const convState = require("./conversation-state.service");
+              const botMayRespond = await convState.shouldBotRespond(customer);
+              if (!botMayRespond) continue;
+              const wa = {
+                sendText: (to, msg) => sendText(to, msg, instanceId, true),
+                sendButtons: (to, body, buttons) =>
+                  sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true),
+                sendImage: () => {},
+                sendDocument: () => {},
+              };
+              await botHandler.handle({ tenant, wa, customer, text, phone });
             } catch (e) {
               console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);
             }
