@@ -1,18 +1,8 @@
 // src/services/customer.service.js
 
-const { PrismaClient } = require("@prisma/client");
+const prisma = require("../lib/db");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 
-const prisma = new PrismaClient();
-
-/**
- * Busca ou cria um customer para um tenant.
- * O telefone é sempre normalizado antes de persistir.
- *
- * @param {string} tenantId
- * @param {string} rawPhone   Número em qualquer formato
- * @param {string} [name]     Nome se disponível
- */
 async function findOrCreate(tenantId, rawPhone, name = null) {
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) throw new Error(`Telefone inválido: ${rawPhone}`);
@@ -25,24 +15,20 @@ async function findOrCreate(tenantId, rawPhone, name = null) {
     customer = await prisma.customer.create({
       data: { tenantId, phone, name: name || null },
     });
-    // Salva novo cliente no Google Contacts (assíncrono, não bloqueia)
     try {
       const gc = require("./google-contacts.service");
       gc.createContact(name || null, phone).catch(() => {});
-    } catch { /* módulo não disponível */ }
+    } catch {}
   } else if (name && !customer.name) {
     customer = await prisma.customer.update({
       where: { id: customer.id },
-      data: { name },
+      data:  { name },
     });
   }
 
   return customer;
 }
 
-/**
- * Atualiza a última interação e endereço do customer.
- */
 async function touchInteraction(customerId, addressData = null) {
   const data = { lastInteraction: new Date() };
 
@@ -60,45 +46,32 @@ async function touchInteraction(customerId, addressData = null) {
   return prisma.customer.update({ where: { id: customerId }, data });
 }
 
-/**
- * Ativa/desativa o modo handoff (humano assumiu a conversa).
- * Ao ativar, entra na fila. Ao desativar, sai da fila e libera o atendente.
- */
 async function setHandoff(customerId, enabled) {
   return prisma.customer.update({
     where: { id: customerId },
     data: {
-      handoff: enabled,
+      handoff:   enabled,
       handoffAt: enabled ? new Date() : null,
-      queuedAt: enabled ? new Date() : null,
+      queuedAt:  enabled ? new Date() : null,
       claimedBy: enabled ? undefined : null,
     },
   });
 }
 
-/**
- * Atendente assume um cliente da fila.
- */
 async function claimFromQueue(customerId, attendantName) {
   return prisma.customer.update({
     where: { id: customerId },
-    data: { claimedBy: attendantName },
+    data:  { claimedBy: attendantName },
   });
 }
 
-/**
- * Encerra o atendimento humano: volta ao bot e remove da fila.
- */
 async function releaseHandoff(customerId) {
   return prisma.customer.update({
     where: { id: customerId },
-    data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
+    data:  { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
   });
 }
 
-/**
- * Incrementa contador de visitas e salva resumo do último pedido.
- */
 async function recordOrder(customerId, summary, payment = null) {
   return prisma.customer.update({
     where: { id: customerId },
@@ -110,9 +83,6 @@ async function recordOrder(customerId, summary, payment = null) {
   });
 }
 
-/**
- * Busca customer por tenant + telefone normalizado.
- */
 async function findByPhone(tenantId, rawPhone) {
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return null;
@@ -121,11 +91,11 @@ async function findByPhone(tenantId, rawPhone) {
   });
 }
 
-/**
- * Salva o nome do cliente.
- */
 async function setName(customerId, name) {
   return prisma.customer.update({ where: { id: customerId }, data: { name } });
 }
 
-module.exports = { findOrCreate, touchInteraction, setHandoff, claimFromQueue, releaseHandoff, recordOrder, findByPhone, setName };
+module.exports = {
+  findOrCreate, touchInteraction, setHandoff,
+  claimFromQueue, releaseHandoff, recordOrder, findByPhone, setName,
+};

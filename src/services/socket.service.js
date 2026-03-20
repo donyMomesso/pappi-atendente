@@ -1,13 +1,11 @@
 // src/services/socket.service.js
-// Gerencia o servidor WebSocket (socket.io)
-// Permite push em tempo real para o painel de atendimento
 
 let _io = null;
 
 function init(server) {
   const { Server } = require("socket.io");
   _io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] },
+    cors:       { origin: "*", methods: ["GET", "POST"] },
     transports: ["websocket", "polling"],
   });
 
@@ -22,27 +20,22 @@ function init(server) {
   return _io;
 }
 
-/**
- * Emite nova mensagem para todos os clientes conectados ao painel
- * @param {string} customerId
- * @param {object} message - { role, text, sender, mediaUrl, mediaType, at, status }
- */
 function emitMessage(customerId, message) {
   if (!_io) return;
   _io.emit("new_message", { customerId, message });
 }
 
-/**
- * Emite atualização de status de conversa (handoff, nova conversa, etc.)
- */
+// NOVO: propaga status do check azul (sent/delivered/read/failed) para o painel
+function emitMessageStatus(customerId, waMessageId, status) {
+  if (!_io) return;
+  _io.emit("message_status", { customerId, waMessageId, status });
+}
+
 function emitConvUpdate(customerId, data) {
   if (!_io) return;
   _io.emit("conv_update", { customerId, ...data });
 }
 
-/**
- * Emite notificação de novo cliente na fila
- */
 function emitQueueUpdate() {
   if (!_io) return;
   _io.emit("queue_update");
@@ -50,4 +43,4 @@ function emitQueueUpdate() {
 
 function getIO() { return _io; }
 
-module.exports = { init, emitMessage, emitConvUpdate, emitQueueUpdate, getIO };
+module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, getIO };

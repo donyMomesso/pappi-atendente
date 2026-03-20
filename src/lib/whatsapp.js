@@ -1,40 +1,22 @@
 // src/lib/whatsapp.js
-// Cliente WhatsApp Cloud API (Meta)
 
 const { withRetry } = require("./retry");
-
 const WA_BASE = "https://graph.facebook.com/v19.0";
 
-/**
- * Cria um cliente WhatsApp para um número específico.
- *
- * @param {object} config
- * @param {string} config.token         Bearer token do WABA
- * @param {string} config.phoneNumberId ID do número de telefone
- * @returns {object}  Cliente com métodos de envio
- */
 function createClient({ token, phoneNumberId }) {
-  if (!token) throw new Error("WhatsApp: token não configurado");
+  if (!token)         throw new Error("WhatsApp: token não configurado");
   if (!phoneNumberId) throw new Error("WhatsApp: phoneNumberId não configurado");
 
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-
-  const url = `${WA_BASE}/${phoneNumberId}/messages`;
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const url     = `${WA_BASE}/${phoneNumberId}/messages`;
 
   async function post(payload) {
     return withRetry(
       async () => {
-        const resp = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-        });
+        const resp = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
         if (!resp.ok) {
           const data = await resp.json().catch(() => null);
-          const err = new Error(`WA API ${resp.status}: ${JSON.stringify(data)}`);
+          const err  = new Error(`WA API ${resp.status}: ${JSON.stringify(data)}`);
           err.status = resp.status;
           throw err;
         }
@@ -45,133 +27,49 @@ function createClient({ token, phoneNumberId }) {
   }
 
   return {
-    /** Envia mensagem de texto */
     sendText(to, text, previewUrl = false) {
-      return post({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "text",
-        text: { body: text, preview_url: previewUrl },
-      });
+      return post({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body: text, preview_url: previewUrl } });
     },
-
-    /** Envia mensagem interativa com botões */
     sendButtons(to, body, buttons) {
-      return post({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "interactive",
-        interactive: {
-          type: "button",
-          body: { text: body },
-          action: {
-            buttons: buttons.map((b, i) => ({
-              type: "reply",
-              reply: { id: b.id || String(i), title: b.title },
-            })),
-          },
-        },
-      });
+      return post({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "interactive", interactive: { type: "button", body: { text: body }, action: { buttons: buttons.map((b, i) => ({ type: "reply", reply: { id: b.id || String(i), title: b.title } })) } } });
     },
-
-    /** Envia lista interativa */
     sendList(to, header, body, footer, sections) {
-      return post({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "interactive",
-        interactive: {
-          type: "list",
-          header: { type: "text", text: header },
-          body: { text: body },
-          footer: { text: footer },
-          action: { button: "Ver opções", sections },
-        },
-      });
+      return post({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "interactive", interactive: { type: "list", header: { type: "text", text: header }, body: { text: body }, footer: { text: footer }, action: { button: "Ver opções", sections } } });
     },
-
-    /** Envia template */
     sendTemplate(to, name, language = "pt_BR", components = []) {
-      return post({
-        messaging_product: "whatsapp",
-        to,
-        type: "template",
-        template: { name, language: { code: language }, components },
-      });
+      return post({ messaging_product: "whatsapp", to, type: "template", template: { name, language: { code: language }, components } });
     },
-
-    /** Marca mensagem como lida */
     markRead(messageId) {
-      return post({
-        messaging_product: "whatsapp",
-        status: "read",
-        message_id: messageId,
-      });
+      return post({ messaging_product: "whatsapp", status: "read", message_id: messageId });
     },
-
-    /** Busca templates aprovados */
     async getTemplates() {
       const wabaId = await getWabaId(token, phoneNumberId);
       if (!wabaId) throw new Error("Não foi possível obter o WABA ID");
-      
-      const res = await fetch(`${WA_BASE}/${wabaId}/message_templates?status=APPROVED`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res  = await fetch(`${WA_BASE}/${wabaId}/message_templates?status=APPROVED`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Erro ao buscar templates: " + await res.text());
       const data = await res.json();
       return data.data || [];
     },
-
-    /** Busca URL de mídia pelo ID */
     async getMediaUrl(mediaId) {
       const res = await fetch(`${WA_BASE}/${mediaId}`, { headers });
       if (!res.ok) return null;
       const data = await res.json();
       return data.url;
     },
-
-    /** Envia imagem por URL */
     sendImage(to, url, caption = "") {
-      return post({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "image",
-        image: { link: url, caption },
-      });
+      return post({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "image", image: { link: url, caption } });
     },
-
-    /** Envia áudio por URL */
     sendAudio(to, url) {
-      return post({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "audio",
-        audio: { link: url },
-      });
+      return post({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "audio", audio: { link: url } });
     },
-
-    /** Envia documento por URL */
     sendDocument(to, url, filename = "documento.pdf") {
-      return post({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "document",
-        document: { link: url, filename },
-      });
+      return post({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "document", document: { link: url, filename } });
     },
   };
 }
 
 async function getWabaId(token, phoneNumberId) {
-  const res = await fetch(`${WA_BASE}/${phoneNumberId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetch(`${WA_BASE}/${phoneNumberId}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) return null;
   const data = await res.json();
   return data.whatsapp_business_account_id;

@@ -1,60 +1,30 @@
 // src/services/cardapio.service.js
-// Req 1 — Apenas endpoints reais do CardápioWeb
-// Req 4 — Fallback quando API externa falhar
-// Req 8 — Retry via lib/retry.js
 
 const { withRetry } = require("../lib/retry");
 const { setMethods } = require("../mappers/PaymentMapper");
 
-const TIMEOUT_MS = 15000;
-
-// ── Cache por tenant ─────────────────────────────────────────
-// tenantId → { catalog, merchant, paymentMethods, fetchedAt }
+const TIMEOUT_MS  = 15000;
 const catalogCache = new Map();
-const CATALOG_TTL = 5 * 60 * 1000; // 5 minutos
-
-// ── Helpers ──────────────────────────────────────────────────
+const CATALOG_TTL  = 5 * 60 * 1000;
 
 async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(id);
-  }
+  try { return await fetch(url, { ...options, signal: controller.signal }); }
+  finally { clearTimeout(id); }
 }
 
 async function safeJson(resp) {
-  try {
-    return await resp.json();
-  } catch {
-    return null;
-  }
+  try { return await resp.json(); } catch { return null; }
 }
 
-/**
- * Cria um cliente CardápioWeb para um tenant específico.
- *
- * @param {object} config
- * @param {string} config.tenantId
- * @param {string} config.baseUrl        Ex: https://integracao.cardapioweb.com
- * @param {string} config.apiKey         X-API-KEY da loja
- * @param {string} config.partnerKey     X-PARTNER-KEY do integrador
- * @param {string} [config.storeId]
- */
 function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId }) {
   const base = (baseUrl || "https://integracao.cardapioweb.com").replace(/\/$/, "");
 
   function headersPartner() {
-    if (!apiKey) throw new Error(`[${tenantId}] CARDAPIOWEB_API_KEY não configurado`);
+    if (!apiKey)     throw new Error(`[${tenantId}] CARDAPIOWEB_API_KEY não configurado`);
     if (!partnerKey) throw new Error(`[${tenantId}] CARDAPIOWEB_PARTNER_KEY não configurado`);
-    return {
-      "X-API-KEY": apiKey,
-      "X-PARTNER-KEY": partnerKey,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
+    return { "X-API-KEY": apiKey, "X-PARTNER-KEY": partnerKey, "Content-Type": "application/json", Accept: "application/json" };
   }
 
   function headersApiKey() {
@@ -62,32 +32,22 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId }
     return { "X-API-KEY": apiKey, Accept: "application/json" };
   }
 
-  // ── GET /merchant ──────────────────────────────────────────
-
   async function getMerchant() {
     return withRetry(
       async () => {
-        const resp = await fetchWithTimeout(`${base}/api/partner/v1/merchant`, {
-          headers: headersPartner(),
-        });
+        const resp = await fetchWithTimeout(`${base}/api/partner/v1/merchant`, { headers: headersPartner() });
         const data = await safeJson(resp);
         if (!resp.ok || !data) return null;
         return data;
       },
       { maxAttempts: 2, label: `CW:${tenantId}:getMerchant` }
-    ).catch(() => null); // fallback: retorna null sem explodir
+    ).catch(() => null);
   }
 
-  // ── GET /catalog ───────────────────────────────────────────
-
   async function getCatalog() {
-    // Verifica cache
     const cached = catalogCache.get(tenantId);
-    if (cached && Date.now() - cached.fetchedAt < CATALOG_TTL) {
-      return cached.catalog;
-    }
+    if (cached && Date.now() - cached.fetchedAt < CATALOG_TTL) return cached.catalog;
 
-    // Tenta dupla auth, depois só API key
     const attempts = [
       () => fetchWithTimeout(`${base}/api/partner/v1/catalog`, { headers: headersPartner() }),
       () => fetchWithTimeout(`${base}/api/partner/v1/catalog`, { headers: headersApiKey() }),
@@ -96,89 +56,54 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId }
     let data = null;
     for (const attempt of attempts) {
       try {
-        const resp = await withRetry(attempt, {
-          maxAttempts: 3,
-          label: `CW:${tenantId}:catalog`,
-        });
-        if (resp.ok) {
-          data = await safeJson(resp);
-          if (data) break;
-        }
-      } catch {
-        // tenta próxima variante
-      }
+        const resp = await withRetry(attempt, { maxAttempts: 3, label: `CW:${tenantId}:catalog` });
+        if (resp.ok) { data = await safeJson(resp); if (data) break; }
+      } catch {}
     }
 
-    // Fallback: retorna catálogo em cache (mesmo expirado) se existir
     if (!data) {
       const stale = catalogCache.get(tenantId);
-      if (stale?.catalog) {
-        console.warn(`[${tenantId}] CW catalog indisponível, usando cache expirado`);
-        return stale.catalog;
-      }
+      if (stale?.catalog) { console.warn(`[${tenantId}] CW catalog indisponível, usando cache expirado`); return stale.catalog; }
       return null;
     }
 
-    // Atualiza cache
     const entry = catalogCache.get(tenantId) || {};
     catalogCache.set(tenantId, { ...entry, catalog: data, fetchedAt: Date.now() });
     return data;
   }
 
-  // ── GET /merchant/payment_methods ─────────────────────────
-
   async function getPaymentMethods() {
     const cached = catalogCache.get(tenantId);
-    if (cached?.paymentMethods && Date.now() - cached.fetchedAt < CATALOG_TTL) {
-      return cached.paymentMethods;
-    }
+    if (cached?.paymentMethods && Date.now() - cached.fetchedAt < CATALOG_TTL) return cached.paymentMethods;
 
     try {
       const resp = await withRetry(
-        () =>
-          fetchWithTimeout(`${base}/api/partner/v1/merchant/payment_methods`, {
-            headers: headersPartner(),
-          }),
+        () => fetchWithTimeout(`${base}/api/partner/v1/merchant/payment_methods`, { headers: headersPartner() }),
         { maxAttempts: 2, label: `CW:${tenantId}:paymentMethods` }
       );
-
-      const data = await safeJson(resp);
+      const data    = await safeJson(resp);
       const methods = Array.isArray(data) ? data : data?.data || [];
-
-      // Atualiza PaymentMapper e cache
       setMethods(tenantId, methods);
       const entry = catalogCache.get(tenantId) || {};
       catalogCache.set(tenantId, { ...entry, paymentMethods: methods, fetchedAt: Date.now() });
-
       return methods;
-    } catch {
-      return catalogCache.get(tenantId)?.paymentMethods || [];
-    }
+    } catch { return catalogCache.get(tenantId)?.paymentMethods || []; }
   }
 
-  // ── POST /api/partner/v1/orders ───────────────────────────
-  // Req 1: endpoint real do CW
-
   async function createOrder(payload) {
-    if (!payload || typeof payload !== "object") {
+    if (!payload || typeof payload !== "object")
       throw Object.assign(new Error("createOrder: payload inválido"), { status: 400 });
-    }
 
     return withRetry(
       async () => {
         const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders`, {
-          method: "POST",
-          headers: headersPartner(),
-          body: JSON.stringify(payload),
+          method: "POST", headers: headersPartner(), body: JSON.stringify(payload),
         });
         const data = await safeJson(resp);
         if (!resp.ok) {
-          const msg = Array.isArray(data?.errors)
-            ? data.errors.join(" | ")
-            : JSON.stringify(data);
+          const msg = Array.isArray(data?.errors) ? data.errors.join(" | ") : JSON.stringify(data);
           const err = new Error(`CW createOrder ${resp.status}: ${msg}`);
-          err.status = resp.status;
-          err.data = data;
+          err.status = resp.status; err.data = data;
           throw err;
         }
         return data;
@@ -187,44 +112,29 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId }
     );
   }
 
-  // ── POST /orders/:id/cancel ───────────────────────────────
-
   async function cancelOrder(cwOrderId, reason = "Solicitado pelo cliente") {
-    const resp = await fetchWithTimeout(
-      `${base}/api/partner/v1/orders/${cwOrderId}/cancel`,
-      {
-        method: "POST",
-        headers: headersApiKey(),
-        body: JSON.stringify({ cancellation_reason: reason }),
-      }
-    );
+    const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders/${cwOrderId}/cancel`, {
+      method: "POST", headers: headersApiKey(), body: JSON.stringify({ cancellation_reason: reason }),
+    });
     if (resp.status === 204 || resp.ok) return { ok: true };
     const data = await safeJson(resp);
     return { ok: false, error: `HTTP ${resp.status}`, data };
   }
-
-  // ── POST /orders/:id/:action ─────────────────────────────
-  // action: confirm | ready | dispatched | delivered
 
   async function changeStatus(cwOrderId, action) {
-    const resp = await fetchWithTimeout(
-      `${base}/api/partner/v1/orders/${cwOrderId}/${action}`,
-      { method: "POST", headers: headersPartner() }
-    );
+    const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders/${cwOrderId}/${action}`, {
+      method: "POST", headers: headersPartner(),
+    });
     if (resp.status === 204 || resp.ok) return { ok: true };
     const data = await safeJson(resp);
     return { ok: false, error: `HTTP ${resp.status}`, data };
   }
-
-  // ── GET /delivery_fee ─────────────────────────────────────
 
   async function getDeliveryFee({ lat, lng } = {}) {
     try {
       if (lat != null && lng != null) {
         const resp = await fetchWithTimeout(`${base}/api/partner/v1/delivery_fee`, {
-          method: "POST",
-          headers: headersPartner(),
-          body: JSON.stringify({ latitude: lat, longitude: lng }),
+          method: "POST", headers: headersPartner(), body: JSON.stringify({ latitude: lat, longitude: lng }),
         });
         const data = await safeJson(resp);
         if (resp.ok && data != null) {
@@ -232,61 +142,36 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId }
           if (Number.isFinite(fee)) return fee;
         }
       }
-      // Fallback: menor área de entrega
-      const resp2 = await fetchWithTimeout(
-        `${base}/api/partner/v1/merchant/delivery_areas`,
-        { headers: headersPartner() }
-      );
+      const resp2 = await fetchWithTimeout(`${base}/api/partner/v1/merchant/delivery_areas`, { headers: headersPartner() });
       const areas = await safeJson(resp2);
       if (Array.isArray(areas) && areas.length > 0) {
-        const fees = areas
-          .map((a) => parseFloat(a.fee ?? a.delivery_fee ?? a.price ?? 0))
-          .filter(Number.isFinite);
+        const fees = areas.map((a) => parseFloat(a.fee ?? a.delivery_fee ?? a.price ?? 0)).filter(Number.isFinite);
         if (fees.length) return Math.min(...fees);
       }
       return null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
-
-  // ── GET /customers?phone_number=... ───────────────────────
 
   async function getCustomerByPhone(localPhone) {
     try {
-      const resp = await fetchWithTimeout(
-        `${base}/api/partner/v1/customers?phone_number=${localPhone}`,
-        { headers: headersPartner() }
-      );
+      const resp = await fetchWithTimeout(`${base}/api/partner/v1/customers?phone_number=${localPhone}`, { headers: headersPartner() });
       const data = await safeJson(resp);
       if (!resp.ok || !data) return null;
       return Array.isArray(data) ? data[0] : data?.data?.[0] ?? (data?.id ? data : null);
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
-
-  // ── GET /orders/:id ───────────────────────────────────────
 
   async function getOrderById(cwOrderId) {
     try {
-      const resp = await fetchWithTimeout(
-        `${base}/api/partner/v1/orders/${cwOrderId}`,
-        { headers: headersPartner() }
-      );
+      const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders/${cwOrderId}`, { headers: headersPartner() });
       const data = await safeJson(resp);
       return resp.ok ? data : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
-
-  // ── Verifica se a loja está aberta ────────────────────────
 
   async function isOpen() {
     const merchant = await getMerchant();
-    if (!merchant) return true; // em caso de erro, não bloqueia
-
+    if (!merchant) return true;
     if (merchant.status && merchant.status !== "ACTIVE") return false;
 
     const oh = merchant.opening_hours;
@@ -296,28 +181,16 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId }
     if (oh.temporary_state === "closed" && tmpEnd && tmpEnd > new Date()) return false;
 
     const DAYS = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    const now  = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     const intervals = oh[DAYS[now.getDay()]];
-
     if (!Array.isArray(intervals) || !intervals.length) return false;
 
     const toMin = (s) => { const [h, m] = String(s).split(":"); return +h * 60 + +m; };
-    const cur = now.getHours() * 60 + now.getMinutes();
+    const cur   = now.getHours() * 60 + now.getMinutes();
     return intervals.some(([s, e]) => cur >= toMin(s) && cur < toMin(e));
   }
 
-  return {
-    getMerchant,
-    getCatalog,
-    getPaymentMethods,
-    createOrder,
-    cancelOrder,
-    changeStatus,
-    getDeliveryFee,
-    getCustomerByPhone,
-    getOrderById,
-    isOpen,
-  };
+  return { getMerchant, getCatalog, getPaymentMethods, createOrder, cancelOrder, changeStatus, getDeliveryFee, getCustomerByPhone, getOrderById, isOpen };
 }
 
 module.exports = { createCardapioClient };

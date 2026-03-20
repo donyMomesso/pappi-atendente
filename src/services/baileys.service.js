@@ -1,5 +1,8 @@
 // src/services/baileys.service.js
 // Multi-WhatsApp via Baileys (QR Code) para notificações INTERNAS da equipe
+// CORREÇÕES:
+//   - tenantId não é mais hardcoded — detectado pelo número do remetente
+//   - Usa singleton do PrismaClient
 
 const {
   default: makeWASocket,
@@ -8,46 +11,24 @@ const {
 } = require("@whiskeysockets/baileys");
 const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
 const QRCode = require("qrcode");
+const prisma  = require("../lib/db");
 
 // ── Limites de segurança por instância ──────────────────────────
-const LIMITS = {
-  perHour:    20,
-  perDay:     80,
-  alertAt:    0.7,
-};
+const LIMITS = { perHour: 20, perDay: 80, alertAt: 0.7 };
 
-// Mapa de instâncias: { [instanceId]: { socket, status, qr, account, counters, ... } }
 const INSTANCES = new Map();
 
 function createInstanceData(id) {
   return {
-    id,
-    socket:     null,
-    qrBase64:   null,
-    status:     "disconnected",
-    starting:   false,
-    lastAlert:  null,
-    account:    null,
-    notifyTo:   [],
-    botEnabled: true, // bot ativo por padrão
+    id, socket: null, qrBase64: null, status: "disconnected",
+    starting: false, lastAlert: null, account: null, notifyTo: [],
     counters: {
-      hour:      0,
-      day:       0,
+      hour: 0, day: 0,
       hourReset: Date.now() + 3600_000,
       dayReset:  Date.now() + 86_400_000,
-      alerted:   { hour: false, day: false },
-    }
+      alerted: { hour: false, day: false },
+    },
   };
-}
-
-// Envia texto diretamente pelo socket Baileys (sem limite de notifyTo)
-async function sendTextRaw(sock, to, text) {
-  try {
-    const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
-    await sock.sendMessage(jid, { text });
-  } catch (err) {
-    console.error("[Baileys] sendTextRaw erro:", err.message);
-  }
 }
 
 function resetCounters(inst) {
@@ -71,22 +52,42 @@ function checkLimits(inst) {
 
   if (hourPct >= LIMITS.alertAt && !inst.counters.alerted.hour) {
     inst.counters.alerted.hour = true;
-    inst.lastAlert = `⚠️ [${inst.id}] Atenção: ${inst.counters.hour}/${LIMITS.perHour} msgs/h (${Math.round(hourPct*100)}%).`;
+    inst.lastAlert = `⚠️ [${inst.id}] Atenção: ${inst.counters.hour}/${LIMITS.perHour} msgs/h (${Math.round(hourPct * 100)}%).`;
   }
   if (dayPct >= LIMITS.alertAt && !inst.counters.alerted.day) {
     inst.counters.alerted.day = true;
-    inst.lastAlert = `⚠️ [${inst.id}] Atenção: ${inst.counters.day}/${LIMITS.perDay} msgs/dia (${Math.round(dayPct*100)}%).`;
+    inst.lastAlert = `⚠️ [${inst.id}] Atenção: ${inst.counters.day}/${LIMITS.perDay} msgs/dia (${Math.round(dayPct * 100)}%).`;
   }
-
   if (inst.counters.hour >= LIMITS.perHour) {
-    inst.lastAlert = `🚫 [${inst.id}] Limite HORÁRIO atingido (${LIMITS.perHour}/h).`;
+    inst.lastAlert = `🚫 [${inst.id}] Limite HORÁRIO atingido.`;
     return false;
   }
   if (inst.counters.day >= LIMITS.perDay) {
-    inst.lastAlert = `🚫 [${inst.id}] Limite DIÁRIO atingido (${LIMITS.perDay}/dia).`;
+    inst.lastAlert = `🚫 [${inst.id}] Limite DIÁRIO atingido.`;
     return false;
   }
   return true;
+}
+
+// ── Detecta tenantId a partir do número do remetente ──────────
+// Busca o customer no banco pelo telefone e retorna o tenantId dele.
+// Retorna null se não encontrar (mensagem de número desconhecido).
+async function detectTenantByPhone(phone) {
+  try {
+    const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+    const normalized = PhoneNormalizer.normalize(phone);
+    if (!normalized) return null;
+
+    const customer = await prisma.customer.findFirst({
+      where:  { phone: normalized },
+      select: { tenantId: true },
+      orderBy: { lastInteraction: "desc" },
+    });
+
+    return customer?.tenantId || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Conexão ────────────────────────────────────────────────────
@@ -102,15 +103,15 @@ async function start(instanceId = "default") {
 
   try {
     const { state, saveCreds } = await useDbAuthState(instanceId);
-    const { version } = await fetchLatestBaileysVersion();
+    const { version }          = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
       version,
-      auth: state,
+      auth:              state,
       printQRInTerminal: false,
-      logger: require("pino")({ level: "silent" }),
-      browser: ["Pappi Atendente", "Chrome", "1.0"],
-      qrTimeout: 60000,
+      logger:            require("pino")({ level: "silent" }),
+      browser:           ["Pappi Atendente", "Chrome", "1.0"],
+      qrTimeout:         60000,
     });
 
     inst.socket   = sock;
@@ -119,54 +120,33 @@ async function start(instanceId = "default") {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Captura mensagens recebidas — roda bot ou salva no histórico
+    // Captura mensagens recebidas e salva no histórico do painel
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
       for (const msg of messages) {
         if (!msg.message || msg.key.fromMe) continue;
         const jid = msg.key.remoteJid;
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
+
         const phone = jid.split("@")[0];
-        const text = msg.message?.conversation
+        const text  = msg.message?.conversation
           || msg.message?.extendedTextMessage?.text
           || msg.message?.imageMessage?.caption
           || null;
         if (!text) continue;
-        try {
-          const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-          const { PrismaClient } = require("@prisma/client");
-          const prisma = new PrismaClient();
-          const tenantId = "tenant-pappi-001";
-          const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
 
-          // Salva mensagem do cliente no histórico
+        try {
+          // CORREÇÃO: detecta o tenantId pelo telefone em vez de usar valor fixo
+          const tenantId = await detectTenantByPhone(phone);
+          if (!tenantId) {
+            console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);
+            continue;
+          }
+
           const botHandler = require("../routes/bot.handler");
           await botHandler.saveBaileysMessage(phone, text, tenantId, "customer");
-
-          // Se bot habilitado para esta instância, roteia pelo fluxo do bot
-          if (inst.botEnabled !== false) {
-            const { getTenantByPhoneNumberId, getClients } = require("./tenant.service");
-            const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-            await prisma.$disconnect();
-            if (tenant) {
-              const { findOrCreate, touchInteraction } = require("./customer.service");
-              const customer = await findOrCreate(tenantId, normalizedPhone);
-              await touchInteraction(customer.id);
-
-              if (!customer.handoff) {
-                // Adaptador wa que usa Baileys para enviar
-                const wa = {
-                  sendText: (to, t) => sendTextRaw(sock, to, t),
-                  sendButtons: (to, body, buttons) => sendTextRaw(sock, to,
-                    body + "\n\n" + buttons.map((b, i) => `${i+1}. ${b.title}`).join("\n")),
-                };
-                const { getClients: gc } = require("./tenant.service");
-                await botHandler.handle({ tenant, wa, customer, text, phone: normalizedPhone });
-              }
-            }
-          }
         } catch (err) {
-          console.error(`[Baileys:${instanceId}] Erro ao processar msg:`, err.message);
+          console.error(`[Baileys:${instanceId}] Erro ao salvar msg recebida:`, err.message);
         }
       }
     });
@@ -182,8 +162,8 @@ async function start(instanceId = "default") {
         inst.status   = "connected";
         inst.qrBase64 = null;
         inst.starting = false;
-        const user = sock.user;
-        inst.account = {
+        const user    = sock.user;
+        inst.account  = {
           phone: user?.id?.split(":")[0] || user?.id || "?",
           name:  user?.name || "?",
         };
@@ -214,13 +194,10 @@ async function start(instanceId = "default") {
   }
 }
 
-// Inicia todas as instâncias salvas no banco ao subir o servidor
 async function initAll() {
   const ids = await listInstances();
   if (!ids.includes("default")) ids.push("default");
-  for (const id of ids) {
-    await start(id);
-  }
+  for (const id of ids) await start(id);
 }
 
 // ── Envio ──────────────────────────────────────────────────────
@@ -241,12 +218,14 @@ async function sendText(to, text, instanceId = "default") {
     inst.counters.hour++;
     inst.counters.day++;
 
-    // Registrar no histórico do painel (Pappi Atendente)
+    // CORREÇÃO: detecta tenantId corretamente antes de salvar no histórico
     try {
       const botHandler = require("../routes/bot.handler");
       const cleanPhone = to.split("@")[0];
-      // Como o Baileys é global por enquanto, usamos o tenant padrão
-      await botHandler.saveBaileysMessage(cleanPhone, text, "tenant-pappi-001");
+      const tenantId   = await detectTenantByPhone(cleanPhone);
+      if (tenantId) {
+        await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant");
+      }
     } catch (err) {
       console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
     }
@@ -302,8 +281,8 @@ function disconnect(instanceId = "default") {
   const inst = INSTANCES.get(instanceId);
   if (!inst) return;
   inst.starting = false;
-  if (inst.socket) { try { inst.socket.end(); } catch(e) {} }
-  clearDbAuth(instanceId).catch(()=>{});
+  if (inst.socket) { try { inst.socket.end(); } catch (e) {} }
+  clearDbAuth(instanceId).catch(() => {});
   inst.status   = "disconnected";
   inst.socket   = null;
   inst.qrBase64 = null;
@@ -323,10 +302,7 @@ async function getProfilePicture(phone) {
   return null;
 }
 
-function setBotEnabled(instanceId, enabled) {
-  let inst = INSTANCES.get(instanceId);
-  if (!inst) { inst = createInstanceData(instanceId); INSTANCES.set(instanceId, inst); }
-  inst.botEnabled = !!enabled;
-}
-
-module.exports = { start, initAll, sendText, notify, getStatus, getAllStatuses, setNotifyNumbers, disconnect, getProfilePicture, setBotEnabled };
+module.exports = {
+  start, initAll, sendText, notify,
+  getStatus, getAllStatuses, setNotifyNumbers, disconnect, getProfilePicture,
+};

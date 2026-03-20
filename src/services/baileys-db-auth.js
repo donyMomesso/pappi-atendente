@@ -2,15 +2,12 @@
 // Armazena as credenciais do Baileys no banco (Supabase/Postgres)
 // Suporta múltiplas instâncias (Multi-WhatsApp)
 
-const { PrismaClient } = require("@prisma/client");
+const prisma = require("../lib/db");
 const { initAuthCreds, BufferJSON } = require("@whiskeysockets/baileys");
-
-const prisma = new PrismaClient();
 
 async function useDbAuthState(instanceId = "default") {
   const DB_KEY = `baileys:auth:${instanceId}`;
 
-  // Carrega estado salvo do banco
   async function readState() {
     const row = await prisma.config.findUnique({ where: { key: DB_KEY } }).catch(() => null);
     if (!row?.value) return {};
@@ -18,7 +15,6 @@ async function useDbAuthState(instanceId = "default") {
     catch { return {}; }
   }
 
-  // Salva estado no banco
   async function writeState(data) {
     const value = JSON.stringify(data, BufferJSON.replacer);
     await prisma.config.upsert({
@@ -69,7 +65,7 @@ async function clearDbAuth(instanceId = "default") {
 
 async function listInstances() {
   const configs = await prisma.config.findMany({
-    where: { key: { startsWith: "baileys:auth:" } }
+    where: { key: { startsWith: "baileys:auth:" } },
   });
   return configs.map(c => c.key.replace("baileys:auth:", ""));
 }

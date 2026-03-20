@@ -1,14 +1,19 @@
 // src/routes/webhook.routes.js
-// Recebe e processa eventos do WhatsApp Cloud API, Instagram DM e Facebook Messenger
+// MELHORIAS (além das correções anteriores):
+//   - Rate limiting por telefone (anti-spam, anti-dreno Gemini)
+//   - Transcrição automática de áudios com Gemini multimodal
 
-const express = require("express");
-const ENV = require("../config/env");
+const express          = require("express");
+const ENV              = require("../config/env");
 const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.service");
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
-const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-const chatMemory = require("../services/chat-memory.service");
-const baileys    = require("../services/baileys.service");
-const metaSocial = require("../services/meta-social.service");
+const PhoneNormalizer  = require("../normalizers/PhoneNormalizer");
+const chatMemory       = require("../services/chat-memory.service");
+const baileys          = require("../services/baileys.service");
+const metaSocial       = require("../services/meta-social.service");
+const { requireAdminKey } = require("../middleware/auth.middleware");
+const { checkWebhook, checkOrder } = require("../lib/rate-limiter");
+const { transcribeAudio }          = require("../services/audio-transcribe.service");
 
 const router = express.Router();
 
@@ -19,65 +24,48 @@ router.get("/webhook", (req, res) => {
   const token     = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  // Aceita qualquer token que bata com algum tenant ou com o token global
-  // (em produção, cada tenant pode ter seu verify_token no banco)
   if (mode === "subscribe" && token === ENV.WEBHOOK_VERIFY_TOKEN) {
     console.log("✅ Webhook verificado");
     return res.status(200).send(challenge);
   }
-
   console.warn("⚠️ Verificação de webhook inválida");
   return res.sendStatus(403);
 });
 
-// Log dos últimos webhooks recebidos (em memória)
+// ── Log dos últimos webhooks — PROTEGIDO ──────────────────────
 const webhookLog = [];
 function logWebhook(body) {
   webhookLog.unshift({ at: new Date().toISOString(), body });
   if (webhookLog.length > 10) webhookLog.pop();
 }
-router.get("/webhook-log", (req, res) => res.json(webhookLog));
+router.get("/webhook-log", requireAdminKey, (_req, res) => res.json(webhookLog));
 
 // ── Recebimento de Eventos (POST) ────────────────────────────
 
 router.post("/webhook", async (req, res) => {
-  // Meta exige 200 imediato
   res.sendStatus(200);
 
   try {
     const body = req.body;
     logWebhook(body);
-    console.log("[Webhook] recebido:", JSON.stringify(body).slice(0, 200));
 
-    // ── Instagram DM ──────────────────────────────────────────
     if (body.object === "instagram") {
-      const msgs = metaSocial.parseWebhook(body);
-      for (const m of msgs) {
-        await processSocialMessage(m);
-      }
+      for (const m of metaSocial.parseWebhook(body)) await processSocialMessage(m);
       return;
     }
-
-    // ── Facebook Messenger ────────────────────────────────────
     if (body.object === "page") {
-      const msgs = metaSocial.parseWebhook(body);
-      for (const m of msgs) {
-        await processSocialMessage(m);
-      }
+      for (const m of metaSocial.parseWebhook(body)) await processSocialMessage(m);
       return;
     }
-
     if (body.object !== "whatsapp_business_account") return;
 
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {
         if (change.field !== "messages") continue;
-
-        const value = change.value;
+        const value         = change.value;
         const phoneNumberId = value?.metadata?.phone_number_id;
         if (!phoneNumberId) continue;
 
-        // ── Identifica o tenant pelo número que recebeu ────
         const tenant = await getTenantByPhoneNumberId(phoneNumberId);
         if (!tenant) {
           console.warn(`⚠️ Nenhum tenant para phoneNumberId=${phoneNumberId}`);
@@ -86,14 +74,11 @@ router.post("/webhook", async (req, res) => {
 
         const { wa } = await getClients(tenant.id);
 
-        // ── Processa mensagens recebidas ──────────────────
         for (const msg of value.messages || []) {
           await processMessage({ tenant, wa, msg, contacts: value.contacts || [] });
         }
-
-        // ── Processa atualizações de status ───────────────
         for (const status of value.statuses || []) {
-          await processStatus({ tenant, status });
+          await processStatus({ status });
         }
       }
     }
@@ -109,28 +94,26 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const phone    = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return;
 
-  // Nome do contato (se disponível no payload)
-  const contact = contacts.find((c) => c.wa_id === rawPhone);
-  const name    = contact?.profile?.name || null;
-
-  // Busca ou cria customer
-  const customer = await findOrCreate(tenant.id, phone, name);
-
-  // Marca como lida
-  await wa.markRead(msg.id).catch(() => {});
-
-  // Atualiza última interação
-  await touchInteraction(customer.id);
-
-  // ── Extrai texto e mídia da mensagem ──────────────────────
-  const { text, mediaUrl, mediaType } = await extractContent(wa, msg);
-
-  // Salva mensagem do cliente no histórico (memória e banco)
-  if (text || mediaUrl) {
-    await chatMemory.push(customer.id, "customer", text || "", mediaUrl, mediaType);
+  // ── Rate limiting por telefone ────────────────────────────
+  const rl = checkWebhook(phone);
+  if (!rl.allowed) {
+    console.warn(`[RateLimit] ${phone} bloqueado — muitas mensagens (reset em ${Math.ceil(rl.resetIn / 1000)}s)`);
+    return;
   }
 
-  // ── Handoff ativo: bot silencioso ─────────────────────────
+  const contact  = contacts.find((c) => c.wa_id === rawPhone);
+  const name     = contact?.profile?.name || null;
+  const customer = await findOrCreate(tenant.id, phone, name);
+
+  await wa.markRead(msg.id).catch(() => {});
+  await touchInteraction(customer.id);
+
+  const { text, mediaUrl, mediaType, rawToken } = await extractContent(wa, msg, tenant.waToken);
+
+  if (text || mediaUrl) {
+    await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
+  }
+
   if (customer.handoff) {
     console.log(`[${tenant.id}] Handoff ativo para ${phone} — bot silencioso`);
     return;
@@ -140,77 +123,90 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   console.log(`[${tenant.id}] MSG de ${phone}: ${text.slice(0, 80)}`);
 
-  // ── Gatilhos de handoff ───────────────────────────────────
-  if (isHandoffTrigger(text)) {
+  // ── Handoff apenas fora de fluxo ativo ───────────────────
+  const sessionService = require("../services/session.service");
+  const session        = await sessionService.get(tenant.id, phone);
+  const inActiveFlow   = session && !["MENU", "ASK_NAME", "FULFILLMENT"].includes(session.step);
+
+  if (!inActiveFlow && isHandoffTrigger(text)) {
     await setHandoff(customer.id, true);
-    await wa.sendText(
-      phone,
-      "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼"
-    );
-    // Notifica painel em tempo real
+    await wa.sendText(phone, "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼");
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
-    // Notifica equipe interna via Baileys
-    const displayName = customer.name || phone;
     baileys.notify(
-      `🔔 *Novo cliente na fila!*\n👤 ${displayName}\n📞 ${phone}\n⏰ ${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}`
+      `🔔 *Novo cliente na fila!*\n👤 ${customer.name || phone}\n📞 ${phone}\n⏰ ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
     ).catch(() => {});
     return;
   }
 
-  // ── Passa para o bot handler ──────────────────────────────
-  // (importado dinamicamente para evitar dependência circular)
   const { handle } = require("./bot.handler");
   await handle({ tenant, wa, customer, msg, text, phone });
 }
 
-async function processStatus({ tenant, status }) {
-  // Processar status de entrega de mensagem (sent, delivered, read, failed)
+async function processStatus({ status }) {
   const { id, status: s, recipient_id } = status;
-  if (s === "failed") {
-    console.error(`[${tenant.id}] Mensagem ${id} falhou:`, status.errors);
-  }
-  
-  // Atualiza status no banco para o check azul
+  if (s === "failed") console.error(`Mensagem ${id} falhou:`, status.errors);
   await chatMemory.updateStatus(recipient_id, id, s).catch(() => {});
 }
 
-// ── Helpers ──────────────────────────────────────────────────
+// ── extractContent — com transcrição de áudio ────────────────
 
-async function extractContent(wa, msg) {
-  let text = null;
-  let mediaUrl = null;
-  let mediaType = "text";
+async function extractContent(wa, msg, waToken) {
+  let text = null, mediaUrl = null, mediaType = "text";
 
   if (msg.type === "text") {
     text = msg.text?.body?.trim() || null;
+
   } else if (msg.type === "interactive") {
     text = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || null;
+
   } else if (msg.type === "image") {
     mediaType = "image";
-    text = msg.image.caption || "📷 Imagem";
-    mediaUrl = await wa.getMediaUrl(msg.image.id);
+    mediaUrl  = await wa.getMediaUrl(msg.image.id);
+    text      = msg.image.caption || "📷 Imagem";
+
   } else if (msg.type === "audio") {
     mediaType = "audio";
-    text = "🎵 Áudio";
-    mediaUrl = await wa.getMediaUrl(msg.audio.id);
+    mediaUrl  = await wa.getMediaUrl(msg.audio.id);
+
+    // MELHORIA: tenta transcrever o áudio antes de passar para o bot
+    if (mediaUrl && waToken) {
+      const transcription = await transcribeAudio(mediaUrl, waToken);
+      if (transcription) {
+        text = transcription;
+        console.log(`[Webhook] Áudio transcrito: "${transcription.slice(0, 60)}..."`);
+      } else {
+        text = "🎵 Áudio (não foi possível transcrever)";
+      }
+    } else {
+      text = "🎵 Áudio";
+    }
+
   } else if (msg.type === "document") {
     mediaType = "document";
-    text = msg.document.filename || "📄 Documento";
-    mediaUrl = await wa.getMediaUrl(msg.document.id);
+    text      = msg.document.filename || "📄 Documento";
+    mediaUrl  = await wa.getMediaUrl(msg.document.id);
+
   } else if (msg.type === "video") {
     mediaType = "video";
-    text = msg.video.caption || "🎥 Vídeo";
-    mediaUrl = await wa.getMediaUrl(msg.video.id);
+    text      = msg.video.caption || "🎥 Vídeo";
+    mediaUrl  = await wa.getMediaUrl(msg.video.id);
+
+  } else if (msg.type === "location") {
+    // Localização enviada pelo cliente — usada para endereço de entrega
+    mediaType = "location";
+    const { latitude, longitude, name: locName, address: locAddr } = msg.location;
+    text = `📍 Localização: ${locName || ""} ${locAddr || ""} (${latitude},${longitude})`.trim();
   }
 
   return { text, mediaUrl, mediaType };
 }
 
+// Palavras que ativam handoff — SEM "cancelar"/"errado" (conflitavam com pedidos)
 const HANDOFF_WORDS = [
-  "atendente", "humano", "pessoa", "falar com alguém",
-  "quero ajuda", "preciso de ajuda", "reclamação", "problema",
-  "cancelar", "não recebi", "errado",
+  "atendente", "humano", "pessoa", "falar com alguém", "falar com alguem",
+  "quero ajuda", "preciso de ajuda", "reclamação", "reclamacao",
+  "não recebi", "nao recebi",
 ];
 
 function isHandoffTrigger(text) {
@@ -222,20 +218,14 @@ function isHandoffTrigger(text) {
 
 async function processSocialMessage({ platform, senderId, senderName, text }) {
   if (!senderId || !text?.trim()) return;
-  console.log(`[${platform}] MSG de ${senderId}: ${text.slice(0, 80)}`);
-
   try {
-    // Usa tenant padrão (futuro: multi-tenant por página)
+    const prisma   = require("../lib/db");
     const tenantId = "tenant-pappi-001";
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-    if (!tenant) { await prisma.$disconnect(); return; }
+    const tenant   = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) return;
 
-    // Cria/busca customer usando senderId como identificador social
-    // Não passa pelo PhoneNormalizer pois não é telefone
     const socialId = `${platform}:${senderId}`;
-    let customer = await prisma.customer.findUnique({
+    let customer   = await prisma.customer.findUnique({
       where: { tenantId_phone: { tenantId, phone: socialId } },
     });
     if (!customer) {
@@ -243,51 +233,40 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
         data: { tenantId, phone: socialId, name: senderName || null },
       });
     }
-    await prisma.$disconnect();
+
     await touchInteraction(customer.id);
     await chatMemory.push(customer.id, "customer", text.trim(), null, null, "text");
 
-    // Handoff ativo: bot silencioso
     if (customer.handoff) return;
 
-    // Gatilho de handoff
     if (isHandoffTrigger(text)) {
       await setHandoff(customer.id, true);
       const reply = "Aguarde um momento, vou te transferir para um atendente. 👨‍💼";
       if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply);
-      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply);
-      baileys.notify(`🔔 *Nova mensagem ${platform === "instagram" ? "Instagram" : "Facebook"}!*\n👤 ${senderName || senderId}\n💬 ${text.slice(0, 60)}`).catch(() => {});
+      if (platform === "facebook")  await metaSocial.sendFacebook(senderId, reply);
+      baileys.notify(`🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${text.slice(0, 60)}`).catch(() => {});
       return;
     }
 
-    // Gera resposta com Gemini
     const { getClients } = require("../services/tenant.service");
-    const { cw } = await getClients(tenantId);
-    const gemini = require("../services/gemini.service");
-    const history = (await chatMemory.get(customer.id)).slice(-10);
+    const { cw }         = await getClients(tenantId);
+    const gemini         = require("../services/gemini.service");
+    const history        = (await chatMemory.get(customer.id)).slice(-10);
+    const catalog        = await cw.getCatalog().catch(() => null);
 
-    // Resposta simples via classifyIntent
-    const catalog = await cw.getCatalog().catch(() => null);
-    const { chatOrder } = gemini;
-    let reply;
-    if (chatOrder) {
-      const result = await chatOrder({
-        history: history.map(m => ({ role: m.role === "customer" ? "customer" : "assistant", text: m.text })),
-        catalog,
-        customerName: customer.name,
-        storeName: tenant.name,
-      });
-      reply = result.reply;
-    } else {
-      reply = "Olá! Como posso ajudar? 😊";
-    }
+    const result = await gemini.chatOrder({
+      history:      history.map(m => ({ role: m.role === "customer" ? "customer" : "assistant", text: m.text })),
+      catalog,
+      customerName: customer.name,
+      storeName:    tenant.name,
+    });
 
-    await chatMemory.push(customer.id, "assistant", reply, "Pappi", null, "text");
-    if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply);
-    if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply);
+    await chatMemory.push(customer.id, "assistant", result.reply, "Pappi", null, "text");
+    if (platform === "instagram") await metaSocial.sendInstagram(senderId, result.reply);
+    if (platform === "facebook")  await metaSocial.sendFacebook(senderId, result.reply);
 
   } catch (err) {
-    console.error(`[${platform}] Erro ao processar mensagem:`, err.message);
+    console.error(`[${platform}] Erro:`, err.message);
   }
 }
 

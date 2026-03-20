@@ -1,17 +1,21 @@
 // src/routes/bot.handler.js
-// Motor de atendimento — fluxo natural com IA + modo VIP
+// CORREÇÕES:
+//   - Mutex por usuário evita race condition em webhooks simultâneos
+//   - Endereço confirmado é persistido no Customer (touchInteraction)
+//   - Falha no CW gera alerta via Baileys para o operador
+//   - Usa singleton do PrismaClient via serviços
 
-const { randomUUID }     = require("crypto");
-const { getClients }     = require("../services/tenant.service");
+const { randomUUID } = require("crypto");
+const { getClients } = require("../services/tenant.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
-const { round2 }         = require("../calculators/OrderCalculator");
-const AddressNormalizer  = require("../normalizers/AddressNormalizer");
-const Gemini             = require("../services/gemini.service");
-const chatMemory         = require("../services/chat-memory.service");
-const Maps               = require("../services/maps.service");
-const sessionService     = require("../services/session.service");
+const { round2 }        = require("../calculators/OrderCalculator");
+const AddressNormalizer = require("../normalizers/AddressNormalizer");
+const Gemini            = require("../services/gemini.service");
+const chatMemory        = require("../services/chat-memory.service");
+const Maps              = require("../services/maps.service");
+const sessionService    = require("../services/session.service");
 
-// Wrapper síncrono para compatibilidade — sessão vem do banco
+// ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
   return sessionService.get(tenantId, phone);
 }
@@ -23,7 +27,6 @@ async function saveSession(tenantId, phone, session) {
 }
 
 // ── ViaCEP ────────────────────────────────────────────────────
-
 async function lookupCep(raw) {
   try {
     const cep = raw.replace(/\D/g, "");
@@ -43,9 +46,18 @@ async function lookupCep(raw) {
 
 function isCep(text) { return /^\d{5}-?\d{3}$/.test(text.trim()); }
 
-// ── Ponto de entrada ──────────────────────────────────────────
-
+// ── Ponto de entrada — com mutex por usuário ──────────────────
 async function handle({ tenant, wa, customer, text, phone }) {
+  const lockKey = `${tenant.id}:${phone}`;
+
+  // CORREÇÃO: mutex garante que dois webhooks simultâneos do mesmo usuário
+  // não processem em paralelo, evitando race condition na sessão
+  return sessionService.withLock(lockKey, async () => {
+    return _handle({ tenant, wa, customer, text, phone });
+  });
+}
+
+async function _handle({ tenant, wa, customer, text, phone }) {
   const session = await getSession(tenant.id, phone);
   const { cw }  = await getClients(tenant.id);
 
@@ -60,7 +72,6 @@ async function handle({ tenant, wa, customer, text, phone }) {
 
   const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  // ── Reinicia fluxo ────────────────────────────────────────────
   if (["oi","ola","ola!","menu","inicio","comecar","cardapio","hey","oi!","olá"].includes(t)) {
     await clearSession(tenant.id, phone);
     const fresh = await getSession(tenant.id, phone);
@@ -69,7 +80,6 @@ async function handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  // ── Handoff em qualquer etapa ─────────────────────────────────
   if (t.includes("atendente") || t.includes("humano") || t.includes("falar com alguem")) {
     const { setHandoff } = require("../services/customer.service");
     await setHandoff(customer.id, true);
@@ -82,7 +92,6 @@ async function handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  // ── Consulta de status do pedido ──────────────────────────────
   if (
     t.includes("onde esta") || t.includes("meu pedido") ||
     t.includes("status") || t.includes("chegou") ||
@@ -92,7 +101,6 @@ async function handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  // ── Cancelamento de pedido ────────────────────────────────────
   if (
     (t.includes("cancel") && (t.includes("pedido") || t.includes("quero"))) &&
     session.step !== "CONFIRM"
@@ -101,18 +109,14 @@ async function handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  // ── classifyIntent no MENU para direcionar melhor ─────────────
   if (session.step === "MENU") {
     try {
       const intent = await Gemini.classifyIntent(text);
-      if (intent === "STATUS") {
-        await handleStatusQuery(wa, phone, customer, tenant);
-        return;
-      }
+      if (intent === "STATUS") { await handleStatusQuery(wa, phone, customer, tenant); return; }
       if (intent === "CARDAPIO") {
         const merchant = await cw.getMerchant().catch(() => null);
-        const url = merchant?.url || merchant?.website || "";
-        const m = url
+        const url      = merchant?.url || merchant?.website || "";
+        const m        = url
           ? `📱 Confira nosso cardápio completo: ${url}`
           : "Me diga o que deseja e eu te ajudo a montar o pedido! 😊";
         await wa.sendText(phone, m);
@@ -130,7 +134,6 @@ async function handle({ tenant, wa, customer, text, phone }) {
         socketService.emitQueueUpdate();
         return;
       }
-      // PEDIDO ou OUTRO → fluxo normal
     } catch {}
   }
 
@@ -154,16 +157,14 @@ async function handle({ tenant, wa, customer, text, phone }) {
   }
 }
 
-// ── Consulta de status do pedido ──────────────────────────────
+// ── Status do pedido ──────────────────────────────────────────
 async function handleStatusQuery(wa, phone, customer, tenant) {
   try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
+    const prisma    = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
-      where: { customerId: customer.id },
+      where:   { customerId: customer.id },
       orderBy: { createdAt: "desc" },
     });
-    await prisma.$disconnect();
 
     if (!lastOrder) {
       const m = "Não encontrei nenhum pedido seu por aqui ainda. Quer fazer um? 😊";
@@ -183,10 +184,10 @@ async function handleStatusQuery(wa, phone, customer, tenant) {
     };
 
     const statusLabel = statusLabels[lastOrder.status] || lastOrder.status;
-    const orderNum = lastOrder.id.slice(-6).toUpperCase();
-    const time = new Date(lastOrder.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const orderNum    = lastOrder.id.slice(-6).toUpperCase();
+    const time        = new Date(lastOrder.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const m           = `📦 *Pedido #${orderNum}* (${time})\nStatus: ${statusLabel}`;
 
-    const m = `📦 *Pedido #${orderNum}* (${time})\nStatus: ${statusLabel}`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
   } catch (err) {
@@ -194,16 +195,14 @@ async function handleStatusQuery(wa, phone, customer, tenant) {
   }
 }
 
-// ── Cancelamento de pedido ────────────────────────────────────
+// ── Cancelamento ──────────────────────────────────────────────
 async function handleCancelRequest(wa, phone, customer, tenant) {
   try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
+    const prisma    = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
-      where: { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
+      where:   { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
       orderBy: { createdAt: "desc" },
     });
-    await prisma.$disconnect();
 
     if (!lastOrder) {
       const m = "Não encontrei nenhum pedido ativo para cancelar.";
@@ -212,7 +211,6 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
       return;
     }
 
-    // Cancela no CW se tiver cwOrderId
     if (lastOrder.cwOrderId) {
       try {
         const { cw } = await getClients(tenant.id);
@@ -220,12 +218,11 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
       } catch {}
     }
 
-    // Atualiza status local
     const { updateStatus } = require("../services/order.service");
     await updateStatus(lastOrder.id, "cancelled", "webhook", "Cancelado pelo cliente via WhatsApp");
 
     const orderNum = lastOrder.id.slice(-6).toUpperCase();
-    const m = `❌ Pedido *#${orderNum}* cancelado. Se precisar de algo, é só chamar! 😊`;
+    const m        = `❌ Pedido *#${orderNum}* cancelado. Se precisar de algo, é só chamar! 😊`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
   } catch (err) {
@@ -234,7 +231,6 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
 }
 
 // ── Saudação ──────────────────────────────────────────────────
-
 async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   if (!customer.name) {
     session.step = "ASK_NAME";
@@ -254,8 +250,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
     menuUrl = merchant?.url || merchant?.website || merchant?.catalog_url || "";
   } catch {}
 
-  const urlLine = menuUrl ? `\n📱 Cardápio: ${menuUrl}` : "";
-
+  const urlLine  = menuUrl ? `\n📱 Cardápio: ${menuUrl}` : "";
   const greeting = isVip
     ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min\n\nÉ Entrega ou Retirada?`
     : `Olá, ${firstName}! 👋 Bem-vindo(a) à ${storeName} 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min\n\nÉ Entrega ou Retirada?`;
@@ -269,34 +264,54 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
 }
 
 // ── ASK_NAME ──────────────────────────────────────────────────
-
 async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
   const name = text.trim();
   if (!name || name.length < 2) {
     await wa.sendText(phone, "Pode me dizer seu nome? 😊");
     return;
   }
-
   const { setName } = require("../services/customer.service");
-  const updated = await setName(customer.id, name);
-  customer.name       = updated.name;
+  const updated     = await setName(customer.id, name);
+  customer.name     = updated.name;
   customer.visitCount = updated.visitCount;
 
   const firstName = name.split(" ")[0];
   await wa.sendText(phone, `Perfeito, ${firstName}! 👊🍕`);
-
   session.step = "MENU";
   await sendGreeting(wa, cw, phone, updated, tenant, session);
 }
 
 // ── FULFILLMENT ───────────────────────────────────────────────
-
 async function handleFulfillment(wa, cw, phone, text, t, session, customer, tenant) {
   const isDelivery = t.includes("entrega") || text === "delivery";
   const isTakeout  = t.includes("retirada") || t.includes("buscar") || t.includes("retirar") || text === "takeout";
 
   if (isDelivery) {
     session.fulfillment = "delivery";
+
+    // CORREÇÃO: se o cliente já tem endereço salvo, oferece reutilizar
+    if (customer.lastAddress) {
+      session.step = "ADDRESS_CONFIRM";
+      const addr = {
+        formatted:    customer.lastAddress,
+        street:       customer.lastStreet       || "",
+        number:       customer.lastNumber       || "",
+        neighborhood: customer.lastNeighborhood || "",
+        complement:   customer.lastComplement   || "",
+        city:         customer.lastCity         || tenant.city || "",
+        lat:          customer.lastLat,
+        lng:          customer.lastLng,
+      };
+      session.address = addr;
+      const m = `🛵 Usar o mesmo endereço da última vez?\n📍 *${addr.formatted}*`;
+      await wa.sendButtons(phone, m, [
+        { id: "confirm_addr", title: "✅ Sim, usar esse" },
+        { id: "change_addr",  title: "✏️ Outro endereço" },
+      ]);
+      await chatMemory.push(customer.id, "bot", m);
+      return;
+    }
+
     session.step = "ADDRESS";
     const m = "🛵 Entrega! ⏱️ 40 a 60 min.\nMe manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
     await wa.sendText(phone, m);
@@ -314,7 +329,6 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
 }
 
 // ── ADDRESS ───────────────────────────────────────────────────
-
 async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
   if (isCep(text.trim())) {
     const cepData = await lookupCep(text.trim());
@@ -355,7 +369,6 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
 }
 
 // ── ADDRESS_NUMBER ────────────────────────────────────────────
-
 async function handleAddressNumber(wa, cw, phone, text, session, customer, tenant) {
   const number = text.trim();
   if (!number || number.length > 15) {
@@ -368,26 +381,20 @@ async function handleAddressNumber(wa, cw, phone, text, session, customer, tenan
 }
 
 async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
-  // Monta endereço completo para geocodificação
   const fullAddress = [
     `${addr.street}, ${addr.number}`,
-    addr.complement,
-    addr.neighborhood,
+    addr.complement, addr.neighborhood,
     addr.city || tenant.city || "",
-    addr.state,
-    addr.zipCode,
+    addr.state, addr.zipCode,
   ].filter(Boolean).join(", ");
 
-  // Geocodifica com Google Maps + calcula distância e taxa
   let feeText = "";
   try {
     const geo = await Maps.quote(fullAddress, cw);
     if (geo) {
-      // Usa endereço formatado pelo Maps se disponível
       addr.formatted = geo.formatted_address || fullAddress;
-      addr.lat = geo.lat;
-      addr.lng = geo.lng;
-
+      addr.lat       = geo.lat;
+      addr.lng       = geo.lng;
       if (geo.delivery_fee != null) {
         session.deliveryFee = geo.delivery_fee;
         const kmStr = geo.km != null ? ` | ${geo.km} km` : "";
@@ -400,7 +407,6 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
     addr.formatted = fullAddress;
   }
 
-  // Fallback: tenta taxa do CW sem coordenadas
   if (!session.deliveryFee) {
     try {
       const fee = await cw.getDeliveryFee({});
@@ -420,7 +426,6 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
 }
 
 // ── ADDRESS_CONFIRM ───────────────────────────────────────────
-
 async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, tenant) {
   if (t.includes("corrig") || t.includes("errado") || text === "change_addr") {
     session.step = "ADDRESS";
@@ -428,11 +433,26 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
     await wa.sendText(phone, "Tudo bem! Me manda o endereço correto:");
     return;
   }
+
+  // CORREÇÃO: persiste o endereço confirmado no banco para reutilizar na próxima vez
+  if (session.address) {
+    const { touchInteraction } = require("../services/customer.service");
+    await touchInteraction(customer.id, session.address).catch(() => {});
+    // Atualiza objeto em memória para evitar nova busca
+    customer.lastAddress      = session.address.formatted;
+    customer.lastStreet       = session.address.street;
+    customer.lastNumber       = session.address.number;
+    customer.lastNeighborhood = session.address.neighborhood;
+    customer.lastComplement   = session.address.complement;
+    customer.lastCity         = session.address.city;
+    customer.lastLat          = session.address.lat;
+    customer.lastLng          = session.address.lng;
+  }
+
   await startOrdering(wa, cw, phone, session, customer, tenant);
 }
 
 // ── startOrdering ─────────────────────────────────────────────
-
 async function startOrdering(wa, cw, phone, session, customer, tenant) {
   const [catalog] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods()]);
 
@@ -452,8 +472,7 @@ async function startOrdering(wa, cw, phone, session, customer, tenant) {
   await chatMemory.push(customer.id, "bot", m);
 }
 
-// ── ORDERING — Gemini conduz a conversa livre ─────────────────
-
+// ── ORDERING ──────────────────────────────────────────────────
 async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
   session.orderHistory.push({ role: "customer", text });
 
@@ -481,7 +500,6 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
 }
 
 // ── PAYMENT ───────────────────────────────────────────────────
-
 async function handlePayment(wa, phone, text, session, customer, tenant) {
   const mapped = mapPayment(tenant.id, text);
   if (!mapped.matched) {
@@ -494,12 +512,12 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
   session.step = "CONFIRM";
 
   const { calculate } = require("../calculators/OrderCalculator");
-  const calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
-  session.calc = calc;
+  const calc           = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
+  session.calc         = calc;
 
   const addrLine = session.fulfillment === "delivery" && session.address
     ? `📍 *Endereço:* ${session.address.formatted}\n` : "";
-  const feeLine = session.deliveryFee
+  const feeLine  = session.deliveryFee
     ? `🛵 *Taxa:* R$ ${session.deliveryFee.toFixed(2)}\n` : "";
 
   const m = `📋 *Resumo do pedido:*\n\n${cartSummary(session.cart)}\n${feeLine}${addrLine}💳 *Pagamento:* ${mapped.name}\n\nConfirmar?`;
@@ -511,7 +529,6 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
 }
 
 // ── CONFIRM ───────────────────────────────────────────────────
-
 async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) {
   if (t.includes("cancel") || text === "CANCELAR") {
     session._cleared = true;
@@ -528,17 +545,25 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   const calc      = session.calc || calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
   const cwPayload = buildCwPayload({ session, customer, calc });
 
-  let cwResponse = null, cwOrderId = null, success = false;
+  let cwResponse = null, cwOrderId = null, cwSuccess = false;
   try {
     cwResponse = await cw.createOrder(cwPayload);
     cwOrderId  = cwResponse?.id || cwResponse?.order_id;
-    success    = true;
+    cwSuccess  = true;
   } catch (err) {
-    console.error(`[${tenant.id}] Erro CW:`, err.message);
+    console.error(`[${tenant.id}] Erro CW createOrder:`, err.message);
+
+    // CORREÇÃO: alerta operador via Baileys quando o CW falha
+    // Pedido não se perde — fica salvo localmente com cwOrderId=null
+    const baileys = require("../services/baileys.service");
+    const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
+    baileys.notify(
+      `🚨 *Falha ao enviar pedido ao CardápioWeb!*\n👤 ${orderRef}\n⚠️ Erro: ${err.message}\n\nPedido salvo localmente — verifique o painel.`
+    ).catch(() => {});
   }
 
   const idempotencyKey = `${customer.id}:${Date.now()}`;
-  const { order } = await createWithIdempotency({
+  const { order }      = await createWithIdempotency({
     tenantId: tenant.id, customerId: customer.id, idempotencyKey,
     items: session.cart, total: calc.expectedTotal, deliveryFee: calc.deliveryFee,
     fulfillment: session.fulfillment, address: session.address,
@@ -552,7 +577,8 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
 
   const orderNum = order.id.slice(-6).toUpperCase();
   const addrLine = session.address ? `\n📍 ${session.address.formatted}` : "";
-  const m = success
+
+  const m = cwSuccess
     ? `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: 40–60 min\n\nObrigado! 🍕`
     : `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
 
@@ -561,7 +587,6 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
 }
 
 // ── Helpers ───────────────────────────────────────────────────
-
 function cartSummary(cart) {
   if (!cart?.length) return "Carrinho vazio";
   const lines = cart.map(i => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`);
@@ -570,43 +595,35 @@ function cartSummary(cart) {
 }
 
 function buildCwPayload({ session, customer, calc }) {
-  // Phone: apenas números, 11 dígitos locais (sem código do país)
   const localPhone = customer.phone.startsWith("55") ? customer.phone.slice(2) : customer.phone;
   const phone11    = localPhone.replace(/\D/g, "").slice(-11);
-
-  const cwOrderId = randomUUID();
-  const displayId = cwOrderId.slice(-6).toUpperCase();
+  const cwOrderId  = randomUUID();
+  const displayId  = cwOrderId.slice(-6).toUpperCase();
 
   const payload = {
     order_id:   cwOrderId,
     display_id: displayId,
     order_type: session.fulfillment === "delivery" ? "delivery" : "takeout",
     created_at: new Date().toISOString(),
-    customer: {
-      phone: phone11,
-      name:  customer.name || "Cliente WhatsApp",
-    },
+    customer: { phone: phone11, name: customer.name || "Cliente WhatsApp" },
     totals: {
       order_amount:   calc.expectedTotal,
       delivery_fee:   round2(calc.deliveryFee || 0),
       additional_fee: 0,
-      discounts:      round2(calc.discount   || 0),
+      discounts:      round2(calc.discount    || 0),
     },
     items: session.cart.map(i => {
-      const addons      = i.addons || [];
-      const addonsSum   = addons.reduce((s, a) => s + (a.unit_price || 0) * (a.quantity || 1), 0);
-      const total_price = round2((i.unit_price + addonsSum) * i.quantity);
+      const addons    = i.addons || [];
+      const addonsSum = addons.reduce((s, a) => s + (a.unit_price || 0) * (a.quantity || 1), 0);
       return {
         ...(i.id ? { item_id: String(i.id) } : {}),
         name:        i.name,
         quantity:    i.quantity,
         unit_price:  i.unit_price,
-        total_price,
+        total_price: round2((i.unit_price + addonsSum) * i.quantity),
         ...(addons.length ? {
           options: addons.map(a => ({
-            name:       a.name,
-            quantity:   a.quantity || 1,
-            unit_price: a.unit_price || 0,
+            name: a.name, quantity: a.quantity || 1, unit_price: a.unit_price || 0,
             ...(a.id ? { option_id: String(a.id) } : {}),
           })),
         } : {}),
@@ -618,7 +635,6 @@ function buildCwPayload({ session, customer, calc }) {
     }],
   };
 
-  // delivery_address é obrigatório para delivery — coordinates são exigidos pelo CW
   if (session.fulfillment === "delivery" && session.address) {
     payload.delivery_address = {
       state:        session.address.state        || "SP",
@@ -638,15 +654,11 @@ function buildCwPayload({ session, customer, calc }) {
   return payload;
 }
 
-// ── Salva mensagem enviada pelo Baileys (WhatsApp interno) ─────
-
+// ── Salva mensagem enviada pelo Baileys ───────────────────────
 async function saveBaileysMessage(phone, text, tenantId, role = "assistant") {
   try {
-    const { PrismaClient } = require("@prisma/client");
+    const prisma          = require("../lib/db");
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-    const prisma = new PrismaClient();
-
-    // Normaliza o telefone para garantir que bate com o banco
     const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
 
     const customer = await prisma.customer.findUnique({
@@ -658,7 +670,6 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant") {
     } else {
       console.warn(`[BaileysMsg] Cliente não encontrado: ${normalizedPhone} (tenant: ${tenantId})`);
     }
-    await prisma.$disconnect();
   } catch (err) {
     console.error("[Bot] Erro ao salvar msg Baileys:", err.message);
   }

@@ -6,3 +6,5 @@ certificados/
 *.crt
 *.key
 prisma/generated/
+*.zip
+.DS_Store

@@ -1,56 +1,41 @@
 // src/routes/orders.routes.js
-// Rotas para painel de atendimento (handoff, status)
 
 const express = require("express");
+const prisma  = require("../lib/db");
 const { requireAttendantKey } = require("../middleware/auth.middleware");
-const { requireTenant } = require("../middleware/tenant.middleware");
+const { requireTenant }       = require("../middleware/tenant.middleware");
 const { updateStatus, findByCwOrderId } = require("../services/order.service");
-const { setHandoff, findByPhone } = require("../services/customer.service");
-const { getClients } = require("../services/tenant.service");
+const { setHandoff, findByPhone }       = require("../services/customer.service");
+const { getClients }                    = require("../services/tenant.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 
 const router = express.Router();
 router.use(requireAttendantKey, requireTenant);
 
-// PUT /orders/handoff  — ativar/desativar handoff para um cliente
 router.put("/handoff", async (req, res) => {
   try {
     const { phone, enabled } = req.body;
     if (!phone) return res.status(400).json({ error: "phone obrigatório" });
-
     const normalized = PhoneNormalizer.normalize(phone);
-    const customer = await findByPhone(req.tenant.id, normalized);
+    const customer   = await findByPhone(req.tenant.id, normalized);
     if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
-
     await setHandoff(customer.id, !!enabled);
-
-    // Se devolvendo para o bot, envia mensagem de retomada
     if (!enabled) {
       const { wa } = await getClients(req.tenant.id);
-      await wa.sendText(
-        normalized,
-        "Olá! Estou de volta para te ajudar. 😊 O que deseja?"
-      ).catch(() => {});
+      await wa.sendText(normalized, "Olá! Estou de volta para te ajudar. 😊 O que deseja?").catch(() => {});
     }
-
     res.json({ ok: true, handoff: !!enabled });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /orders/:id/status  — atualizar status de um pedido
 router.post("/:id/status", async (req, res) => {
   try {
     const { status, note } = req.body;
     const order = await updateStatus(req.params.id, status, "human", note);
     res.json({ ok: true, order });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /orders/cw-status  — webhook do CardápioWeb (mudança de status)
 router.post("/cw-status", async (req, res) => {
   try {
     res.sendStatus(200);
@@ -62,13 +47,11 @@ router.post("/cw-status", async (req, res) => {
 
     await updateStatus(order.id, status, "webhook");
 
-    // Notifica o cliente via WA
     const msg = STATUS_MESSAGES[status];
     if (msg && order.customer?.phone) {
       const { wa } = await getClients(req.tenant.id);
       await wa.sendText(order.customer.phone, msg).catch(() => {});
 
-      // Pesquisa de satisfação 30s após entrega
       if (status === "delivered") {
         setTimeout(async () => {
           try {
@@ -78,9 +61,7 @@ router.post("/cw-status", async (req, res) => {
         }, 30_000);
       }
     }
-  } catch (err) {
-    console.error("cw-status:", err.message);
-  }
+  } catch (err) { console.error("cw-status:", err.message); }
 });
 
 const STATUS_MESSAGES = {

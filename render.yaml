@@ -44,3 +44,5 @@ services:
         value: "-22.9060"
       - key: STORE_LNG
         value: "-47.0616"
+      - key: LOG_LEVEL
+        value: info
