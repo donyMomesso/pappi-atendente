@@ -15,7 +15,8 @@ const Gemini = require("../services/gemini.service");
 const chatMemory = require("../services/chat-memory.service");
 const Maps = require("../services/maps.service");
 const sessionService = require("../services/session.service");
-const metaCapi = require("../services/meta-capi.service"); // ← CAPI adicionado
+const metaCapi = require("../services/meta-capi.service");
+const { routeByTime } = require("../services/time-routing.service");
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
@@ -67,51 +68,21 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   const session = await getSession(tenant.id, phone);
   const { cw } = await getClients(tenant.id);
 
-  // Trava de horário: SKIP_HOURS_CHECK=true desativa (para testes)
-  // CLOSED_AS_LEAD=true permite pedidos quando fechado — salva como lead para contato
-  const skipHours = ENV.SKIP_HOURS_CHECK;
-  const closedAsLead = ENV.CLOSED_AS_LEAD;
-  let storeOpen = true;
-  if (!skipHours) {
-    storeOpen = await cw.isOpen();
-    if (!storeOpen) {
-      if (!closedAsLead) {
-        const m = "😴 Estamos fechados no momento. Em breve voltamos!";
-        await wa.sendText(phone, m);
-        await chatMemory.push(customer.id, "bot", m);
-        await clearSession(tenant.id, phone);
-        return;
-      }
-      session.isLeadOrder = true; // fluxo lead: pedido salvo para contato quando abrir
-    }
-  }
-
   const t = text
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
-  if (["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "hey", "oi!", "olá"].includes(t)) {
-    await clearSession(tenant.id, phone);
-    const fresh = await getSession(tenant.id, phone);
-    if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
-    await sendGreeting(wa, cw, phone, customer, tenant, fresh);
-    await saveSession(tenant.id, phone, fresh);
-    return;
-  }
-
+  // Atendente e status sempre respondem, independente do horário
   if (t.includes("atendente") || t.includes("humano") || t.includes("falar com alguem")) {
     const { setHandoff } = require("../services/customer.service");
     await setHandoff(customer.id, true);
-    const m = "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼";
-    await wa.sendText(phone, m);
-    await chatMemory.push(customer.id, "bot", m);
+    await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
+    await chatMemory.push(customer.id, "bot", "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
     await clearSession(tenant.id, phone);
-    const socketService = require("../services/socket.service");
-    socketService.emitQueueUpdate();
+    require("../services/socket.service").emitQueueUpdate();
     return;
   }
-
   if (
     t.includes("onde esta") ||
     t.includes("meu pedido") ||
@@ -121,6 +92,33 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     t.includes("previsao")
   ) {
     await handleStatusQuery(wa, phone, customer, tenant);
+    return;
+  }
+
+  // Roteamento por horário: 18h-23:30 = aberto | outros = mensagem por slot
+  // SKIP_HOURS_CHECK=true desativa (para testes)
+  // CLOSED_AS_LEAD=true permite pedidos quando fechado — salva como lead
+  const skipHours = ENV.SKIP_HOURS_CHECK;
+  const closedAsLead = ENV.CLOSED_AS_LEAD;
+  const timeSlot = routeByTime();
+  let storeOpen = skipHours ? true : timeSlot.isOpen;
+
+  if (!storeOpen && !closedAsLead) {
+    if (!closedAsLead) {
+      await wa.sendText(phone, timeSlot.message);
+      await chatMemory.push(customer.id, "bot", timeSlot.message);
+      await clearSession(tenant.id, phone);
+      return;
+    }
+    session.isLeadOrder = true;
+  }
+
+  if (["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "hey", "oi!", "olá"].includes(t)) {
+    await clearSession(tenant.id, phone);
+    const fresh = await getSession(tenant.id, phone);
+    if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
+    await sendGreeting(wa, cw, phone, customer, tenant, fresh);
+    await saveSession(tenant.id, phone, fresh);
     return;
   }
 
