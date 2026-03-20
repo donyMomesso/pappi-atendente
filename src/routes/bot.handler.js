@@ -6,6 +6,7 @@
 //   - Usa singleton do PrismaClient via serviços
 
 const { randomUUID } = require("crypto");
+const ENV = require("../config/env");
 const { getClients } = require("../services/tenant.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
 const { round2 } = require("../calculators/OrderCalculator");
@@ -66,15 +67,22 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   const session = await getSession(tenant.id, phone);
   const { cw } = await getClients(tenant.id);
 
-  const skipHours = process.env.SKIP_HOURS_CHECK === "true";
+  // Trava de horário: SKIP_HOURS_CHECK=true desativa (para testes)
+  // CLOSED_AS_LEAD=true permite pedidos quando fechado — salva como lead para contato
+  const skipHours = ENV.SKIP_HOURS_CHECK;
+  const closedAsLead = ENV.CLOSED_AS_LEAD;
+  let storeOpen = true;
   if (!skipHours) {
-    const open = await cw.isOpen();
-    if (!open) {
-      const m = "😴 Estamos fechados no momento. Em breve voltamos!";
-      await wa.sendText(phone, m);
-      await chatMemory.push(customer.id, "bot", m);
-      await clearSession(tenant.id, phone);
-      return;
+    storeOpen = await cw.isOpen();
+    if (!storeOpen) {
+      if (!closedAsLead) {
+        const m = "😴 Estamos fechados no momento. Em breve voltamos!";
+        await wa.sendText(phone, m);
+        await chatMemory.push(customer.id, "bot", m);
+        await clearSession(tenant.id, phone);
+        return;
+      }
+      session.isLeadOrder = true; // fluxo lead: pedido salvo para contato quando abrir
     }
   }
 
@@ -86,6 +94,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   if (["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "hey", "oi!", "olá"].includes(t)) {
     await clearSession(tenant.id, phone);
     const fresh = await getSession(tenant.id, phone);
+    if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
     await sendGreeting(wa, cw, phone, customer, tenant, fresh);
     await saveSession(tenant.id, phone, fresh);
     return;
@@ -287,9 +296,12 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   } catch {}
 
   const urlLine = menuUrl ? `\n📱 Cardápio: ${menuUrl}` : "";
+  const leadLine = session.isLeadOrder
+    ? "\n\n⚠️ _Estamos fechados no momento. Você pode deixar seu pedido — entraremos em contato quando abrirmos!_"
+    : "";
   const greeting = isVip
-    ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min\n\nÉ Entrega ou Retirada?`
-    : `Olá, ${firstName}! 👋 Bem-vindo(a) à ${storeName} 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min\n\nÉ Entrega ou Retirada?`;
+    ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min${leadLine}\n\nÉ Entrega ou Retirada?`
+    : `Olá, ${firstName}! 👋 Bem-vindo(a) à ${storeName} 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min${leadLine}\n\nÉ Entrega ou Retirada?`;
 
   session.step = "FULFILLMENT";
   await wa.sendButtons(phone, greeting, [
@@ -498,9 +510,12 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
 
 // ── startOrdering ─────────────────────────────────────────────
 async function startOrdering(wa, cw, phone, session, customer, tenant) {
-  const [catalog] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods()]);
-
-  session.catalog = catalog;
+  const [rawCatalog] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods()]);
+  // Normaliza: CardápioWeb pode retornar { catalog: {...} }, { data: {...} } ou { categories: [...] }
+  session.catalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
+  if (!session.catalog?.categories?.length && !session.catalog?.sections?.length) {
+    console.warn(`[${tenant.id}] Catálogo vazio ou formato inesperado - cliente pode receber "Pode repetir"`);
+  }
   session.step = "ORDERING";
   session.orderHistory = [];
 
@@ -593,27 +608,37 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
   const { recordOrder } = require("../services/customer.service");
   const { calculate } = require("../calculators/OrderCalculator");
+  const baileys = require("../services/baileys.service");
 
   const calc = session.calc || calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
-  const cwPayload = buildCwPayload({ session, customer, calc });
+  const isLead = !!session.isLeadOrder;
 
   let cwResponse = null,
     cwOrderId = null,
     cwSuccess = false;
-  try {
-    cwResponse = await cw.createOrder(cwPayload);
-    cwOrderId = cwResponse?.id || cwResponse?.order_id;
-    cwSuccess = true;
-  } catch (err) {
-    console.error(`[${tenant.id}] Erro CW createOrder:`, err.message);
+  let cwPayload = null;
 
-    // CORREÇÃO: alerta operador via Baileys quando o CW falha
-    // Pedido não se perde — fica salvo localmente com cwOrderId=null
-    const baileys = require("../services/baileys.service");
+  if (!isLead) {
+    cwPayload = buildCwPayload({ session, customer, calc });
+    try {
+      cwResponse = await cw.createOrder(cwPayload);
+      cwOrderId = cwResponse?.id || cwResponse?.order_id;
+      cwSuccess = true;
+    } catch (err) {
+      console.error(`[${tenant.id}] Erro CW createOrder:`, err.message);
+      const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
+      baileys
+        .notify(
+          `🚨 *Falha ao enviar pedido ao CardápioWeb!*\n👤 ${orderRef}\n⚠️ Erro: ${err.message}\n\nPedido salvo localmente — verifique o painel.`,
+        )
+        .catch(() => {});
+    }
+  } else {
+    // Pedido feito quando fechado (fluxo lead) — não envia ao CW, alerta operador
     const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
     baileys
       .notify(
-        `🚨 *Falha ao enviar pedido ao CardápioWeb!*\n👤 ${orderRef}\n⚠️ Erro: ${err.message}\n\nPedido salvo localmente — verifique o painel.`,
+        `📝 *Novo pedido LEAD* (loja fechada)\n👤 ${orderRef}\n${cartSummary(session.cart)}\n\nEntre em contato quando abrir!`,
       )
       .catch(() => {});
   }
@@ -630,31 +655,39 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
     address: session.address,
     paymentMethodId: session.paymentMethodId,
     paymentMethodName: session.paymentMethodName,
-    cwOrderId,
-    cwPayload,
-    cwResponse,
+    cwOrderId: isLead ? null : cwOrderId,
+    cwPayload: isLead ? null : cwPayload,
+    cwResponse: isLead ? null : cwResponse,
+    status: isLead ? "lead" : undefined,
   });
 
   if (cwOrderId) await setCwOrderId(order.id, cwOrderId, cwResponse);
   await recordOrder(customer.id, cartSummary(session.cart), session.paymentMethodName);
 
   // ── CAPI: Purchase ────────────────────────────────────────
-  metaCapi
-    .trackPurchase({
-      customer,
-      order: { id: order.id, total: calc.expectedTotal, fulfillment: session.fulfillment },
-      items: session.cart,
-    })
-    .catch(() => {});
+  if (!isLead) {
+    metaCapi
+      .trackPurchase({
+        customer,
+        order: { id: order.id, total: calc.expectedTotal, fulfillment: session.fulfillment },
+        items: session.cart,
+      })
+      .catch(() => {});
+  }
 
   session._cleared = true;
 
   const orderNum = order.id.slice(-6).toUpperCase();
   const addrLine = session.address ? `\n📍 ${session.address.formatted}` : "";
 
-  const m = cwSuccess
-    ? `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: 40–60 min\n\nObrigado! 🍕`
-    : `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
+  let m;
+  if (isLead) {
+    m = `✅ *Pedido #${orderNum} anotado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n\nEntraremos em contato quando abrirmos. Obrigado! 🍕`;
+  } else if (cwSuccess) {
+    m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: 40–60 min\n\nObrigado! 🍕`;
+  } else {
+    m = `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
+  }
 
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);

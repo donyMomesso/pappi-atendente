@@ -118,6 +118,8 @@
     .s-cancelled{background:#f8d7da;color:#842029}
     .s-delivered{background:#cfe2ff;color:#084298}
     .s-preparing{background:#fde8d8;color:#8a4300}
+    .s-lead{background:#e8f4fd;color:#0d6efd}
+    .s-cw_failed{background:#f8d7da;color:#842029}
     .no-orders{text-align:center;padding:32px 16px;color:#aaa;font-size:13px}
 
     /* ── MODAL PEDIDO ── */
@@ -1180,7 +1182,7 @@ function renderOrders(orders) {
     <div class="order-card">
       <div class="oc-head">
         <span class="oc-num">Pedido #${orders.length - i}</span>
-        <span class="status-pill s-${o.status.includes("cancel")?"cancelled":o.status.includes("deliver")?"delivered":o.status.includes("confirm")?"confirmed":o.status.includes("prepar")?"preparing":"waiting"}">${statusLabel(o.status)}</span>
+        <span class="status-pill s-${o.status==="lead"?"lead":o.status==="cw_failed"?"cw_failed":o.status.includes("cancel")?"cancelled":o.status.includes("deliver")?"delivered":o.status.includes("confirm")?"confirmed":o.status.includes("prepar")?"preparing":"waiting"}">${statusLabel(o.status)}</span>
         <span class="oc-total">R$ ${o.total.toFixed(2)}</span>
       </div>
       <div class="oc-body">
@@ -2373,7 +2375,8 @@ function statusLabel(s) {
   return {
     waiting_confirmation:"⏳ Aguardando",confirmed:"✅ Confirmado",
     preparing:"👨‍🍳 Preparando",ready:"✅ Pronto",dispatched:"🛵 A caminho",
-    delivered:"🏠 Entregue",cancelled:"❌ Cancelado"
+    delivered:"🏠 Entregue",cancelled:"❌ Cancelado",
+    lead:"📝 Lead (fechado)",cw_failed:"⚠️ Falha CW"
   }[s]||s;
 }
 </script>

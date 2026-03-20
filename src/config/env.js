@@ -39,4 +39,8 @@ module.exports = {
   INTER_CLIENT_SECRET: process.env.INTER_CLIENT_SECRET || "",
   INTER_CHAVE_PIX: process.env.INTER_CHAVE_PIX || "",
   INTER_CONTA_CORRENTE: process.env.INTER_CONTA_CORRENTE || "",
+  // HORÁRIO: SKIP_HOURS_CHECK=true desativa a trava para testes
+  SKIP_HOURS_CHECK: process.env.SKIP_HOURS_CHECK === "true",
+  // HORÁRIO: CLOSED_AS_LEAD=true permite receber pedidos quando fechado (salva como lead para contato)
+  CLOSED_AS_LEAD: process.env.CLOSED_AS_LEAD === "true",
 };

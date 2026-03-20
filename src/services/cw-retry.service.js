@@ -16,7 +16,7 @@ async function processQueue() {
     const failedOrders = await prisma.order.findMany({
       where: {
         cwOrderId: null,
-        status: { notIn: ["cancelled", "delivered", "cw_failed"] },
+        status: { notIn: ["cancelled", "delivered", "cw_failed", "lead"] },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: "asc" },

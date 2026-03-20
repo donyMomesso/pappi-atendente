@@ -21,6 +21,7 @@ async function createWithIdempotency(opts) {
     cwOrderId,
     cwPayload,
     cwResponse,
+    status: initialStatus,
   } = opts;
 
   const existing = await prisma.order.findUnique({
@@ -41,7 +42,7 @@ async function createWithIdempotency(opts) {
       tenantId,
       customerId,
       idempotencyKey,
-      status: "waiting_confirmation",
+      status: initialStatus || "waiting_confirmation",
       total,
       deliveryFee,
       discount,
@@ -100,7 +101,7 @@ async function findFailedCwOrders(tenantId, limit = 20) {
     where: {
       tenantId,
       cwOrderId: null,
-      status: { notIn: ["cancelled", "delivered"] },
+      status: { notIn: ["cancelled", "delivered", "lead"] },
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // últimas 24h
     },
     orderBy: { createdAt: "asc" },
