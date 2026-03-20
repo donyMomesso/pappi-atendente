@@ -416,6 +416,7 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
 }
 
 // ── ADDRESS ───────────────────────────────────────────────────
+// Acumula mensagens parciais (rua + número em várias msgs) e tenta parsear o conjunto
 async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
   const t = (text || "")
     .toLowerCase()
@@ -428,13 +429,18 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
     t === "delivery" ||
     t === "takeout";
   if (isFulfillmentClick) {
+    session.addressBuffer = [];
+    session.addressFailCount = 0;
     const m = "🛵 Me manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
   }
 
+  // CEP sozinho — trata direto
   if (isCep(text.trim())) {
+    session.addressBuffer = [];
+    session.addressFailCount = 0;
     const cepData = await lookupCep(text.trim());
     if (cepData) {
       session.partialAddress = cepData;
@@ -448,17 +454,45 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
     }
   }
 
-  let addr = await Gemini.extractAddress(text, tenant.city || "Campinas");
-  if (!addr) {
-    const ext = AddressNormalizer.fromText(text);
-    const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
-    if (res.ok) addr = res.address;
+  // Acumula texto de várias mensagens (ex: "rua" + "manuel carvalho" + "guerra junior" + "53")
+  session.addressBuffer = session.addressBuffer || [];
+  session.addressBuffer.push((text || "").trim());
+  const combined = session.addressBuffer.join(" ").trim();
+  session.addressFailCount = session.addressFailCount || 0;
+
+  async function tryParseAddress(input) {
+    let addr = await Gemini.extractAddress(input, tenant.city || "Campinas");
+    if (!addr) {
+      const ext = AddressNormalizer.fromText(input);
+      const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
+      if (res.ok) addr = res.address;
+    }
+    return addr;
   }
 
+  const addr = await tryParseAddress(combined);
+
   if (!addr?.street) {
-    await wa.sendText(phone, "⚠️ Não consegui entender. Me manda o *CEP* ou *Rua, Número, Bairro*:");
+    session.addressFailCount += 1;
+    const minLenToReply = 8;
+    if (combined.length < minLenToReply && session.addressBuffer.length < 2) {
+      // Fragmento curto — não repetir "não entendi", só pedir o resto
+      const m = "Pode mandar o endereço completo? Ex: Rua X, 123, Bairro — ou só o CEP";
+      await wa.sendText(phone, m);
+      await chatMemory.push(customer.id, "bot", m);
+      return;
+    }
+    const isRepeat = session.addressFailCount >= 2;
+    const m = isRepeat
+      ? "Tenta o *CEP* (8 números, ex: 13051135) — é mais rápido! Ou Rua, Número, Bairro."
+      : "Não consegui identificar. Me manda o *CEP* ou *Rua, Número, Bairro*:";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
     return;
   }
+
+  session.addressBuffer = [];
+  session.addressFailCount = 0;
 
   if (!addr.number) {
     session.partialAddress = addr;
@@ -541,9 +575,12 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
   if (t.includes("corrig") || t.includes("errado") || text === "change_addr") {
     session.step = "ADDRESS";
     delete session.address;
+    session.addressBuffer = [];
+    session.addressFailCount = 0;
     await wa.sendText(phone, "Tudo bem! Me manda o endereço correto:");
     return;
   }
+  // confirm_addr, "confirma", "sim", "ok" — segue para startOrdering abaixo
 
   // CORREÇÃO: persiste o endereço confirmado no banco para reutilizar na próxima vez
   if (session.address) {

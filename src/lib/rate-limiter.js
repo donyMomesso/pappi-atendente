@@ -42,16 +42,16 @@ function check(key, { windowMs = 60_000, max = 20 } = {}) {
   return { allowed: true, remaining: max - timestamps.length, resetIn: 0 };
 }
 
-/**
- * Limites pré-configurados por contexto.
- */
+// Limites via env (ex: RATE_LIMIT_WEBHOOK_MAX=60) ou padrão
+function limitFromEnv(envKey, defaultMax) {
+  const n = parseInt(process.env[envKey], 10);
+  return isNaN(n) ? defaultMax : Math.max(5, n);
+}
+
 const LIMITS = {
-  // Mensagens recebidas no webhook — 30/min por telefone
-  webhook: { windowMs: 60_000, max: 30 },
-  // Chamadas ao Gemini — 10/min por telefone (evita dreno de cota)
-  gemini: { windowMs: 60_000, max: 10 },
-  // Pedidos — 3 a cada 10 min por telefone (evita pedidos duplicados)
-  order: { windowMs: 10 * 60_000, max: 3 },
+  webhook: { windowMs: 60_000, max: limitFromEnv("RATE_LIMIT_WEBHOOK_MAX", 60) },
+  gemini: { windowMs: 60_000, max: limitFromEnv("RATE_LIMIT_GEMINI_MAX", 15) },
+  order: { windowMs: 10 * 60_000, max: limitFromEnv("RATE_LIMIT_ORDER_MAX", 5) },
 };
 
 function checkWebhook(phone) {

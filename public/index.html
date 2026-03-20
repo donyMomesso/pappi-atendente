@@ -355,8 +355,8 @@
           <button onclick="openContacts()" title="Buscar contato Google" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
         </div>
         <div style="display:flex;gap:6px;font-size:11px">
-          <span id="filterBtnAll" onclick="setConvFilter('all')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">Todos</span>
-          <span id="filterBtnBot" onclick="setConvFilter('bot')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700">🤖 Bot</span>
+          <span id="filterBtnAll" onclick="setConvFilter('all')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700">Todos</span>
+          <span id="filterBtnBot" onclick="setConvFilter('bot')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">🤖 Bot</span>
           <span id="filterBtnHuman" onclick="setConvFilter('human')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">🙋 Humano <span id="queueBadgeCount" style="display:none;background:#e53935;color:#fff;border-radius:8px;padding:0 5px;font-size:10px">0</span></span>
         </div>
       </div>
@@ -689,7 +689,7 @@ let pendingSelections = {};  // { optionGroupId: [optionId, ...] }
 let orderStep = 1;
 let ATTENDANT_NAME = "";
 let USER_ROLE = "attendant"; // "attendant" | "admin"
-let convFilter = "bot"; // "all" | "bot" | "human" — padrão: Bot (janela aberta)
+let convFilter = "all"; // "all" | "bot" | "human" — padrão: Todos (ver todas as conversas)
 let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
