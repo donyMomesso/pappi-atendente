@@ -117,10 +117,16 @@ router.get("/queue", authDash, async (req, res) => {
 // ── PUT /dash/handoff ──────────────────────────────────────────
 router.put("/handoff", authDash, async (req, res) => {
   try {
-    const { customerId, enabled } = req.body;
-    if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const { customerId, phone, enabled } = req.body;
+    if (!customerId && !phone) return res.status(400).json({ error: "customerId ou phone obrigatório" });
+
+    const where = customerId
+      ? { id: customerId }
+      : { tenantId_phone: { tenantId, phone } };
+
     await prisma.customer.update({
-      where: { id: customerId },
+      where,
       data: {
         handoff:   !!enabled,
         handoffAt: enabled ? new Date() : null,
@@ -131,7 +137,10 @@ router.put("/handoff", authDash, async (req, res) => {
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    if (err.code === "P2025") return res.status(404).json({ error: "Cliente não encontrado" });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── POST /dash/queue/claim ─────────────────────────────────────
