@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Pappi Atendente</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="/socket.io/socket.io.js"></script>
   <style>
@@ -21,7 +22,7 @@
     /* ── LOGIN ── */
     #login{position:fixed;inset:0;background:var(--brand-grad);display:flex;align-items:center;justify-content:center;z-index:100}
     .login-box{background:#fff;border-radius:16px;padding:40px;width:340px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.2)}
-    .login-box .logo{font-size:48px;margin-bottom:8px}
+    .login-box .logo{margin-bottom:12px}.login-box .logo img{width:80px;height:80px;object-fit:contain}
     .login-box h1{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
     .login-box p{color:#888;font-size:13px;margin-bottom:24px}
     .login-box input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:12px 14px;font-size:14px;margin-bottom:12px;outline:none;transition:.2s}
@@ -282,7 +283,7 @@
 <!-- LOGIN -->
 <div id="login">
   <div class="login-box">
-    <div class="logo">🍕</div>
+    <div class="logo"><img src="/logo.png" alt="Pappi Atendente"/></div>
     <h1>Pappi Atendente</h1>
     <p>Painel de Atendimento</p>
 
