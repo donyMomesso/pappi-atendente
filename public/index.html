@@ -34,7 +34,8 @@
     /* ── HEADER ── */
     header{background:var(--brand-grad);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
     header .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
-    header .brand span{font-size:22px}
+    header .brand .brand-logo{width:32px;height:32px;object-fit:contain;border-radius:6px}
+    header .brand .brand-fallback{font-size:22px}
     header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
     header .stat{display:flex;align-items:center;gap:4px}
     header .stat strong{font-size:15px;font-weight:700}
@@ -317,7 +318,11 @@
 
 <!-- HEADER -->
 <header id="header" style="display:none">
-  <div class="brand"><span>🍕</span> Pappi Atendente</div>
+  <div class="brand">
+    <img src="/logo.png" alt="" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"/>
+    <span class="brand-fallback" style="display:none">🍕</span>
+    Pappi Atendente
+  </div>
   <div class="stats">
     <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
     <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
