@@ -4,6 +4,7 @@
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
+const prisma = require("./lib/db");
 
 const webhookRoutes = require("./routes/webhook.routes");
 const ordersRoutes = require("./routes/orders.routes");
@@ -41,7 +42,16 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "../public")));
 
 // Saúde
-app.get("/health", (_req, res) => res.json({ ok: true, version: "3.1.0" }));
+app.get("/health", async (_req, res) => {
+  const status = { ok: true, version: "3.1.0", db: "ok" };
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    status.db = "error";
+    status.ok = false;
+  }
+  res.status(status.ok ? 200 : 503).json(status);
+});
 
 // Política de privacidade
 app.get("/privacy", (_req, res) => res.sendFile(path.join(__dirname, "../public/privacy.html")));
