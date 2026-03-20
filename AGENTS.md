@@ -45,13 +45,15 @@ Server listens on port 10000.
 
 - The Prisma schema uses `multiSchema` preview feature with both `auth` and `public` schemas. The `auth` schema must exist in the database even though the app doesn't directly use it — Prisma needs it for schema sync.
 - Admin API auth uses header `x-api-key` (not `x-admin-key`). Attendant dashboard auth also uses `x-api-key` or `x-attendant-key` or `Authorization: Bearer <key>`.
-- No ESLint, Prettier, or test framework is configured. No linting or automated tests exist.
+- ESLint + Prettier are configured. Run `npm run lint` and `npm run format:check`. Jest is available via `npm test`.
+- In dev mode (`NODE_ENV=development` or unset), the server auto-applies default values for `DATABASE_URL`, `ATTENDANT_API_KEY`, `ADMIN_API_KEY`, and `WEBHOOK_VERIFY_TOKEN` if they're missing from `.env`. You can start the server with just `NODE_ENV=development` set.
+- `npm run db:seed` populates the database with test tenant, customers, and a sample order.
 - Baileys (WhatsApp QR) auto-starts on boot and generates QR codes — this is expected and non-blocking.
 - `GEMINI_API_KEY` and `GOOGLE_MAPS_API_KEY` warnings at startup are normal in dev without those keys — the server runs fine without them.
 
 ### Useful endpoints for testing
 
-- `GET /health` — health check (no auth)
+- `GET /health` — health check with DB connectivity verification (no auth)
 - `GET /admin/tenants` — list tenants (requires `x-api-key` admin header)
 - `POST /admin/tenants` — create tenant (requires `x-api-key` admin header)
 - `GET /dash/stats?tenant=<id>` — dashboard stats (requires attendant key)
