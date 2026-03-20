@@ -4,8 +4,8 @@ require("dotenv").config();
 const { validateEnv } = require("./src/lib/validate-env");
 validateEnv();
 
-const http          = require("http");
-const app           = require("./src/app");
+const http = require("http");
+const app = require("./src/app");
 const socketService = require("./src/services/socket.service");
 
 const PORT = process.env.PORT || 10000;

@@ -19,7 +19,7 @@ async function checkStatus() {
       try {
         const { BufferJSON } = require("@whiskeysockets/baileys");
         const authData = JSON.parse(authRow.value, BufferJSON.reviver);
-        const creds    = authData.creds;
+        const creds = authData.creds;
 
         if (creds && creds.me) {
           console.log("✅ STATUS: Conectado");
@@ -60,7 +60,6 @@ async function checkStatus() {
       console.log(`\n🚨 ATENÇÃO: ${cwFailed} pedido(s) com falha definitiva no CardápioWeb!`);
       console.log("   Acesse /admin/cw-failed para ver os detalhes.");
     }
-
   } catch (err) {
     console.error("\n🔥 Erro ao conectar ao banco de dados:", err.message);
     console.log("👉 Verifique se DATABASE_URL está correto no .env");

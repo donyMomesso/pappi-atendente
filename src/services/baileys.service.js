@@ -4,14 +4,10 @@
 //   - tenantId não é mais hardcoded — detectado pelo número do remetente
 //   - Usa singleton do PrismaClient
 
-const {
-  default: makeWASocket,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-} = require("@whiskeysockets/baileys");
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
 const QRCode = require("qrcode");
-const prisma  = require("../lib/db");
+const prisma = require("../lib/db");
 
 // ── Limites de segurança por instância ──────────────────────────
 const LIMITS = { perHour: 20, perDay: 80, alertAt: 0.7 };
@@ -20,14 +16,21 @@ const INSTANCES = new Map();
 
 function createInstanceData(id) {
   return {
-    id, socket: null, qrBase64: null, status: "disconnected",
-    starting: false, lastAlert: null, account: null, notifyTo: [],
+    id,
+    socket: null,
+    qrBase64: null,
+    status: "disconnected",
+    starting: false,
+    lastAlert: null,
+    account: null,
+    notifyTo: [],
     botEnabled: true,
     _reconnectDelay: 8000,
     counters: {
-      hour: 0, day: 0,
+      hour: 0,
+      day: 0,
       hourReset: Date.now() + 3600_000,
-      dayReset:  Date.now() + 86_400_000,
+      dayReset: Date.now() + 86_400_000,
       alerted: { hour: false, day: false },
     },
   };
@@ -50,7 +53,7 @@ function resetCounters(inst) {
 function checkLimits(inst) {
   resetCounters(inst);
   const hourPct = inst.counters.hour / LIMITS.perHour;
-  const dayPct  = inst.counters.day  / LIMITS.perDay;
+  const dayPct = inst.counters.day / LIMITS.perDay;
 
   if (hourPct >= LIMITS.alertAt && !inst.counters.alerted.hour) {
     inst.counters.alerted.hour = true;
@@ -81,12 +84,26 @@ async function detectTenantByPhone(phone) {
     if (!normalized) return null;
 
     const customer = await prisma.customer.findFirst({
-      where:  { phone: normalized },
+      where: { phone: normalized },
       select: { tenantId: true },
       orderBy: { lastInteraction: "desc" },
     });
 
-    return customer?.tenantId || null;
+    if (customer?.tenantId) return customer.tenantId;
+
+    // Fallback: se o número é novo (sem customer), usa o primeiro tenant ativo.
+    // Sem isso, mensagens de números novos via Baileys são silenciosamente descartadas.
+    const fallbackTenant = await prisma.tenant.findFirst({
+      where: { active: true },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (fallbackTenant) {
+      console.log(`[Baileys] Número novo ${normalized} — atribuído ao tenant ${fallbackTenant.id} (fallback)`);
+    }
+
+    return fallbackTenant?.id || null;
   } catch {
     return null;
   }
@@ -105,19 +122,19 @@ async function start(instanceId = "default") {
 
   try {
     const { state, saveCreds } = await useDbAuthState(instanceId);
-    const { version }          = await fetchLatestBaileysVersion();
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
       version,
-      auth:              state,
+      auth: state,
       printQRInTerminal: false,
-      logger:            require("pino")({ level: "silent" }),
-      browser:           ["Pappi Atendente", "Chrome", "1.0"],
-      qrTimeout:         60000,
+      logger: require("pino")({ level: "silent" }),
+      browser: ["Pappi Atendente", "Chrome", "1.0"],
+      qrTimeout: 60000,
     });
 
-    inst.socket   = sock;
-    inst.status   = "connecting";
+    inst.socket = sock;
+    inst.status = "connecting";
     inst.starting = false;
 
     sock.ev.on("creds.update", saveCreds);
@@ -131,10 +148,11 @@ async function start(instanceId = "default") {
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
 
         const phone = jid.split("@")[0];
-        const text  = msg.message?.conversation
-          || msg.message?.extendedTextMessage?.text
-          || msg.message?.imageMessage?.caption
-          || null;
+        const text =
+          msg.message?.conversation ||
+          msg.message?.extendedTextMessage?.text ||
+          msg.message?.imageMessage?.caption ||
+          null;
         if (!text) continue;
 
         try {
@@ -152,7 +170,7 @@ async function start(instanceId = "default") {
           if (inst.botEnabled !== false) {
             try {
               const { findOrCreate, touchInteraction } = require("../services/customer.service");
-              const tenant   = await prisma.tenant.findUnique({ where: { id: tenantId } });
+              const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
               if (tenant) {
                 const customer = await findOrCreate(tenantId, phone, null);
                 await touchInteraction(customer.id);
@@ -178,29 +196,29 @@ async function start(instanceId = "default") {
 
     sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
       if (qr) {
-        inst.status   = "qr";
+        inst.status = "qr";
         inst.qrBase64 = await QRCode.toDataURL(qr);
         console.log(`[Baileys:${instanceId}] QR Code gerado`);
       }
 
       if (connection === "open") {
-        inst.status   = "connected";
+        inst.status = "connected";
         inst.qrBase64 = null;
         inst.starting = false;
-        const user    = sock.user;
-        inst.account  = {
+        const user = sock.user;
+        inst.account = {
           phone: user?.id?.split(":")[0] || user?.id || "?",
-          name:  user?.name || "?",
+          name: user?.name || "?",
         };
         console.log(`[Baileys:${instanceId}] Conectado como ${inst.account.name} (${inst.account.phone})`);
       }
 
       if (connection === "close") {
-        const code      = lastDisconnect?.error?.output?.statusCode;
+        const code = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
-        const replaced  = code === DisconnectReason.connectionReplaced; // 440
-        inst.status   = "disconnected";
-        inst.socket   = null;
+        const replaced = code === DisconnectReason.connectionReplaced; // 440
+        inst.status = "disconnected";
+        inst.socket = null;
         inst.starting = false;
 
         if (loggedOut) {
@@ -211,7 +229,9 @@ async function start(instanceId = "default") {
         } else if (replaced) {
           // Outra sessão substituiu esta — espera mais antes de reconectar
           inst._reconnectDelay = Math.min((inst._reconnectDelay || 8000) * 2, 300_000);
-          console.log(`[Baileys:${instanceId}] Sessão substituída (440) — reconectando em ${inst._reconnectDelay / 1000}s...`);
+          console.log(
+            `[Baileys:${instanceId}] Sessão substituída (440) — reconectando em ${inst._reconnectDelay / 1000}s...`,
+          );
           setTimeout(() => start(instanceId), inst._reconnectDelay);
         } else {
           inst._reconnectDelay = 8000;
@@ -256,7 +276,7 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
     try {
       const botHandler = require("../routes/bot.handler");
       const cleanPhone = to.split("@")[0];
-      const tenantId   = await detectTenantByPhone(cleanPhone);
+      const tenantId = await detectTenantByPhone(cleanPhone);
       if (tenantId) {
         await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant");
       }
@@ -274,7 +294,7 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
 async function notify(text) {
   for (const inst of INSTANCES.values()) {
     if (inst.status === "connected" && inst.notifyTo.length) {
-      await Promise.all(inst.notifyTo.map(n => sendText(n, text, inst.id)));
+      await Promise.all(inst.notifyTo.map((n) => sendText(n, text, inst.id)));
     }
   }
 }
@@ -284,17 +304,17 @@ function getStatus(instanceId = "default") {
   if (!inst) return { status: "disconnected" };
   resetCounters(inst);
   return {
-    id:         inst.id,
-    status:     inst.status,
-    qr:         inst.qrBase64,
-    lastAlert:  inst.lastAlert,
-    account:    inst.account,
+    id: inst.id,
+    status: inst.status,
+    qr: inst.qrBase64,
+    lastAlert: inst.lastAlert,
+    account: inst.account,
     botEnabled: inst.botEnabled !== false,
     usage: {
-      hour:    inst.counters.hour,
+      hour: inst.counters.hour,
       hourMax: LIMITS.perHour,
-      day:     inst.counters.day,
-      dayMax:  LIMITS.perDay,
+      day: inst.counters.day,
+      dayMax: LIMITS.perDay,
     },
   };
 }
@@ -305,7 +325,7 @@ function setBotEnabled(instanceId = "default", enabled) {
 }
 
 function getAllStatuses() {
-  return Array.from(INSTANCES.keys()).map(id => getStatus(id));
+  return Array.from(INSTANCES.keys()).map((id) => getStatus(id));
 }
 
 function setNotifyNumbers(numbers, instanceId = "default") {
@@ -321,10 +341,14 @@ function disconnect(instanceId = "default") {
   const inst = INSTANCES.get(instanceId);
   if (!inst) return;
   inst.starting = false;
-  if (inst.socket) { try { inst.socket.end(); } catch (e) {} }
+  if (inst.socket) {
+    try {
+      inst.socket.end();
+    } catch (e) {}
+  }
   clearDbAuth(instanceId).catch(() => {});
-  inst.status   = "disconnected";
-  inst.socket   = null;
+  inst.status = "disconnected";
+  inst.socket = null;
   inst.qrBase64 = null;
   if (instanceId !== "default") INSTANCES.delete(instanceId);
 }
@@ -343,6 +367,14 @@ async function getProfilePicture(phone) {
 }
 
 module.exports = {
-  start, initAll, sendText, notify,
-  getStatus, getAllStatuses, setNotifyNumbers, setBotEnabled, disconnect, getProfilePicture,
+  start,
+  initAll,
+  sendText,
+  notify,
+  getStatus,
+  getAllStatuses,
+  setNotifyNumbers,
+  setBotEnabled,
+  disconnect,
+  getProfilePicture,
 };

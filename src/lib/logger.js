@@ -16,12 +16,14 @@ const isDev = (process.env.NODE_ENV || "development") === "development";
 const logger = pino({
   level: process.env.LOG_LEVEL || "info",
   // Em dev, formata de forma legível no terminal
-  ...(isDev ? {
-    transport: {
-      target: "pino-pretty",
-      options: { colorize: true, translateTime: "SYS:HH:MM:ss", ignore: "pid,hostname" },
-    },
-  } : {}),
+  ...(isDev
+    ? {
+        transport: {
+          target: "pino-pretty",
+          options: { colorize: true, translateTime: "SYS:HH:MM:ss", ignore: "pid,hostname" },
+        },
+      }
+    : {}),
   // Em produção: JSON puro para integração com Logtail, Datadog, etc.
   serializers: {
     err: pino.stdSerializers.err,

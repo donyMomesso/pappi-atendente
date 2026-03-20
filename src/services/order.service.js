@@ -7,9 +7,20 @@ const { validate: validateTotal } = require("../calculators/OrderCalculator");
 
 async function createWithIdempotency(opts) {
   const {
-    tenantId, customerId, idempotencyKey, items, total,
-    fulfillment, address, paymentMethodId, paymentMethodName,
-    deliveryFee = 0, discount = 0, cwOrderId, cwPayload, cwResponse,
+    tenantId,
+    customerId,
+    idempotencyKey,
+    items,
+    total,
+    fulfillment,
+    address,
+    paymentMethodId,
+    paymentMethodName,
+    deliveryFee = 0,
+    discount = 0,
+    cwOrderId,
+    cwPayload,
+    cwResponse,
   } = opts;
 
   const existing = await prisma.order.findUnique({
@@ -22,7 +33,7 @@ async function createWithIdempotency(opts) {
     console.warn(`[order] Total divergente (esperado ${validation.expected}, declarado ${validation.declared})`);
   }
 
-  const itemsSnapshot   = JSON.stringify(items);
+  const itemsSnapshot = JSON.stringify(items);
   const addressSnapshot = address ? JSON.stringify(address) : null;
 
   const order = await prisma.order.create({
@@ -30,20 +41,20 @@ async function createWithIdempotency(opts) {
       tenantId,
       customerId,
       idempotencyKey,
-      status:            "waiting_confirmation",
+      status: "waiting_confirmation",
       total,
       deliveryFee,
       discount,
-      totalValidated:    validation.ok,
-      totalExpected:     validation.expected,
+      totalValidated: validation.ok,
+      totalExpected: validation.expected,
       fulfillment,
-      paymentMethodId:   paymentMethodId  || null,
+      paymentMethodId: paymentMethodId || null,
       paymentMethodName: paymentMethodName || null,
       itemsSnapshot,
       addressSnapshot,
-      cwOrderId:         cwOrderId  || null,
-      cwPayload:         cwPayload  ? JSON.stringify(cwPayload)  : null,
-      cwResponse:        cwResponse ? JSON.stringify(cwResponse) : null,
+      cwOrderId: cwOrderId || null,
+      cwPayload: cwPayload ? JSON.stringify(cwPayload) : null,
+      cwResponse: cwResponse ? JSON.stringify(cwResponse) : null,
     },
   });
 
@@ -70,16 +81,16 @@ async function setCwOrderId(orderId, cwOrderId, cwResponse = null) {
 
 async function findByCwOrderId(tenantId, cwOrderId) {
   return prisma.order.findFirst({
-    where:   { tenantId, cwOrderId },
+    where: { tenantId, cwOrderId },
     include: { customer: true },
   });
 }
 
 async function findByCustomer(customerId, limit = 5) {
   return prisma.order.findMany({
-    where:   { customerId },
+    where: { customerId },
     orderBy: { createdAt: "desc" },
-    take:    limit,
+    take: limit,
   });
 }
 
@@ -89,16 +100,20 @@ async function findFailedCwOrders(tenantId, limit = 20) {
     where: {
       tenantId,
       cwOrderId: null,
-      status:    { notIn: ["cancelled", "delivered"] },
+      status: { notIn: ["cancelled", "delivered"] },
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // últimas 24h
     },
     orderBy: { createdAt: "asc" },
-    take:    limit,
+    take: limit,
     include: { customer: true },
   });
 }
 
 module.exports = {
-  createWithIdempotency, updateStatus, setCwOrderId,
-  findByCwOrderId, findByCustomer, findFailedCwOrders,
+  createWithIdempotency,
+  updateStatus,
+  setCwOrderId,
+  findByCwOrderId,
+  findByCustomer,
+  findFailedCwOrders,
 };

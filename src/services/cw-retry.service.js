@@ -5,7 +5,7 @@
 
 const prisma = require("../lib/db");
 
-const MAX_ATTEMPTS   = 3;
+const MAX_ATTEMPTS = 3;
 const RETRY_INTERVAL = 5 * 60 * 1000; // 5 min
 
 let schedulerRunning = false;
@@ -16,11 +16,11 @@ async function processQueue() {
     const failedOrders = await prisma.order.findMany({
       where: {
         cwOrderId: null,
-        status:    { notIn: ["cancelled", "delivered", "cw_failed"] },
+        status: { notIn: ["cancelled", "delivered", "cw_failed"] },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: "asc" },
-      take:    20,
+      take: 20,
       include: { customer: true, tenant: true },
     });
 
@@ -29,7 +29,7 @@ async function processQueue() {
     console.log(`[CW-Retry] ${failedOrders.length} pedido(s) na fila de reprocessamento`);
 
     const { getClients } = require("./tenant.service");
-    const baileys        = require("./baileys.service");
+    const baileys = require("./baileys.service");
 
     for (const order of failedOrders) {
       // Conta tentativas anteriores nos logs de status
@@ -41,20 +41,26 @@ async function processQueue() {
         // Esgotou tentativas — marca como falha definitiva e notifica
         await prisma.order.update({
           where: { id: order.id },
-          data:  { status: "cw_failed" },
+          data: { status: "cw_failed" },
         });
         await prisma.orderStatusLog.create({
-          data: { orderId: order.id, status: "cw_failed", source: "system",
-            note: `Falha definitiva após ${MAX_ATTEMPTS} tentativas de reenvio ao CW` },
+          data: {
+            orderId: order.id,
+            status: "cw_failed",
+            source: "system",
+            note: `Falha definitiva após ${MAX_ATTEMPTS} tentativas de reenvio ao CW`,
+          },
         });
 
         const orderRef = order.id.slice(-6).toUpperCase();
-        const name     = order.customer?.name || order.customer?.phone || "Cliente";
-        await baileys.notify(
-          `🚨 *Pedido #${orderRef} não enviado ao CW após ${MAX_ATTEMPTS} tentativas!*\n` +
-          `👤 ${name}\n💰 R$ ${order.total.toFixed(2)}\n\n` +
-          `Acesse o painel para processar manualmente.`
-        ).catch(() => {});
+        const name = order.customer?.name || order.customer?.phone || "Cliente";
+        await baileys
+          .notify(
+            `🚨 *Pedido #${orderRef} não enviado ao CW após ${MAX_ATTEMPTS} tentativas!*\n` +
+              `👤 ${name}\n💰 R$ ${order.total.toFixed(2)}\n\n` +
+              `Acesse o painel para processar manualmente.`,
+          )
+          .catch(() => {});
 
         console.error(`[CW-Retry] Pedido #${orderRef} falhou definitivamente após ${MAX_ATTEMPTS} tentativas`);
         continue;
@@ -69,40 +75,49 @@ async function processQueue() {
           continue;
         }
 
-        const cwPayload  = JSON.parse(order.cwPayload);
+        const cwPayload = JSON.parse(order.cwPayload);
         const cwResponse = await cw.createOrder(cwPayload);
-        const cwOrderId  = cwResponse?.id || cwResponse?.order_id;
+        const cwOrderId = cwResponse?.id || cwResponse?.order_id;
 
         // Sucesso — atualiza o pedido com o ID do CW
         await prisma.order.update({
           where: { id: order.id },
-          data:  { cwOrderId, cwResponse: JSON.stringify(cwResponse) },
+          data: { cwOrderId, cwResponse: JSON.stringify(cwResponse) },
         });
         await prisma.orderStatusLog.create({
-          data: { orderId: order.id, status: "cw_retry_success", source: "system",
-            note: `Pedido enviado ao CW com sucesso na tentativa ${attempts + 1}` },
+          data: {
+            orderId: order.id,
+            status: "cw_retry_success",
+            source: "system",
+            note: `Pedido enviado ao CW com sucesso na tentativa ${attempts + 1}`,
+          },
         });
 
         const orderRef = order.id.slice(-6).toUpperCase();
         console.log(`[CW-Retry] ✅ Pedido #${orderRef} reenviado com sucesso (cwOrderId: ${cwOrderId})`);
 
         // Notifica operador que o pedido foi recuperado
-        await baileys.notify(
-          `✅ *Pedido #${orderRef} recuperado!*\n` +
-          `Foi enviado ao CardápioWeb com sucesso na tentativa ${attempts + 1}.`
-        ).catch(() => {});
-
+        await baileys
+          .notify(
+            `✅ *Pedido #${orderRef} recuperado!*\n` +
+              `Foi enviado ao CardápioWeb com sucesso na tentativa ${attempts + 1}.`,
+          )
+          .catch(() => {});
       } catch (err) {
         // Registra a tentativa falha
         await prisma.orderStatusLog.create({
-          data: { orderId: order.id, status: "cw_retry_failed", source: "system",
-            note: `Tentativa ${attempts + 1}/${MAX_ATTEMPTS} falhou: ${err.message}` },
+          data: {
+            orderId: order.id,
+            status: "cw_retry_failed",
+            source: "system",
+            note: `Tentativa ${attempts + 1}/${MAX_ATTEMPTS} falhou: ${err.message}`,
+          },
         });
         console.warn(`[CW-Retry] Tentativa ${attempts + 1} falhou para pedido ${order.id}: ${err.message}`);
       }
 
       // Pausa entre reprocessamentos para não sobrecarregar o CW
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1000));
     }
   } catch (err) {
     console.error("[CW-Retry] Erro geral:", err.message);

@@ -1,11 +1,15 @@
 // src/middleware/auth.middleware.js
 // CORREÇÃO: usa singleton do PrismaClient
 
-const ENV    = require("../config/env");
+const ENV = require("../config/env");
 const prisma = require("../lib/db");
 
 async function requireAttendantKey(req, res, next) {
-  const key      = req.headers["x-api-key"] || req.headers["authorization"]?.replace("Bearer ", "") || req.headers["x-attendant-key"] || req.query.key;
+  const key =
+    req.headers["x-api-key"] ||
+    req.headers["authorization"]?.replace("Bearer ", "") ||
+    req.headers["x-attendant-key"] ||
+    req.query.key;
   const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
 
   if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) return next();
@@ -16,7 +20,7 @@ async function requireAttendantKey(req, res, next) {
     });
     if (attendantsConfig) {
       const attendants = JSON.parse(attendantsConfig.value);
-      const attendant  = attendants.find(att => att.key === key);
+      const attendant = attendants.find((att) => att.key === key);
       if (attendant) {
         req.attendant = attendant;
         return next();

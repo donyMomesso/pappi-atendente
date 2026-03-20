@@ -3,25 +3,25 @@
 //   - Rate limiting por telefone (anti-spam, anti-dreno Gemini)
 //   - Transcrição automática de áudios com Gemini multimodal
 
-const express          = require("express");
-const ENV              = require("../config/env");
+const express = require("express");
+const ENV = require("../config/env");
 const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.service");
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
-const PhoneNormalizer  = require("../normalizers/PhoneNormalizer");
-const chatMemory       = require("../services/chat-memory.service");
-const baileys          = require("../services/baileys.service");
-const metaSocial       = require("../services/meta-social.service");
+const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+const chatMemory = require("../services/chat-memory.service");
+const baileys = require("../services/baileys.service");
+const metaSocial = require("../services/meta-social.service");
 const { requireAdminKey } = require("../middleware/auth.middleware");
-const { checkWebhook, checkOrder } = require("../lib/rate-limiter");
-const { transcribeAudio }          = require("../services/audio-transcribe.service");
+const { checkWebhook } = require("../lib/rate-limiter");
+const { transcribeAudio } = require("../services/audio-transcribe.service");
 
 const router = express.Router();
 
 // ── Verificação do Webhook (GET) ─────────────────────────────
 
 router.get("/webhook", (req, res) => {
-  const mode      = req.query["hub.mode"];
-  const token     = req.query["hub.verify_token"];
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === ENV.WEBHOOK_VERIFY_TOKEN) {
@@ -62,7 +62,7 @@ router.post("/webhook", async (req, res) => {
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {
         if (change.field !== "messages") continue;
-        const value         = change.value;
+        const value = change.value;
         const phoneNumberId = value?.metadata?.phone_number_id;
         if (!phoneNumberId) continue;
 
@@ -91,7 +91,7 @@ router.post("/webhook", async (req, res) => {
 
 async function processMessage({ tenant, wa, msg, contacts }) {
   const rawPhone = msg.from;
-  const phone    = PhoneNormalizer.normalize(rawPhone);
+  const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return;
 
   // ── Rate limiting por telefone ────────────────────────────
@@ -101,14 +101,14 @@ async function processMessage({ tenant, wa, msg, contacts }) {
     return;
   }
 
-  const contact  = contacts.find((c) => c.wa_id === rawPhone);
-  const name     = contact?.profile?.name || null;
+  const contact = contacts.find((c) => c.wa_id === rawPhone);
+  const name = contact?.profile?.name || null;
   const customer = await findOrCreate(tenant.id, phone, name);
 
   await wa.markRead(msg.id).catch(() => {});
   await touchInteraction(customer.id);
 
-  const { text, mediaUrl, mediaType, rawToken } = await extractContent(wa, msg, tenant.waToken);
+  const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
 
   if (text || mediaUrl) {
     await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
@@ -125,17 +125,19 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   // ── Handoff apenas fora de fluxo ativo ───────────────────
   const sessionService = require("../services/session.service");
-  const session        = await sessionService.get(tenant.id, phone);
-  const inActiveFlow   = session && !["MENU", "ASK_NAME", "FULFILLMENT"].includes(session.step);
+  const session = await sessionService.get(tenant.id, phone);
+  const inActiveFlow = session && !["MENU", "ASK_NAME", "FULFILLMENT"].includes(session.step);
 
   if (!inActiveFlow && isHandoffTrigger(text)) {
     await setHandoff(customer.id, true);
     await wa.sendText(phone, "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼");
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
-    baileys.notify(
-      `🔔 *Novo cliente na fila!*\n👤 ${customer.name || phone}\n📞 ${phone}\n⏰ ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
-    ).catch(() => {});
+    baileys
+      .notify(
+        `🔔 *Novo cliente na fila!*\n👤 ${customer.name || phone}\n📞 ${phone}\n⏰ ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
+      )
+      .catch(() => {});
     return;
   }
 
@@ -152,22 +154,21 @@ async function processStatus({ status }) {
 // ── extractContent — com transcrição de áudio ────────────────
 
 async function extractContent(wa, msg, waToken) {
-  let text = null, mediaUrl = null, mediaType = "text";
+  let text = null,
+    mediaUrl = null,
+    mediaType = "text";
 
   if (msg.type === "text") {
     text = msg.text?.body?.trim() || null;
-
   } else if (msg.type === "interactive") {
     text = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || null;
-
   } else if (msg.type === "image") {
     mediaType = "image";
-    mediaUrl  = await wa.getMediaUrl(msg.image.id);
-    text      = msg.image.caption || "📷 Imagem";
-
+    mediaUrl = await wa.getMediaUrl(msg.image.id);
+    text = msg.image.caption || "📷 Imagem";
   } else if (msg.type === "audio") {
     mediaType = "audio";
-    mediaUrl  = await wa.getMediaUrl(msg.audio.id);
+    mediaUrl = await wa.getMediaUrl(msg.audio.id);
 
     // MELHORIA: tenta transcrever o áudio antes de passar para o bot
     if (mediaUrl && waToken) {
@@ -181,17 +182,14 @@ async function extractContent(wa, msg, waToken) {
     } else {
       text = "🎵 Áudio";
     }
-
   } else if (msg.type === "document") {
     mediaType = "document";
-    text      = msg.document.filename || "📄 Documento";
-    mediaUrl  = await wa.getMediaUrl(msg.document.id);
-
+    text = msg.document.filename || "📄 Documento";
+    mediaUrl = await wa.getMediaUrl(msg.document.id);
   } else if (msg.type === "video") {
     mediaType = "video";
-    text      = msg.video.caption || "🎥 Vídeo";
-    mediaUrl  = await wa.getMediaUrl(msg.video.id);
-
+    text = msg.video.caption || "🎥 Vídeo";
+    mediaUrl = await wa.getMediaUrl(msg.video.id);
   } else if (msg.type === "location") {
     // Localização enviada pelo cliente — usada para endereço de entrega
     mediaType = "location";
@@ -204,13 +202,24 @@ async function extractContent(wa, msg, waToken) {
 
 // Palavras que ativam handoff — SEM "cancelar"/"errado" (conflitavam com pedidos)
 const HANDOFF_WORDS = [
-  "atendente", "humano", "pessoa", "falar com alguém", "falar com alguem",
-  "quero ajuda", "preciso de ajuda", "reclamação", "reclamacao",
-  "não recebi", "nao recebi",
+  "atendente",
+  "humano",
+  "pessoa",
+  "falar com alguém",
+  "falar com alguem",
+  "quero ajuda",
+  "preciso de ajuda",
+  "reclamação",
+  "reclamacao",
+  "não recebi",
+  "nao recebi",
 ];
 
 function isHandoffTrigger(text) {
-  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
   return HANDOFF_WORDS.some((w) => t.includes(w));
 }
 
@@ -219,13 +228,34 @@ function isHandoffTrigger(text) {
 async function processSocialMessage({ platform, senderId, senderName, text }) {
   if (!senderId || !text?.trim()) return;
   try {
-    const prisma   = require("../lib/db");
-    const tenantId = "tenant-pappi-001";
-    const tenant   = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    const prisma = require("../lib/db");
+
+    // Busca tenant dinâmicamente em vez de usar ID hardcoded.
+    // Primeiro tenta encontrar pelo customer existente, senão usa o primeiro tenant ativo.
+    const socialId = `${platform}:${senderId}`;
+    let tenantId = null;
+
+    const existingCustomer = await prisma.customer.findFirst({
+      where: { phone: socialId },
+      select: { tenantId: true },
+    });
+
+    if (existingCustomer) {
+      tenantId = existingCustomer.tenantId;
+    } else {
+      const fallbackTenant = await prisma.tenant.findFirst({
+        where: { active: true },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+      tenantId = fallbackTenant?.id;
+    }
+
+    if (!tenantId) return;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) return;
 
-    const socialId = `${platform}:${senderId}`;
-    let customer   = await prisma.customer.findUnique({
+    let customer = await prisma.customer.findUnique({
       where: { tenantId_phone: { tenantId, phone: socialId } },
     });
     if (!customer) {
@@ -243,28 +273,29 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
       await setHandoff(customer.id, true);
       const reply = "Aguarde um momento, vou te transferir para um atendente. 👨‍💼";
       if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply);
-      if (platform === "facebook")  await metaSocial.sendFacebook(senderId, reply);
-      baileys.notify(`🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${text.slice(0, 60)}`).catch(() => {});
+      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply);
+      baileys
+        .notify(`🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${text.slice(0, 60)}`)
+        .catch(() => {});
       return;
     }
 
     const { getClients } = require("../services/tenant.service");
-    const { cw }         = await getClients(tenantId);
-    const gemini         = require("../services/gemini.service");
-    const history        = (await chatMemory.get(customer.id)).slice(-10);
-    const catalog        = await cw.getCatalog().catch(() => null);
+    const { cw } = await getClients(tenantId);
+    const gemini = require("../services/gemini.service");
+    const history = (await chatMemory.get(customer.id)).slice(-10);
+    const catalog = await cw.getCatalog().catch(() => null);
 
     const result = await gemini.chatOrder({
-      history:      history.map(m => ({ role: m.role === "customer" ? "customer" : "assistant", text: m.text })),
+      history: history.map((m) => ({ role: m.role === "customer" ? "customer" : "assistant", text: m.text })),
       catalog,
       customerName: customer.name,
-      storeName:    tenant.name,
+      storeName: tenant.name,
     });
 
     await chatMemory.push(customer.id, "assistant", result.reply, "Pappi", null, "text");
     if (platform === "instagram") await metaSocial.sendInstagram(senderId, result.reply);
-    if (platform === "facebook")  await metaSocial.sendFacebook(senderId, result.reply);
-
+    if (platform === "facebook") await metaSocial.sendFacebook(senderId, result.reply);
   } catch (err) {
     console.error(`[${platform}] Erro:`, err.message);
   }

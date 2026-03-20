@@ -1,12 +1,12 @@
 // src/services/google-contacts.service.js
 // CORREÇÃO: usa singleton do PrismaClient
 
-const prisma       = require("../lib/db");
-const TOKEN_KEY    = "google_contacts_tokens";
-const TOKEN_URL    = "https://oauth2.googleapis.com/token";
+const prisma = require("../lib/db");
+const TOKEN_KEY = "google_contacts_tokens";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CONTACTS_URL = "https://people.googleapis.com/v1/people:createContact";
 const REDIRECT_URI = "https://pappiatendente.com.br/dash/google-contacts/callback";
-const SCOPE        = "https://www.googleapis.com/auth/contacts";
+const SCOPE = "https://www.googleapis.com/auth/contacts";
 
 function cfg() {
   const ENV = require("../config/env");
@@ -16,8 +16,12 @@ function cfg() {
 function getAuthUrl() {
   const { clientId } = cfg();
   const params = new URLSearchParams({
-    client_id: clientId, redirect_uri: REDIRECT_URI,
-    response_type: "code", scope: SCOPE, access_type: "offline", prompt: "consent",
+    client_id: clientId,
+    redirect_uri: REDIRECT_URI,
+    response_type: "code",
+    scope: SCOPE,
+    access_type: "offline",
+    prompt: "consent",
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
@@ -28,22 +32,25 @@ async function exchangeCode(code) {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      code, client_id: clientId, client_secret: clientSecret,
-      redirect_uri: REDIRECT_URI, grant_type: "authorization_code",
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: REDIRECT_URI,
+      grant_type: "authorization_code",
     }),
   });
-  if (!res.ok) throw new Error("Erro ao trocar código: " + await res.text());
+  if (!res.ok) throw new Error("Erro ao trocar código: " + (await res.text()));
   return res.json();
 }
 
 async function saveTokens(tokens, existingRefresh = null) {
   const value = JSON.stringify({
-    access_token:  tokens.access_token,
+    access_token: tokens.access_token,
     refresh_token: tokens.refresh_token || existingRefresh,
-    expiry:        Date.now() + (tokens.expires_in || 3600) * 1000,
+    expiry: Date.now() + (tokens.expires_in || 3600) * 1000,
   });
   await prisma.config.upsert({
-    where:  { key: TOKEN_KEY },
+    where: { key: TOKEN_KEY },
     create: { key: TOKEN_KEY, value },
     update: { value },
   });
@@ -61,8 +68,10 @@ async function getAccessToken() {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      refresh_token: tokens.refresh_token, client_id: clientId,
-      client_secret: clientSecret, grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
     }),
   });
   if (!res.ok) return null;
@@ -83,7 +92,7 @@ async function createContact(name, phone) {
     const token = await getAccessToken();
     if (!token) return false;
     const body = {
-      names:        name ? [{ displayName: name, givenName: name }] : [],
+      names: name ? [{ displayName: name, givenName: name }] : [],
       phoneNumbers: [{ value: `+${phone}`, type: "mobile" }],
     };
     const res = await fetch(`${CONTACTS_URL}?personFields=names,phoneNumbers`, {
@@ -91,7 +100,10 @@ async function createContact(name, phone) {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.ok) { console.log(`[GoogleContacts] Contato criado: ${name || phone}`); return true; }
+    if (res.ok) {
+      console.log(`[GoogleContacts] Contato criado: ${name || phone}`);
+      return true;
+    }
     return false;
   } catch (e) {
     console.error("[GoogleContacts] Exceção:", e.message);
@@ -109,13 +121,17 @@ async function searchContacts(query) {
     });
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.results || []).map(r => {
-      const p     = r.person;
-      const name  = p.names?.[0]?.displayName || "";
-      const phone = p.phoneNumbers?.[0]?.value?.replace(/\D/g, "") || "";
-      return { name, phone };
-    }).filter(c => c.phone);
-  } catch (e) { return []; }
+    return (data.results || [])
+      .map((r) => {
+        const p = r.person;
+        const name = p.names?.[0]?.displayName || "";
+        const phone = p.phoneNumbers?.[0]?.value?.replace(/\D/g, "") || "";
+        return { name, phone };
+      })
+      .filter((c) => c.phone);
+  } catch (e) {
+    return [];
+  }
 }
 
 async function disconnect() {

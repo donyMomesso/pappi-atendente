@@ -1,6 +1,6 @@
 // src/services/meta-social.service.js
 
-const ENV   = require("../config/env");
+const ENV = require("../config/env");
 const GRAPH = "https://graph.facebook.com/v19.0";
 
 async function sendInstagram(recipientId, text) {
@@ -12,7 +12,10 @@ async function sendInstagram(recipientId, text) {
       body: JSON.stringify({ recipient: { id: recipientId }, message: { text }, messaging_type: "RESPONSE" }),
     });
     return await res.json();
-  } catch (err) { console.error("[Meta:Instagram] Erro ao enviar:", err.message); return null; }
+  } catch (err) {
+    console.error("[Meta:Instagram] Erro ao enviar:", err.message);
+    return null;
+  }
 }
 
 async function sendFacebook(recipientId, text) {
@@ -24,7 +27,10 @@ async function sendFacebook(recipientId, text) {
       body: JSON.stringify({ recipient: { id: recipientId }, message: { text }, messaging_type: "RESPONSE" }),
     });
     return await res.json();
-  } catch (err) { console.error("[Meta:Facebook] Erro ao enviar:", err.message); return null; }
+  } catch (err) {
+    console.error("[Meta:Facebook] Erro ao enviar:", err.message);
+    return null;
+  }
 }
 
 function parseWebhook(body) {
@@ -37,14 +43,26 @@ function parseWebhook(body) {
         if (!val.messages) continue;
         for (const msg of val.messages) {
           if (msg.type !== "text") continue;
-          messages.push({ platform: "instagram", senderId: msg.from?.id || val.sender?.id, senderName: val.contacts?.[0]?.profile?.name || null, text: msg.text?.body || "", timestamp: msg.timestamp });
+          messages.push({
+            platform: "instagram",
+            senderId: msg.from?.id || val.sender?.id,
+            senderName: val.contacts?.[0]?.profile?.name || null,
+            text: msg.text?.body || "",
+            timestamp: msg.timestamp,
+          });
         }
       }
     }
     if (entry.messaging) {
       for (const event of entry.messaging) {
         if (!event.message?.text) continue;
-        messages.push({ platform: "facebook", senderId: event.sender?.id, senderName: null, text: event.message.text, timestamp: event.timestamp });
+        messages.push({
+          platform: "facebook",
+          senderId: event.sender?.id,
+          senderName: null,
+          text: event.message.text,
+          timestamp: event.timestamp,
+        });
       }
     }
   }
