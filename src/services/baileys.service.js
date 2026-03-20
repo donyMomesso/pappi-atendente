@@ -89,7 +89,21 @@ async function detectTenantByPhone(phone) {
       orderBy: { lastInteraction: "desc" },
     });
 
-    return customer?.tenantId || null;
+    if (customer?.tenantId) return customer.tenantId;
+
+    // Fallback: se o número é novo (sem customer), usa o primeiro tenant ativo.
+    // Sem isso, mensagens de números novos via Baileys são silenciosamente descartadas.
+    const fallbackTenant = await prisma.tenant.findFirst({
+      where: { active: true },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (fallbackTenant) {
+      console.log(`[Baileys] Número novo ${normalized} — atribuído ao tenant ${fallbackTenant.id} (fallback)`);
+    }
+
+    return fallbackTenant?.id || null;
   } catch {
     return null;
   }

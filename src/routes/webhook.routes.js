@@ -229,11 +229,32 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
   if (!senderId || !text?.trim()) return;
   try {
     const prisma = require("../lib/db");
-    const tenantId = "tenant-pappi-001";
+
+    // Busca tenant dinâmicamente em vez de usar ID hardcoded.
+    // Primeiro tenta encontrar pelo customer existente, senão usa o primeiro tenant ativo.
+    const socialId = `${platform}:${senderId}`;
+    let tenantId = null;
+
+    const existingCustomer = await prisma.customer.findFirst({
+      where: { phone: socialId },
+      select: { tenantId: true },
+    });
+
+    if (existingCustomer) {
+      tenantId = existingCustomer.tenantId;
+    } else {
+      const fallbackTenant = await prisma.tenant.findFirst({
+        where: { active: true },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+      tenantId = fallbackTenant?.id;
+    }
+
+    if (!tenantId) return;
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) return;
 
-    const socialId = `${platform}:${senderId}`;
     let customer = await prisma.customer.findUnique({
       where: { tenantId_phone: { tenantId, phone: socialId } },
     });
