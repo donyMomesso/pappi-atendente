@@ -2362,7 +2362,7 @@ async function gcConnect() {
 	        ${isQr ? `
 	          <div style="text-align:center">
 	            <p style="font-size:11px;color:#888;margin-bottom:6px">Escaneie para conectar</p>
-	            <img src="${inst.qr}" style="width:150px;height:150px;border:1px solid #ddd;padding:4px;background:#fff"/>
+	            <img src="${inst.qrUrl ? inst.qrUrl + '?tenant=' + encodeURIComponent(TENANT) + '&key=' + encodeURIComponent(API_KEY) : inst.qr}" data-fallback="${inst.qr || ''}" style="width:150px;height:150px;border:1px solid #ddd;padding:4px;background:#fff" onerror="var f=this.getAttribute('data-fallback');if(f){this.onerror=null;this.src=f}"/>
 	          </div>
 	        ` : ''}
 	        ${inst.usage ? `

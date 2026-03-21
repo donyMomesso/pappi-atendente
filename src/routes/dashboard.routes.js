@@ -387,6 +387,7 @@ router.get("/baileys/instances", authDash, async (_req, res) => {
       id: s.id,
       status: s.status,
       qr: s.qr,
+      qrUrl: s.qr ? `/dash/baileys/instances/${s.id}/qr` : null,
       botEnabled: s.botEnabled !== false,
       name: s.account?.name || null,
       number: s.account?.phone || null,
@@ -394,6 +395,21 @@ router.get("/baileys/instances", authDash, async (_req, res) => {
       instanceTenant: s.instanceTenant || null,
     })),
   );
+});
+
+// ── GET /dash/baileys/instances/:id/qr ─────────────────────────
+router.get("/baileys/instances/:id/qr", authDash, async (req, res) => {
+  try {
+    const status = await baileys.getStatus(req.params.id);
+    if (!status?.qr) return res.status(204).end();
+    const base64 = status.qr.replace(/^data:image\/\w+;base64,/, "");
+    const buf = Buffer.from(base64, "base64");
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "no-store");
+    res.send(buf);
+  } catch {
+    res.status(204).end();
+  }
 });
 
 // ── POST /dash/baileys/instances ───────────────────────────────
