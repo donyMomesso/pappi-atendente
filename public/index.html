@@ -2887,9 +2887,9 @@ async function gcConnect() {
 	  waIntInstances = data;
 	  waIntTenants = Array.isArray(tenants) ? tenants : [];
 	  renderWaIntInstances();
-	  // Auto-refresh durante QR/connecting
-	  const hasActive = data.some(d => d.status === "qr" || d.status === "connecting");
-	  if (hasActive && !waIntRefreshTimer) waIntRefreshTimer = setInterval(waIntRefresh, 5000);
+	  // Auto-refresh durante QR/connecting/disconnected (disconnected pode voltar a QR em 8s)
+	  const hasActive = data.some(d => d.status === "qr" || d.status === "connecting" || d.status === "disconnected");
+	  if (hasActive && !waIntRefreshTimer) waIntRefreshTimer = setInterval(waIntRefresh, 4000);
 	  else if (!hasActive && waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
 	}
 

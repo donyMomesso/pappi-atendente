@@ -16,6 +16,17 @@ const LIMITS = { perHour: 60, perDay: 200, alertAt: 0.7 };
 
 const INSTANCES = new Map();
 
+// Cache da versão Baileys — evita chamar URL externa a cada reconexão
+let _cachedVersion = null;
+async function getBaileysVersion() {
+  if (_cachedVersion) return _cachedVersion;
+  const { version } = await fetchLatestBaileysVersion();
+  _cachedVersion = version;
+  // Invalida o cache após 1h para não usar versão muito antiga
+  setTimeout(() => { _cachedVersion = null; }, 3_600_000);
+  return version;
+}
+
 function createInstanceData(id) {
   return {
     id,
@@ -164,7 +175,7 @@ async function start(instanceId = "default") {
 
   try {
     const { state, saveCreds } = await useDbAuthState(instanceId);
-    const { version } = await fetchLatestBaileysVersion();
+    const version = await getBaileysVersion();
 
     const sock = makeWASocket({
       version,
@@ -372,8 +383,9 @@ async function start(instanceId = "default") {
           inst._reconnectDelay = 8000;
         } else if (replaced) {
           // Outra sessão substituiu (440): delay maior evita loop (sessão antiga pode não ter fechado)
-          const base440 = 45000; // 45s inicial
-          inst._reconnectDelay = Math.min((inst._reconnectDelay || base440) * 2, 120_000);
+          // Começa em 45s e dobra a cada 440 consecutivo (máx 120s)
+          const prev = inst._reconnectDelay <= 8000 ? 45000 : inst._reconnectDelay;
+          inst._reconnectDelay = Math.min(prev * 2, 120_000);
           console.log(
             `[Baileys:${instanceId}] Sessão substituída (440) — reconectando em ${inst._reconnectDelay / 1000}s...`,
           );
