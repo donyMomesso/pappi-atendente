@@ -374,6 +374,7 @@
       <span id="h-role-badge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px"></span>
       <span id="h-user-name" style="font-size:12px;opacity:.8"></span>
       <button onclick="openKanban()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">📋 Pedidos</button>
+      <button onclick="openContacts()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer" title="Contatos (Google + WhatsApp)">📒 Contatos</button>
       <button id="btnAdminPanel" onclick="openAdmin()" style="display:none;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">👑 Admin</button>
       <button id="btnConfig" onclick="openSettings()" style="display:none;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">⚙️ Config</button>
     </div>
@@ -403,7 +404,7 @@
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             <input id="searchInput" placeholder="Pesquisar..." oninput="filterConv()"/>
           </div>
-          <button onclick="openContacts()" title="Buscar contato Google" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
+          <button onclick="openContacts()" title="Contatos (Google + WhatsApp)" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
         </div>
         <div style="display:flex;gap:6px;font-size:11px">
           <span id="filterBtnAll" onclick="setConvFilter('all')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700">Todos</span>
@@ -495,7 +496,7 @@
       <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📋 Relatórios</button>
       <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
       <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
-      <button class="admin-tab"        id="atAtend"     onclick="adminTab('atend')">👥 Administrar Atendente</button>
+      <button class="admin-tab"        id="atAtend"     onclick="adminTab('atend')">👥 Organização</button>
       <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
     </div>
   </div>
@@ -589,20 +590,19 @@
     </div>
   </div>
 
-  <!-- Painel: Administrar Atendente (Setor + Atendentes) -->
+  <!-- Painel: Organização (Setor + Atendentes) -->
   <div id="adminPanelAtend" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:860px;margin:0 auto">
-      <div class="settings-title">👥 Administrar Atendente</div>
+      <div class="settings-title">👥 Organização</div>
       <div class="settings-sub">Configure departamentos (setores) e atendentes autorizados.</div>
       <div class="settings-grid" style="margin-top:20px">
         <div class="settings-card">
           <div class="settings-card-head">🔄 Departamentos (Setores)</div>
           <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados. Opcionalmente, informe um número WhatsApp para receber notificação quando houver transferência.</p>
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados. <strong>Apenas o SAC</strong> envia notificação para outro WhatsApp — configure o número no painel SAC.</p>
             <div class="attendant-list" id="departmentList"></div>
-            <div class="add-attendant-row" style="flex-wrap:wrap;gap:8px">
-              <input id="newDepartmentName" type="text" placeholder="Nome (ex: SAC, Financeiro)" style="min-width:140px" onkeydown="if(event.key==='Enter')addDepartment()"/>
-              <input id="newDepartmentPhone" type="text" placeholder="Nº WhatsApp para transferir (opcional)" style="min-width:200px" onkeydown="if(event.key==='Enter')addDepartment()"/>
+            <div class="add-attendant-row">
+              <input id="newDepartmentName" type="text" placeholder="Nome (ex: SAC, Financeiro)" style="min-width:180px" onkeydown="if(event.key==='Enter')addDepartment()"/>
               <button class="btn-add-att" onclick="addDepartment()">+ Adicionar</button>
             </div>
             <button class="btn-save-settings" style="margin-top:14px" onclick="saveDepartments()">Salvar departamentos</button>
@@ -624,13 +624,22 @@
     </div>
   </div>
 
-  <!-- Painel: SAC -->
-  <div id="adminPanelSac" class="admin-panel" style="display:none">
-    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
+  <!-- Painel: SAC — único que envia para outro número -->
+  <div id="adminPanelSac" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
+    <div style="max-width:560px;margin:0 auto">
       <div class="settings-title">📩 SAC — Reclamações e Elogios</div>
-      <div class="settings-sub">Em breve — canal dedicado para feedback dos clientes</div>
-      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📬</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 3</div>
+      <div class="settings-sub">O SAC é o único canal que envia notificação para outro número WhatsApp. Transferências para SAC disparam o envio.</div>
+      <div class="settings-card" style="margin-top:20px">
+        <div class="settings-card-head">📱 Número WhatsApp do SAC</div>
+        <div class="settings-card-body">
+          <p style="font-size:13px;color:#555;margin-bottom:12px">Quando uma conversa for transferida para SAC, a notificação será enviada para este número.</p>
+          <div class="settings-field">
+            <label>WhatsApp (com DDD, ex: 5511999999999)</label>
+            <input id="sacPhone" type="text" placeholder="5511999999999" style="max-width:280px"/>
+          </div>
+          <button class="btn-save-settings" onclick="saveSacPhone()">Salvar</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -692,16 +701,16 @@
   </div>
 </div>
 
-<!-- MODAL: BUSCAR CONTATO GOOGLE -->
+<!-- MODAL: CONTATOS (Google + WhatsApp) -->
 <div class="modal-bg" id="modalContacts" style="display:none" onclick="if(event.target===this)closeContacts()">
   <div class="modal" style="max-width:480px">
     <div class="modal-head">
-      <h3>📒 Buscar Contato Google</h3>
+      <h3>📒 Contatos</h3>
       <button onclick="closeContacts()">×</button>
     </div>
     <div class="modal-body">
       <div style="display:flex;gap:8px;margin-bottom:12px">
-        <input id="contactSearchInput" type="text" placeholder="Nome ou telefone..." style="flex:1;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;outline:none"
+        <input id="contactSearchInput" type="text" placeholder="Nome ou telefone (Google + WhatsApp)..." style="flex:1;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;outline:none"
           oninput="searchContactsDebounce()" onkeydown="if(event.key==='Enter')searchContactsNow()"/>
         <button onclick="searchContactsNow()" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px">🔍</button>
       </div>
@@ -863,7 +872,7 @@ async function openTransfer() {
     if (!name) return;
     const o = document.createElement("option");
     o.value = name;
-    o.textContent = d?.transferPhone ? `${name} (→ ${d.transferPhone})` : name;
+    o.textContent = name;
     selDept.appendChild(o);
   });
   document.getElementById("transferDept").value = "";
@@ -1985,7 +1994,7 @@ function adminTab(tab) {
   });
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
-  if (tab === "cfg" || tab === "atend") loadAdminSettings();
+  if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();
 }
 
 // ── ESTATÍSTICAS ──────────────────────────────────────────────
@@ -2154,6 +2163,8 @@ async function loadAdminSettings() {
   document.getElementById("cfg-city").value = d.city || "";
   document.getElementById("cfg-storeId").value = d.cwStoreId || "";
   document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
+  const sacEl = document.getElementById("sacPhone");
+  if (sacEl) sacEl.value = d.sacPhone || "";
   if (!settingsData.departments) settingsData.departments = [];
   renderAttendantList();
   renderDepartmentList();
@@ -2216,11 +2227,9 @@ function renderDepartmentList() {
   }
   el.innerHTML = list.map((d, i) => {
     const name = typeof d === "string" ? d : (d?.name || "");
-    const phone = typeof d === "object" && d?.transferPhone ? d.transferPhone : "";
-    const label = phone ? `📁 ${esc(name)} → ${esc(phone)}` : `📁 ${esc(name)}`;
     return `
     <div class="attendant-item">
-      <span>${label}</span>
+      <span>📁 ${esc(name)}</span>
       <button class="btn-del-att" onclick="removeDepartment(${i})">×</button>
     </div>`;
   }).join("");
@@ -2228,15 +2237,12 @@ function renderDepartmentList() {
 
 function addDepartment() {
   const nameInput = document.getElementById("newDepartmentName");
-  const phoneInput = document.getElementById("newDepartmentPhone");
   const name = nameInput.value.trim();
-  const transferPhone = phoneInput.value.trim() || null;
   if (!name) return;
   if (!settingsData.departments) settingsData.departments = [];
   const exists = settingsData.departments.some((d) => (typeof d === "string" ? d : d?.name) === name);
-  if (!exists) settingsData.departments.push({ name, transferPhone });
+  if (!exists) settingsData.departments.push({ name });
   nameInput.value = "";
-  phoneInput.value = "";
   renderDepartmentList();
 }
 
@@ -2251,6 +2257,16 @@ async function saveDepartments() {
     body: JSON.stringify({ tenantId: TENANT, departments: settingsData.departments || [] }),
   });
   if (r?.ok) alert("✅ Departamentos salvos!");
+  else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+async function saveSacPhone() {
+  const sacPhone = document.getElementById("sacPhone").value.trim();
+  const r = await api("/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ tenantId: TENANT, sacPhone }),
+  });
+  if (r?.ok) alert("✅ Número do SAC salvo!");
   else alert("Erro: " + (r?.error || "Tente novamente"));
 }
 
@@ -2300,11 +2316,22 @@ async function searchContactsNow() {
   if (!q) { el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>'; return; }
   el.innerHTML = '<p style="text-align:center;color:#aaa;font-size:13px;padding:24px">🔍 Buscando...</p>';
 
-  const results = await fetch(`/dash/google-contacts/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`)
-    .then(r => r.json()).catch(() => []);
+  const [googleRes, waRes] = await Promise.all([
+    fetch(`/dash/google-contacts/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`).then(r => r.json()).catch(() => []),
+    fetch(`/dash/customers/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`).then(r => r.json()).catch(() => []),
+  ]);
+
+  const seen = new Set();
+  const results = [];
+  for (const c of [...waRes, ...googleRes]) {
+    const phone = String(c.phone || "").replace(/\D/g, "");
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    results.push({ name: c.name || null, phone: c.phone || phone });
+  }
 
   if (!results.length) {
-    el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Nenhum contato encontrado</p>';
+    el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Nenhum contato encontrado. Busca em Google Contacts e clientes WhatsApp.</p>';
     return;
   }
 

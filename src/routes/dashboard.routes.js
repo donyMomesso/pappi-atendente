@@ -21,6 +21,33 @@ function normalizeDepartment(d) {
   return { name: d?.name || "", transferPhone: d?.transferPhone || null };
 }
 
+// Envia saudação quando humano assume: "Olá, tudo bem? Aqui quem está falando é [nome]. Em que posso te ajudar?"
+async function sendAttendantGreeting(customerId, attendantName, tenantId) {
+  const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!customer) return;
+
+  const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+  const normalizedPhone = PhoneNormalizer.normalize(customer.phone) || customer.phone;
+  const greeting = `Olá, tudo bem? Aqui quem está falando é *${attendantName}*. Em que posso te ajudar?`;
+
+  const replyChannel = await baileys.getReplyChannel(customerId);
+  const useBaileysInstance = replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
+
+  if (useBaileysInstance) {
+    await baileys.sendText(normalizedPhone, greeting, useBaileysInstance, true);
+  } else {
+    try {
+      const { wa } = await getClients(tenantId || customer.tenantId);
+      await wa.sendText(normalizedPhone, greeting);
+    } catch (waErr) {
+      await baileys.sendText(normalizedPhone, greeting, "default", true).catch(() => {});
+    }
+  }
+
+  const chatMemory = require("../services/chat-memory.service");
+  await chatMemory.push(customerId, "attendant", greeting, attendantName, null, "text", null);
+}
+
 // ── GET /dash/auth ─────────────────────────────────────────────
 router.get("/auth", async (req, res) => {
   try {
@@ -185,7 +212,15 @@ router.post("/queue/claim", authDash, async (req, res) => {
   try {
     const { customerId, attendant } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
-    await claimFromQueue(customerId, attendant || req.attendant?.name || "Atendente");
+    const attendantName = attendant || req.attendant?.name || "Atendente";
+    await claimFromQueue(customerId, attendantName);
+
+    try {
+      await sendAttendantGreeting(customerId, attendantName);
+    } catch (greetingErr) {
+      console.error("[Queue/claim] Erro ao enviar saudação:", greetingErr.message);
+    }
+
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
@@ -327,34 +362,39 @@ router.post("/transfer", authDash, async (req, res) => {
       await chatMemory.push(customerId, "bot", `🔄 Transferência — ${parts.join(" | ")}`);
     }
 
-    // Se o departamento tem número de destino, envia notificação por WhatsApp
-    if (department) {
-      const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
-      const raw = cfg ? JSON.parse(cfg.value) : [];
-      const dept = (Array.isArray(raw) ? raw : []).map(normalizeDepartment).find((d) => d.name === department);
-      if (dept?.transferPhone) {
-        const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-        const toPhone = PhoneNormalizer.normalize(dept.transferPhone);
-        if (toPhone) {
-          const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-          if (customer) {
-            const custName = customer.name || "Cliente";
-            const custPhone = customer.phone || "—";
-            const msg = [
-              `🔄 *Transferência para ${department}*`,
-              "",
-              `Cliente: ${custName}`,
-              `Telefone: ${custPhone}`,
-              comment ? `Comentário: ${comment}` : "",
-            ]
-              .filter(Boolean)
-              .join("\n");
-            try {
-              const { wa } = await getClients(tenantId);
-              await wa.sendText(toPhone, msg);
-            } catch (waErr) {
-              await baileys.sendText(toPhone, msg, "default", true).catch(() => {});
-            }
+    if (toAttendant) {
+      try {
+        await sendAttendantGreeting(customerId, toAttendant, tenantId);
+      } catch (greetingErr) {
+        console.error("[Transfer] Erro ao enviar saudação:", greetingErr.message);
+      }
+    }
+
+    // Só o SAC envia para outro número — usa Config sac_phone
+    if (department && department.toUpperCase() === "SAC") {
+      const sacCfg = await prisma.config.findUnique({ where: { key: `${tenantId}:sac_phone` } });
+      const sacPhone = sacCfg?.value ? sacCfg.value.trim() : null;
+      const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+      const toPhone = sacPhone ? PhoneNormalizer.normalize(sacPhone) : null;
+      if (toPhone) {
+        const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+        if (customer) {
+          const custName = customer.name || "Cliente";
+          const custPhone = customer.phone || "—";
+          const msg = [
+            `🔄 *Transferência para SAC*`,
+            "",
+            `Cliente: ${custName}`,
+            `Telefone: ${custPhone}`,
+            comment ? `Comentário: ${comment}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+          try {
+            const { wa } = await getClients(tenantId);
+            await wa.sendText(toPhone, msg);
+          } catch (waErr) {
+            await baileys.sendText(toPhone, msg, "default", true).catch(() => {});
           }
         }
       }
@@ -798,10 +838,11 @@ router.get("/settings", authAdmin, async (req, res) => {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
-    const [attendantsCfg, googleCfg, departmentsCfg] = await Promise.all([
+    const [attendantsCfg, googleCfg, departmentsCfg, sacCfg] = await Promise.all([
       prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }),
       prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }),
       prisma.config.findUnique({ where: { key: `${tenantId}:departments` } }),
+      prisma.config.findUnique({ where: { key: `${tenantId}:sac_phone` } }),
     ]);
 
     const departmentsRaw = departmentsCfg ? JSON.parse(departmentsCfg.value) : [];
@@ -817,6 +858,7 @@ router.get("/settings", authAdmin, async (req, res) => {
       attendants: attendantsCfg ? JSON.parse(attendantsCfg.value) : [],
       googleUsers: googleCfg ? JSON.parse(googleCfg.value) : [],
       departments,
+      sacPhone: sacCfg?.value?.trim() || "",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -827,7 +869,7 @@ router.get("/settings", authAdmin, async (req, res) => {
 router.patch("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
-    const { name, city, attendants, googleUsers, departments } = req.body;
+    const { name, city, attendants, googleUsers, departments, sacPhone } = req.body;
 
     const data = {};
     if (name !== undefined) data.name = name;
@@ -854,15 +896,20 @@ router.patch("/settings", authAdmin, async (req, res) => {
     }
     if (Array.isArray(departments)) {
       const normalized = departments
-        .map((d) => ({
-          name: typeof d === "string" ? d : d?.name || "",
-          transferPhone: typeof d === "object" && d?.transferPhone ? String(d.transferPhone).trim() || null : null,
-        }))
+        .map((d) => ({ name: typeof d === "string" ? d : d?.name || "" }))
         .filter((d) => d.name);
       await prisma.config.upsert({
         where: { key: `${tenantId}:departments` },
         create: { key: `${tenantId}:departments`, value: JSON.stringify(normalized) },
         update: { value: JSON.stringify(normalized) },
+      });
+    }
+    if (sacPhone !== undefined) {
+      const val = String(sacPhone || "").trim();
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:sac_phone` },
+        create: { key: `${tenantId}:sac_phone`, value: val },
+        update: { value: val },
       });
     }
     res.json({ ok: true });
@@ -929,6 +976,29 @@ router.get("/google-contacts/search", authDash, async (req, res) => {
   const q = (req.query.q || "").trim();
   if (!q) return res.json([]);
   res.json(await googleContacts.searchContacts(q));
+});
+
+// Busca clientes do tenant (WhatsApp — quem já interagiu)
+router.get("/customers/search", authDash, async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    if (!q || q.length < 2) return res.json([]);
+    const digits = q.replace(/\D/g, "");
+    const orCond = [];
+    if (q.length >= 2) orCond.push({ name: { contains: q, mode: "insensitive" } });
+    if (digits.length >= 2) orCond.push({ phone: { contains: digits } });
+    if (!orCond.length) return res.json([]);
+    const customers = await prisma.customer.findMany({
+      where: { tenantId, OR: orCond },
+      select: { name: true, phone: true },
+      orderBy: { lastInteraction: "desc" },
+      take: 20,
+    });
+    res.json(customers.map((c) => ({ name: c.name || null, phone: c.phone })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.get("/google-contacts/callback", async (req, res) => {
