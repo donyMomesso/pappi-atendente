@@ -46,14 +46,14 @@
 
     /* ── COL 1: CONVERSAS ── */
     .col-conv{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--orange-ll)}
+    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,var(--orange) 0%,var(--orange-ll) 100%);border-top:2px solid var(--orange)}
     .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--orange);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
     .search-box{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:6px 10px;border:1px solid var(--border)}
     .search-box input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
     .search-box svg{color:#aaa;flex-shrink:0}
     .conv-list{overflow-y:auto;flex:1}
     .conv-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
-    .conv-item:hover{background:var(--purple-ll)}
+    .conv-item:hover{background:var(--orange-ll)}
     .conv-item.active{background:var(--orange-ll);border-left:3px solid var(--orange)}
     .conv-item.handoff{background:#fff3e0;border-left:3px solid var(--orange)}
     .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0;position:relative;overflow:hidden}
@@ -65,7 +65,7 @@
     .conv-sub{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
     .conv-badge{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
     .badge-handoff{background:var(--orange);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
-    .badge-bot{background:var(--violet);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
+    .badge-bot{background:var(--orange);color:#fff;font-size:10px;padding:2px 6px;border-radius:10px}
     .badge-encerrado{background:#888;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:500}
     .badge-fila{background:#f59e0b;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
 
@@ -74,22 +74,22 @@
     .empty-center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#aaa;gap:8px}
     .empty-center .icon{font-size:64px;opacity:.4}
     .empty-center p{font-size:14px}
-    .chat-header{background:var(--brand-grad);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .chat-header{background:var(--brand-grad);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;border-left:4px solid var(--orange)}
     .chat-header .name{font-weight:700;font-size:15px}
     .chat-header .phone{font-size:12px;opacity:.85}
     .chat-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
     .msg{max-width:70%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.4;word-break:break-word}
-    .msg.in{background:#fff;align-self:flex-start;border-bottom-left-radius:4px}
-    .msg.out{background:#dcf8c6;align-self:flex-end;border-bottom-right-radius:4px}
+    .msg.in{background:#fff;align-self:flex-start;border-bottom-left-radius:4px;border-left:3px solid #e0e0e0}
+    .msg.out{background:#dcf8c6;align-self:flex-end;border-bottom-right-radius:4px;border-right:3px solid var(--orange)}
     .msg .time{font-size:10px;color:#aaa;margin-top:4px;text-align:right}
-    .chat-input{background:#f0f0f0;padding:10px 12px;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)}
+    .chat-input{background:#fff;padding:10px 12px;display:flex;align-items:center;gap:8px;border-top:3px solid var(--orange)}
     .chat-input textarea{flex:1;border:none;background:#fff;border-radius:20px;padding:8px 14px;font-size:13px;resize:none;outline:none;max-height:80px}
     .chat-input button{background:var(--purple);color:#fff;border:none;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
     .chat-input button:hover{background:var(--purple-d)}
 
     /* ── COL 3: PAINEL DIREITO ── */
     .col-right{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--orange-ll)}
+    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,var(--orange) 0%,var(--orange-ll) 100%);border-left:3px solid var(--orange)}
     .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
     .client-info{font-size:13px}
     .client-info .cname{font-weight:700;font-size:15px;color:#1a1a1a}
@@ -102,7 +102,7 @@
     .toggle input{opacity:0;width:0;height:0}
     .slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:.3s}
     .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
-    input:checked+.slider{background:var(--purple)}
+    input:checked+.slider{background:var(--orange)}
     input:checked+.slider:before{transform:translateX(18px)}
 
     /* pedidos */
@@ -165,7 +165,7 @@
     .cart-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f5f5f5}
     .cart-item .ci-name{flex:1;font-size:13px;color:#333}
     .cart-item .ci-qty{display:flex;align-items:center;gap:6px}
-    .ci-qty button{background:#f0e8ff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:14px;font-weight:700;color:var(--purple);line-height:1}
+    .ci-qty button{background:var(--orange-ll);border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:14px;font-weight:700;color:var(--orange);line-height:1}
     .ci-qty span{font-size:13px;font-weight:600;min-width:16px;text-align:center}
     .cart-item .ci-price{font-size:13px;font-weight:700;color:var(--purple);min-width:60px;text-align:right}
     .cart-item .ci-remove{background:none;border:none;color:#ccc;cursor:pointer;font-size:16px;padding:0 4px}
@@ -290,26 +290,27 @@
     #sidebar .sidebar-tenant{font-weight:600;color:var(--orange);margin-bottom:4px}
     #sidebar .sidebar-logout{color:var(--orange);cursor:pointer;margin-top:6px;display:inline-block}
     #sidebar .sidebar-logout:hover{text-decoration:underline;color:#ff8c5a}
-    #mainArea{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-    #mainArea .main-header{flex-shrink:0}
+    #mainArea{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;border-left:3px solid var(--orange)}
+    #mainArea .main-header{flex-shrink:0;border-bottom:4px solid var(--orange)}
     #mainArea .main-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+    .layout{border-top:3px solid var(--orange)}
 
     /* ── ADMIN ── */
     #viewAdmin{background:#f5f5f5}
     .admin-tab{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;transition:.2s;white-space:nowrap}
     .admin-tab:hover{background:rgba(255,255,255,.2)}
-    .admin-tab.active{background:#fff;color:var(--purple)}
+    .admin-tab.active{background:#fff;color:var(--orange)}
     .analise-checklist-item{padding:10px 16px;font-size:12px;cursor:pointer;color:#333;border-bottom:1px solid #f0f0f0;transition:background .15s}
     .analise-checklist-item:hover{background:#f5f5f5}
     .analise-checklist-item:last-child{border-bottom:none}
     .admin-panel{flex:1;overflow-y:auto}
     .kpi-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center}
-    .kpi-card .kpi-val{font-size:28px;font-weight:800;color:var(--purple);margin-bottom:4px}
+    .kpi-card .kpi-val{font-size:28px;font-weight:800;color:var(--orange);margin-bottom:4px}
     .kpi-card .kpi-lbl{font-size:12px;color:#888}
     .status-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
     .status-bar-row .sb-label{font-size:12px;color:#555;min-width:120px}
     .status-bar-row .sb-track{flex:1;height:10px;background:#f0f0f0;border-radius:10px;overflow:hidden}
-    .status-bar-row .sb-fill{height:100%;border-radius:10px;background:var(--purple);transition:.4s}
+    .status-bar-row .sb-fill{height:100%;border-radius:10px;background:var(--orange);transition:.4s}
     .status-bar-row .sb-count{font-size:12px;font-weight:700;color:#333;min-width:24px;text-align:right}
 
     /* scrollbars */
@@ -466,7 +467,7 @@
 
     <!-- COL 1: CONVERSAS -->
     <div class="col-conv">
-      <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--violet-l)">
+      <div class="col-header" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--orange-ll)">
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
           <div class="search-box" style="flex:1">
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -754,7 +755,7 @@
             <div style="padding:8px 12px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px;background:#fafafa">
               <input type="checkbox" id="broadcastSelectAll" onchange="toggleBroadcastSelectAll()"/>
               <span style="font-size:12px;font-weight:600">Selecionar lote</span>
-              <button type="button" style="margin-left:auto;padding:4px 10px;font-size:11px;background:var(--violet);color:#fff;border:none;border-radius:6px;cursor:pointer" onclick="addSelectedContactsToBroadcast()">Adicionar selecionados</button>
+              <button type="button" style="margin-left:auto;padding:4px 10px;font-size:11px;background:var(--orange);color:#fff;border:none;border-radius:6px;cursor:pointer" onclick="addSelectedContactsToBroadcast()">Adicionar selecionados</button>
             </div>
             <div id="broadcastContactsItems"></div>
           </div>
@@ -1035,7 +1036,7 @@ function showWaDisconnectAlert(instanceId, reason) {
       <p style="margin:0 0 12px;font-size:12px;color:#666">Motivo: ${esc(reason)}</p>
       ${extra440}
       <p style="margin:0 0 20px;font-size:12px;color:#888">Reconexão automática em andamento. Caso não reconecte, vá em Configurações → WhatsApp Interno e clique em Conectar.</p>
-      <button onclick="this.closest('#wa-disconnect-overlay').remove()" style="width:100%;background:var(--violet);color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer">Entendi</button>
+      <button onclick="this.closest('#wa-disconnect-overlay').remove()" style="width:100%;background:var(--orange);color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer">Entendi</button>
     </div>
   `;
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -2759,7 +2760,7 @@ async function searchContactsNow() {
     const label = displayName || "Sem nome";
     const aid = "contact-avatar-" + ts + "-" + i;
     return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f5f5f5;cursor:pointer;border-radius:8px;transition:.15s"
-      onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background=''"
+      onmouseenter="this.style.background='var(--orange-ll)'" onmouseleave="this.style.background=''"
       onclick="startConvFromContact('${esc(displayName||"")}','${esc(c.phone)}')">
       <div id="${aid}" class="avatar contact-avatar" data-phone="${esc(c.phone)}" style="width:36px;height:36px;font-size:14px">${(label||c.phone||"?")[0].toUpperCase()}</div>
       <div style="flex:1;min-width:0">
@@ -2943,7 +2944,7 @@ async function gcConnect() {
 	                <li>Aponte a câmera para o QR Code ao lado.</li>
 	                <li>Aguarde a sincronização.</li>
 	              </ol>
-	              <p style="font-size:11px;color:#888;margin-top:14px"><button type="button" onclick="waIntRefresh()" style="background:none;border:none;color:var(--violet);cursor:pointer;text-decoration:underline;padding:0;font-size:11px">Escaneie depois</button></p>
+	              <p style="font-size:11px;color:#888;margin-top:14px"><button type="button" onclick="waIntRefresh()" style="background:none;border:none;color:var(--orange);cursor:pointer;text-decoration:underline;padding:0;font-size:11px">Escaneie depois</button></p>
 	            </div>
 	            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);flex-shrink:0">
 	              <p style="font-size:11px;color:#888;margin:0 0 8px;text-align:center;font-weight:600">Escaneie o QR Code</p>
@@ -2973,7 +2974,7 @@ async function gcConnect() {
 	        <div style="display:flex;align-items:center;gap:8px">
 	          ${isConn
 	            ? `<button style="flex:1;background:#e53935;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntDisconnect('${inst.id}')">Desconectar</button>`
-	            : `<button style="flex:1;background:var(--violet);color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntConnect('${inst.id}')">Conectar</button>`
+	            : `<button style="flex:1;background:var(--orange);color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntConnect('${inst.id}')">Conectar</button>`
 	          }
 	          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;font-weight:700;color:#555">
 	            <label class="toggle" style="margin:0">
