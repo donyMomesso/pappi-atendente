@@ -273,8 +273,10 @@
     #sidebar.sidebar-collapsed .sidebar-item{padding:12px;justify-content:center}
     #sidebar.sidebar-collapsed .sidebar-sep{margin:6px 8px}
     #sidebar.sidebar-collapsed .sidebar-foot{text-align:center;padding:8px}
-    #sidebar .sidebar-logo{padding:16px;border-bottom:1px solid rgba(255,107,53,.2);display:flex;align-items:center;gap:10px;background:rgba(255,107,53,.08)}
-    #sidebar .sidebar-logo img{height:36px;width:auto;object-fit:contain;border-radius:6px;flex-shrink:0}
+    #sidebar .sidebar-logo{padding:14px 16px;border-bottom:1px solid rgba(255,107,53,.2);display:flex;align-items:center;gap:10px;background:rgba(255,107,53,.08)}
+    #sidebar .sidebar-logo img{height:44px;width:auto;max-width:130px;object-fit:contain;border-radius:6px;flex-shrink:0}
+    #sidebar .sidebar-section{font-size:10px;font-weight:700;letter-spacing:.08em;color:rgba(255,107,53,.6);text-transform:uppercase;padding:10px 16px 3px;margin-top:2px}
+    #sidebar.sidebar-collapsed .sidebar-section{display:none!important}
     #sidebar .sidebar-toggle{background:var(--orange);border:none;color:#fff;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-left:auto;font-size:14px;transition:.2s}
     #sidebar .sidebar-toggle:hover{background:var(--orange-d);transform:rotate(90deg)}
     #sidebar.sidebar-collapsed .sidebar-toggle{margin-left:0;transform:rotate(-90deg)}
@@ -329,7 +331,7 @@
     @media (max-width: 768px) {
       body{overflow-x:hidden}
       #sidebar{width:64px!important;min-width:64px!important}
-      #sidebar .sidebar-text,#sidebar .sidebar-logo span:not(.sidebar-toggle),#sidebar .sidebar-tenant,#sidebar .sidebar-foot > span{display:none!important}
+      #sidebar .sidebar-text,#sidebar .sidebar-logo span:not(.sidebar-toggle),#sidebar .sidebar-tenant,#sidebar .sidebar-foot > span,#sidebar .sidebar-section{display:none!important}
       #sidebar .sidebar-logo{justify-content:center}
       #sidebar .sidebar-item{justify-content:center;padding:12px}
       #sidebar .sidebar-foot{text-align:center}
@@ -405,26 +407,28 @@
   <div class="app-wrap">
     <aside id="sidebar">
       <div class="sidebar-logo">
-        <img src="/logo.png" alt="" onerror="this.style.display='none'"/>
-        <span style="font-weight:700;font-size:15px">Pappi</span>
+        <img src="/logo.png" alt="Pappi Atendimento" onerror="this.style.display='none'"/>
         <button type="button" class="sidebar-toggle" id="sidebarToggleBtn" onclick="toggleSidebar()" title="Recolher/Expandir menu">◀</button>
       </div>
       <nav class="sidebar-nav">
+        <div class="sidebar-section">Atendimento</div>
         <a class="sidebar-item active" href="#" onclick="navTo('chat');return false" id="navChat"><span>💬</span><span class="sidebar-text">Chat</span></a>
-        <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos"><span>📋</span><span class="sidebar-text">Pedidos</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('chat');setConvFilter('human');return false"><span>🔔</span><span class="sidebar-text">Notificações</span><span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos"><span>📦</span><span class="sidebar-text">Pedidos</span></a>
         <a class="sidebar-item" href="#" onclick="openContacts();return false"><span>📒</span><span class="sidebar-text">Contatos</span></a>
         <div class="sidebar-sep"></div>
+        <div class="sidebar-section">Análise</div>
         <a class="sidebar-item" href="#" onclick="navTo('visao');return false" id="navVisao"><span>📊</span><span class="sidebar-text">Visão geral</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('stats');return false" id="navStats"><span>📈</span><span class="sidebar-text">Estatísticas</span></a>
-        <a class="sidebar-item" href="#" onclick="navTo('rel');return false" id="navRel"><span>📋</span><span class="sidebar-text">Relatórios</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('rel');return false" id="navRel"><span>📄</span><span class="sidebar-text">Relatórios</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('audit');return false" id="navAudit"><span>🔍</span><span class="sidebar-text">Auditoria</span></a>
-        <div class="sidebar-sep"></div>
+        <div class="sidebar-sep admin-only" id="adminSep" style="display:none"></div>
+        <div class="sidebar-section admin-only" id="adminLabel" style="display:none">Admin</div>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none"><span>📤</span><span class="sidebar-text">Transmissão</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('sac');return false" id="navSac" style="display:none"><span>📩</span><span class="sidebar-text">SAC</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('usuarios');return false" id="navUsuarios" style="display:none"><span>👥</span><span class="sidebar-text">Usuários</span></a>
-        <a class="sidebar-item" href="#" onclick="navTo('config');return false" id="navConfig"><span>⚙️</span><span class="sidebar-text">Configurações</span></a>
         <div class="sidebar-sep"></div>
-        <a class="sidebar-item" href="#" onclick="navTo('chat');setConvFilter('human');return false"><span>🔔</span><span class="sidebar-text">Notificações</span> <span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('config');return false" id="navConfig"><span>⚙️</span><span class="sidebar-text">Configurações</span></a>
         <a class="sidebar-item" href="https://pappiatendente.com.br" target="_blank" rel="noopener"><span>❓</span><span class="sidebar-text">Ajuda</span></a>
       </nav>
       <div class="sidebar-foot">
@@ -1317,7 +1321,7 @@ function applyRole() {
     badge.style.color = isAdmin ? "#ffe066" : "#fff"; }
   const hName = document.getElementById("h-user-name");
   if (hName) hName.textContent = ATTENDANT_NAME;
-  ["navTransmissao","navSac","navUsuarios"].forEach(id => {
+  ["navTransmissao","navSac","navUsuarios","adminSep","adminLabel"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAdmin ? "" : "none";
   });
