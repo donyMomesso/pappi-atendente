@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>Pappi Atendente</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -33,8 +33,9 @@
 
     /* ── HEADER ── */
     header{background:var(--brand-grad);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-    header .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
-    header .brand span{font-size:22px}
+    header .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+    header .brand .brand-logo{height:40px;width:auto;object-fit:contain;border-radius:6px}
+    header .brand .brand-fallback{font-size:22px}
     header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
     header .stat{display:flex;align-items:center;gap:4px}
     header .stat strong{font-size:15px;font-weight:700}
@@ -55,8 +56,10 @@
     .conv-item:hover{background:var(--purple-ll)}
     .conv-item.active{background:var(--violet-l);border-left:3px solid var(--violet)}
     .conv-item.handoff{background:#fff3e0;border-left:3px solid var(--orange)}
-    .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
+    .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0;position:relative;overflow:hidden}
     .avatar.orange{background:var(--orange)}
+    .avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
+    .avatar .avatar-letter{position:relative;z-index:0}
     .conv-info{flex:1;min-width:0}
     .conv-name{font-size:14px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .conv-sub{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
@@ -280,6 +283,48 @@
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px}
+
+    /* ── RESPONSIVO ── */
+    @media (max-width: 1200px) {
+      .layout{grid-template-columns:240px 1fr 260px}
+    }
+    @media (max-width: 992px) {
+      .layout{grid-template-columns:200px 1fr;grid-template-rows:1fr auto}
+      .col-right{grid-column:1/-1;border-left:none;border-top:1px solid var(--border);max-height:280px}
+    }
+    @media (max-width: 768px) {
+      body{overflow-x:hidden}
+      .layout{grid-template-columns:1fr;grid-template-rows:1fr auto}
+      .col-conv{min-height:200px;max-height:45vh}
+      .col-center{min-height:300px}
+      .col-right{max-height:220px}
+      header{flex-wrap:wrap;height:auto;min-height:54px;padding:10px 12px;gap:8px}
+      header .stats{flex-wrap:wrap;gap:8px;margin-left:0;width:100%;order:3}
+      header .stat{font-size:11px}
+      header .stat strong{font-size:13px}
+      .login-box{width:min(340px, calc(100vw - 32px));padding:24px 20px}
+      #viewAdmin > div:first-child{flex-wrap:wrap}
+      #adminTabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex:1;min-width:0;padding-bottom:4px}
+      .admin-tab{font-size:11px;padding:8px 12px}
+      .settings-grid{grid-template-columns:1fr;max-width:100%}
+      #waIntContainer{grid-template-columns:1fr}
+      .modal{max-width:calc(100vw - 32px);margin:8px}
+      .options-modal{max-width:calc(100vw - 32px)}
+      .grid2{grid-template-columns:1fr}
+      .kpi-card .kpi-val{font-size:22px}
+      #adminDashCards{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+    }
+    @media (max-width: 480px) {
+      .col-conv .col-header{padding:8px 10px}
+      .conv-item{padding:10px 12px}
+      .avatar{width:36px;height:36px;font-size:13px}
+      .chat-header{padding:10px 12px}
+      .chat-body{padding:12px}
+      .msg{max-width:85%;font-size:12px}
+      .order-card{margin:6px 8px}
+      .settings-card-head{font-size:12px;padding:12px 14px}
+      .btn-save-settings{padding:10px 16px;font-size:12px}
+    }
   </style>
 </head>
 <body>
@@ -302,9 +347,11 @@
 
     <!-- Modo chave (fallback admin) -->
     <div id="loginKey" style="display:none">
-      <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
-      <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
-      <button onclick="doLogin()">Entrar</button>
+      <form onsubmit="doLogin(); return false" autocomplete="off">
+        <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
+        <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
+        <button type="submit">Entrar</button>
+      </form>
       <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
       <div style="margin-top:12px;text-align:center">
         <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showGoogleMode(event)">← Voltar</a>
@@ -315,7 +362,11 @@
 
 <!-- HEADER -->
 <header id="header" style="display:none">
-  <div class="brand"><span>🍕</span> Pappi Atendente</div>
+  <div class="brand">
+    <img src="/logo.png" alt="" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"/>
+    <span class="brand-fallback" style="display:none">🍕</span>
+    Pappi Atendente
+  </div>
   <div class="stats">
     <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
     <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
@@ -413,10 +464,6 @@
         <label style="font-size:13px;font-weight:600;color:#444;display:block;margin-bottom:6px">Transferir para departamento</label>
         <select id="transferDept" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;background:#fafafa;appearance:auto">
           <option value="">— Selecione —</option>
-          <option value="Atendimento">Atendimento</option>
-          <option value="Financeiro">Financeiro</option>
-          <option value="Suporte">Suporte</option>
-          <option value="Gerência">Gerência</option>
         </select>
       </div>
       <div>
@@ -448,6 +495,7 @@
       <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📋 Relatórios</button>
       <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
       <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
+      <button class="admin-tab"        id="atAtend"     onclick="adminTab('atend')">👥 Administrar Atendente</button>
       <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
     </div>
   </div>
@@ -541,6 +589,41 @@
     </div>
   </div>
 
+  <!-- Painel: Administrar Atendente (Setor + Atendentes) -->
+  <div id="adminPanelAtend" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
+    <div style="max-width:860px;margin:0 auto">
+      <div class="settings-title">👥 Administrar Atendente</div>
+      <div class="settings-sub">Configure departamentos (setores) e atendentes autorizados.</div>
+      <div class="settings-grid" style="margin-top:20px">
+        <div class="settings-card">
+          <div class="settings-card-head">🔄 Departamentos (Setores)</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados. Opcionalmente, informe um número WhatsApp para receber notificação quando houver transferência.</p>
+            <div class="attendant-list" id="departmentList"></div>
+            <div class="add-attendant-row" style="flex-wrap:wrap;gap:8px">
+              <input id="newDepartmentName" type="text" placeholder="Nome (ex: SAC, Financeiro)" style="min-width:140px" onkeydown="if(event.key==='Enter')addDepartment()"/>
+              <input id="newDepartmentPhone" type="text" placeholder="Nº WhatsApp para transferir (opcional)" style="min-width:200px" onkeydown="if(event.key==='Enter')addDepartment()"/>
+              <button class="btn-add-att" onclick="addDepartment()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveDepartments()">Salvar departamentos</button>
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-head">👤 Atendentes Autorizados</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Nomes dos atendentes que podem ser atribuídos aos chamados.</p>
+            <div class="attendant-list" id="attendantList"></div>
+            <div class="add-attendant-row">
+              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
+              <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel: SAC -->
   <div id="adminPanelSac" class="admin-panel" style="display:none">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
@@ -555,7 +638,7 @@
   <div id="adminPanelCfg" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:860px;margin:0 auto">
       <div class="settings-title">⚙️ Configurações</div>
-      <div class="settings-sub">Gerencie os dados da empresa e os atendentes autorizados.</div>
+      <div class="settings-sub">Dados da empresa, usuários Google e integrações.</div>
       <div class="settings-grid" style="margin-top:0">
         <div class="settings-card">
           <div class="settings-card-head">🏪 Dados da Empresa</div>
@@ -565,17 +648,6 @@
             <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
             <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
             <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-head">👥 Atendentes Autorizados</div>
-          <div class="settings-card-body">
-            <div class="attendant-list" id="attendantList"></div>
-            <div class="add-attendant-row">
-              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
-              <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
-            </div>
-            <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
           </div>
         </div>
         <div class="settings-card" style="grid-column:1/-1">
@@ -693,7 +765,9 @@ let convFilter = "all"; // "all" | "bot" | "human" — padrão: Todos (ver todas
 let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
+let orderTroco = null;
 let refreshTimer = null;
+let waIntRefreshTimer = null;
 
 // ── WEBSOCKET (tempo real) ─────────────────────────────────────
 let _socket = null;
@@ -770,17 +844,27 @@ async function finalizarConversa(customerId) {
 // ── TRANSFERÊNCIA DE CONVERSA ──────────────────────────────────
 async function openTransfer() {
   if (!selectedCustomer) return;
-  // Carrega lista de atendentes
-  const sel = document.getElementById("transferAttendant");
-  sel.innerHTML = '<option value="">— Qualquer atendente disponível —</option>';
-  const list = await api("/attendants").catch(() => []);
-  (list || []).forEach(a => {
+  const selAtt = document.getElementById("transferAttendant");
+  selAtt.innerHTML = '<option value="">— Qualquer atendente disponível —</option>';
+  const attList = await api("/attendants").catch(() => []);
+  (attList || []).forEach(a => {
     if (a.name !== ATTENDANT_NAME) {
       const o = document.createElement("option");
       o.value = a.name;
       o.textContent = a.name + (a.role === "admin" ? " (admin)" : "");
-      sel.appendChild(o);
+      selAtt.appendChild(o);
     }
+  });
+  const selDept = document.getElementById("transferDept");
+  selDept.innerHTML = '<option value="">— Selecione —</option>';
+  const deptList = await api("/departments").catch(() => []);
+  (deptList || []).forEach(d => {
+    const name = typeof d === "string" ? d : (d?.name || "");
+    if (!name) return;
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = d?.transferPhone ? `${name} (→ ${d.transferPhone})` : name;
+    selDept.appendChild(o);
   });
   document.getElementById("transferDept").value = "";
   document.getElementById("transferComment").value = "";
@@ -992,9 +1076,14 @@ function renderConvs(list) {
       : isHandoff
       ? `<span class="badge-handoff">🙋 Humano</span>`
       : `<span class="badge-bot">🤖 Bot</span>`;
+    const letter = (c.name||c.phoneFormatted||"?")[0].toUpperCase();
+    const avatarUrl = `/dash/customer/${c.id}/avatar?tenant=${encodeURIComponent(TENANT)}&key=${encodeURIComponent(API_KEY)}`;
     return `
     <div class="conv-item${selectedCustomer?.id===c.id?" active":""}${isHandoff?" handoff":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
-      <div class="avatar${isHandoff?" orange":""}">${(c.name||c.phoneFormatted||"?")[0].toUpperCase()}</div>
+      <div class="avatar${isHandoff?" orange":""}">
+        <img src="${avatarUrl}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
+        <span class="avatar-letter">${letter}</span>
+      </div>
       <div class="conv-info">
         <div class="conv-name">${esc(c.name)}</div>
         <div class="conv-sub">${esc(c.phoneFormatted)}${c.lastOrder?" · "+statusLabel(c.lastOrder.status):""}</div>
@@ -1107,10 +1196,15 @@ function appendLastOrder(body, order) {
 
 function renderCenter(c) {
   const botOn = !c.handoff;
+  const letter = (c.name||"?")[0].toUpperCase();
+  const avatarUrl = `/dash/customer/${c.id}/avatar?tenant=${encodeURIComponent(TENANT)}&key=${encodeURIComponent(API_KEY)}`;
   const el = document.getElementById("colCenter");
   el.innerHTML = `
     <div class="chat-header">
-      <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">${(c.name||"?")[0].toUpperCase()}</div>
+      <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">
+        <img src="${avatarUrl}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
+        <span class="avatar-letter">${letter}</span>
+      </div>
       <div style="flex:1;min-width:0">
         <div class="name">${esc(c.name)}</div>
         <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
@@ -1256,9 +1350,13 @@ function openOrder() {
     neighborhood: selectedCustomer.lastNeighborhood||"",
     complement: selectedCustomer.lastComplement||"",
     city: selectedCustomer.lastCity||"Campinas",
-    state: "SP"
+    state: "SP",
+    zipCode: "",
+    lat: selectedCustomer.lastLat,
+    lng: selectedCustomer.lastLng
   } : {};
   orderPayment = null;
+  orderTroco = null;
   // Abre inline no col-center em vez de popup
   const el = document.getElementById("colCenter");
   el.innerHTML = `
@@ -1302,6 +1400,13 @@ function nextStep() {
     if (!cart.length) { alert("Adicione pelo menos um item"); return; }
     orderStep = 2;
   } else if (orderStep === 2) {
+    if (orderFulfillment === "delivery") {
+      const z = (orderAddress.zipCode||orderAddress.postal_code||"").replace(/\D/g,"");
+      if (!orderAddress.street?.trim() || !orderAddress.number?.trim() || !orderAddress.neighborhood?.trim() || !orderAddress.city?.trim() || z.length < 8) {
+        alert("Preencha todos os campos obrigatórios do endereço (CEP, Rua, Número, Bairro, Cidade)");
+        return;
+      }
+    }
     orderStep = 3;
   } else {
     confirmOrder();
@@ -1559,6 +1664,10 @@ function renderAddressStep(body) {
     </div>
     ${orderFulfillment==='delivery'?`
     <div class="grid2">
+      <div class="field-group">
+        <label>CEP *</label>
+        <input id="a-cep" value="${esc((orderAddress.zipCode||orderAddress.postal_code||"").replace(/(\d{5})(\d{3})/,'$1-$2'))}" placeholder="00000-000" maxlength="9" oninput="orderAddress.zipCode=this.value.replace(/\D/g,'').slice(0,8);this.value=orderAddress.zipCode.replace(/(\d{5})(\d)/,'$1-$2')" onblur="fetchCep(this.value)"/>
+      </div>
       <div class="field-group" style="grid-column:1/-1">
         <label>Rua *</label>
         <input id="a-street" value="${esc(orderAddress.street||"")}" placeholder="Ex: Rua das Flores" oninput="orderAddress.street=this.value"/>
@@ -1580,8 +1689,8 @@ function renderAddressStep(body) {
         <input id="a-city" value="${esc(orderAddress.city||"Campinas")}" oninput="orderAddress.city=this.value"/>
       </div>
       <div class="field-group">
-        <label>UF</label>
-        <input id="a-state" value="${esc(orderAddress.state||"SP")}" maxlength="2" oninput="orderAddress.state=this.value.toUpperCase()"/>
+        <label>UF *</label>
+        <input id="a-state" value="${esc(orderAddress.state||"SP")}" maxlength="2" placeholder="SP" oninput="orderAddress.state=this.value.toUpperCase()"/>
       </div>
     </div>`:"<p style='text-align:center;padding:24px;color:#888;font-size:13px'>Cliente retira no local — sem endereço necessário.</p>"}
   `;
@@ -1589,13 +1698,31 @@ function renderAddressStep(body) {
 
 function setFulfillment(f) { orderFulfillment = f; renderStep(); }
 
+async function fetchCep(cep) {
+  const c = (cep||"").replace(/\D/g,"");
+  if (c.length !== 8) return;
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${c}/json/`);
+    const d = await r.json();
+    if (d.erro) return;
+    orderAddress.street = d.logradouro || orderAddress.street || "";
+    orderAddress.neighborhood = d.bairro || orderAddress.neighborhood || "";
+    orderAddress.city = d.localidade || orderAddress.city || "";
+    orderAddress.state = d.uf || orderAddress.state || "";
+    const es = document.getElementById("a-street"); if (es) es.value = orderAddress.street;
+    const en = document.getElementById("a-neigh"); if (en) en.value = orderAddress.neighborhood;
+    const ec = document.getElementById("a-city"); if (ec) ec.value = orderAddress.city;
+    const eu = document.getElementById("a-state"); if (eu) eu.value = orderAddress.state;
+  } catch (_) {}
+}
+
 function renderPaymentStep(body) {
   const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
   body.innerHTML = `
     <div class="field-group">
       <label>Resumo do pedido</label>
       <div style="background:var(--purple-ll);border-radius:8px;padding:12px;font-size:13px">
-        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
+        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}${(i.options||[]).length?` (${i.options.map(o=>esc(o.name)).join(", ")})`:""}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
         <div style="border-top:1px solid #ddd;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-weight:700">
           <span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span>
         </div>
@@ -1612,14 +1739,21 @@ function renderPaymentStep(body) {
         `).join("")}
       </div>
     </div>
+    ${orderPayment&&/dinheiro|dinero|cash/i.test(orderPayment.name||orderPayment.payment_method||"")?`
+    <div class="field-group">
+      <label>Troco para quanto? <span style="font-weight:400;color:#888">(opcional)</span></label>
+      <input type="text" id="orderTrocoInput" placeholder="Ex: 200" value="${orderTroco||""}" oninput="orderTroco=this.value.replace(/[^0-9,]/g,'').replace(',','.')"/>
+    </div>`:""}
   `;
 }
 
-function selectPayment(p) { orderPayment = p; renderStep(); }
+function selectPayment(p) { orderPayment = p; const inp=document.getElementById('orderTrocoInput'); if(inp) orderTroco=inp.value; renderStep(); }
 
 async function confirmOrder() {
   if (!orderPayment) { alert("Selecione a forma de pagamento"); return; }
   if (!selectedCustomer) return;
+  const trocoInp = document.getElementById("orderTrocoInput");
+  if (trocoInp) orderTroco = trocoInp.value?.replace(/[^0-9,.]/g, "").replace(",", ".") || null;
 
   const btn = document.getElementById("btnNext");
   btn.textContent = "Enviando...";
@@ -1637,6 +1771,8 @@ async function confirmOrder() {
       options: (i.options||[]).map(o => ({
         option_group_id: o.option_group_id,
         option_id: o.option_id,
+        name: o.name || "",
+        unit_price: parseFloat(o.price||0),
         quantity: 1,
       })),
     })),
@@ -1646,6 +1782,7 @@ async function confirmOrder() {
     paymentMethodName: orderPayment.name || orderPayment.payment_method,
     deliveryFee: 0,
     discount: 0,
+    trocoPara: orderTroco || null,
   };
 
   const result = await api("/order", { method:"POST", body: JSON.stringify(body) });
@@ -1761,7 +1898,7 @@ function startRefresh() {
 }
 
 // ── ADMIN ──────────────────────────────────────────────────────
-let settingsData = { attendants: [] };
+let settingsData = { attendants: [], departments: [] };
 let currentAdminTab = "dash";
 
 // ── KANBAN ───────────────────────────────────────────────────
@@ -1834,12 +1971,12 @@ function closeAdmin() {
   document.getElementById("viewAdmin").style.display = "none";
   document.getElementById("header").style.display = "flex";
   document.getElementById("app").style.display = "block";
-  clearInterval(waIntTimer); waIntTimer = null;
+  if (waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
 }
 
 function adminTab(tab) {
   currentAdminTab = tab;
-  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
+  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", atend:"Atend", cfg:"Cfg" };
   Object.entries(tabIds).forEach(([k, v]) => {
     const btn = document.getElementById("at"+v);
     const panel = document.getElementById("adminPanel"+v);
@@ -1848,7 +1985,7 @@ function adminTab(tab) {
   });
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
-  if (tab === "cfg")   loadAdminSettings();
+  if (tab === "cfg" || tab === "atend") loadAdminSettings();
 }
 
 // ── ESTATÍSTICAS ──────────────────────────────────────────────
@@ -2017,7 +2154,9 @@ async function loadAdminSettings() {
   document.getElementById("cfg-city").value = d.city || "";
   document.getElementById("cfg-storeId").value = d.cwStoreId || "";
   document.getElementById("cfg-waPhone").value = d.waPhoneNumberId || "";
+  if (!settingsData.departments) settingsData.departments = [];
   renderAttendantList();
+  renderDepartmentList();
   renderGoogleUserList();
   gcRefreshStatus();
   waIntRefresh();
@@ -2066,6 +2205,53 @@ function addAttendant() {
 function removeAttendant(idx) {
   settingsData.attendants.splice(idx, 1);
   renderAttendantList();
+}
+
+function renderDepartmentList() {
+  const el = document.getElementById("departmentList");
+  const list = settingsData.departments || [];
+  if (!list.length) {
+    el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum departamento. Adicione para aparecer no transferir.</p>';
+    return;
+  }
+  el.innerHTML = list.map((d, i) => {
+    const name = typeof d === "string" ? d : (d?.name || "");
+    const phone = typeof d === "object" && d?.transferPhone ? d.transferPhone : "";
+    const label = phone ? `📁 ${esc(name)} → ${esc(phone)}` : `📁 ${esc(name)}`;
+    return `
+    <div class="attendant-item">
+      <span>${label}</span>
+      <button class="btn-del-att" onclick="removeDepartment(${i})">×</button>
+    </div>`;
+  }).join("");
+}
+
+function addDepartment() {
+  const nameInput = document.getElementById("newDepartmentName");
+  const phoneInput = document.getElementById("newDepartmentPhone");
+  const name = nameInput.value.trim();
+  const transferPhone = phoneInput.value.trim() || null;
+  if (!name) return;
+  if (!settingsData.departments) settingsData.departments = [];
+  const exists = settingsData.departments.some((d) => (typeof d === "string" ? d : d?.name) === name);
+  if (!exists) settingsData.departments.push({ name, transferPhone });
+  nameInput.value = "";
+  phoneInput.value = "";
+  renderDepartmentList();
+}
+
+function removeDepartment(idx) {
+  settingsData.departments.splice(idx, 1);
+  renderDepartmentList();
+}
+
+async function saveDepartments() {
+  const r = await api("/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ tenantId: TENANT, departments: settingsData.departments || [] }),
+  });
+  if (r?.ok) alert("✅ Departamentos salvos!");
+  else alert("Erro: " + (r?.error || "Tente novamente"));
 }
 
 async function saveCompany() {
@@ -2220,12 +2406,16 @@ async function gcConnect() {
 
 	// ── MULTI-WHATSAPP (BAILEYS) ──────────────────────────────────
 	let waIntInstances = [];
-	let waIntRefreshTimer = null;
+	let waIntTenants = [];
 
 	async function waIntRefresh() {
-	  const data = await api("/baileys/instances");
+	  const [data, tenants] = await Promise.all([
+	    api("/baileys/instances"),
+	    api("/tenants").catch(() => []),
+	  ]);
 	  if (!data) return;
 	  waIntInstances = data;
+	  waIntTenants = Array.isArray(tenants) ? tenants : [];
 	  renderWaIntInstances();
 	  // Auto-refresh durante QR/connecting
 	  const hasActive = data.some(d => d.status === "qr" || d.status === "connecting");
@@ -2272,7 +2462,7 @@ async function gcConnect() {
 	        ${isQr ? `
 	          <div style="text-align:center">
 	            <p style="font-size:11px;color:#888;margin-bottom:6px">Escaneie para conectar</p>
-	            <img src="${inst.qr}" style="width:150px;height:150px;border:1px solid #ddd;padding:4px;background:#fff"/>
+	            <img src="${inst.qrUrl ? inst.qrUrl + '?tenant=' + encodeURIComponent(TENANT) + '&key=' + encodeURIComponent(API_KEY) : inst.qr}" data-fallback="${inst.qr || ''}" style="width:150px;height:150px;border:1px solid #ddd;padding:4px;background:#fff" onerror="var f=this.getAttribute('data-fallback');if(f){this.onerror=null;this.src=f}"/>
 	          </div>
 	        ` : ''}
 	        ${inst.usage ? `
@@ -2287,6 +2477,13 @@ async function gcConnect() {
 	            </div>
 	          </div>
 	        ` : ''}
+	        <div style="font-size:11px;color:#666">
+	          <label style="display:block;margin-bottom:4px">Tenant (quem responde):</label>
+	          <select onchange="waIntSetTenant('${inst.id}',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff">
+	            <option value="">— Primeiro ativo —</option>
+	            ${(waIntTenants||[]).map(t=>`<option value="${t.id}" ${inst.instanceTenant===t.id?'selected':''}>${(t.name||t.id)}</option>`).join('')}
+	          </select>
+	        </div>
 	        <div style="display:flex;align-items:center;gap:8px">
 	          ${isConn
 	            ? `<button style="flex:1;background:#e53935;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer" onclick="waIntDisconnect('${inst.id}')">Desconectar</button>`
@@ -2330,6 +2527,15 @@ async function gcConnect() {
 	  if (!confirm("Remover este WhatsApp permanentemente?")) return;
 	  await api(`/baileys/instances/${id}`, { method: "DELETE" });
 	  waIntRefresh();
+	}
+
+	async function waIntSetTenant(instanceId, tenantId) {
+	  const r = await api(`/baileys/instances/${instanceId}/tenant`, {
+	    method: "PATCH",
+	    body: JSON.stringify({ tenantId: tenantId || null }),
+	  });
+	  if (r?.ok) waIntRefresh();
+	  else alert("Erro ao salvar: " + (r?.error || "Tente novamente"));
 	}
 
 // ── USUÁRIOS GOOGLE ───────────────────────────────────────────

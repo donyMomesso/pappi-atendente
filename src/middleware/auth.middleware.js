@@ -13,6 +13,7 @@ async function requireAttendantKey(req, res, next) {
   const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
 
   if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) return next();
+  if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) return next();
 
   if (tenantId && key) {
     const attendantsConfig = await prisma.config.findUnique({

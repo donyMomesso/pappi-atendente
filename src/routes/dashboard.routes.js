@@ -15,6 +15,12 @@ const ENV = require("../config/env");
 
 const router = express.Router();
 
+// Normaliza departamento: string -> { name }, objeto -> { name, transferPhone? }
+function normalizeDepartment(d) {
+  if (typeof d === "string") return { name: d, transferPhone: null };
+  return { name: d?.name || "", transferPhone: d?.transferPhone || null };
+}
+
 // ── GET /dash/auth ─────────────────────────────────────────────
 router.get("/auth", async (req, res) => {
   try {
@@ -79,14 +85,31 @@ router.get("/stats", authDash, async (req, res) => {
 });
 
 // ── GET /dash/conversations ────────────────────────────────────
+// Lista conversas: quem tem mensagem nas últimas 24h OU lastInteraction OU handoff ativo
 router.get("/conversations", authDash, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // IDs de clientes com mensagens nas últimas 24h (histórico real, não só lastInteraction)
+    const recentMsgRows = await prisma.message.findMany({
+      where: {
+        createdAt: { gte: since24h },
+        customer: { tenantId },
+      },
+      select: { customerId: true },
+      distinct: ["customerId"],
+    });
+    const idsFromMessages = recentMsgRows.map((r) => r.customerId);
+
     const customers = await prisma.customer.findMany({
       where: {
         tenantId,
-        OR: [{ lastInteraction: { gte: since24h } }, { handoff: true }],
+        OR: [
+          { lastInteraction: { gte: since24h } },
+          { handoff: true },
+          ...(idsFromMessages.length ? [{ id: { in: idsFromMessages } }] : []),
+        ],
       },
       orderBy: { lastInteraction: "desc" },
       take: 200,
@@ -272,10 +295,24 @@ router.get("/attendants", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/departments ────────────────────────────────────────
+router.get("/departments", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
+    const raw = cfg ? JSON.parse(cfg.value) : [];
+    const list = Array.isArray(raw) ? raw : [];
+    res.json(list.map(normalizeDepartment).filter((d) => d.name));
+  } catch (err) {
+    res.status(500).json([]);
+  }
+});
+
 // ── POST /dash/transfer ─────────────────────────────────────────
 router.post("/transfer", authDash, async (req, res) => {
   try {
-    const { customerId, toAttendant, department, comment } = req.body;
+    const { customerId, toAttendant, department, comment, tenantId: bodyTenant } = req.body;
+    const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
 
     await setHandoff(customerId, true);
@@ -290,6 +327,39 @@ router.post("/transfer", authDash, async (req, res) => {
       await chatMemory.push(customerId, "bot", `🔄 Transferência — ${parts.join(" | ")}`);
     }
 
+    // Se o departamento tem número de destino, envia notificação por WhatsApp
+    if (department) {
+      const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
+      const raw = cfg ? JSON.parse(cfg.value) : [];
+      const dept = (Array.isArray(raw) ? raw : []).map(normalizeDepartment).find((d) => d.name === department);
+      if (dept?.transferPhone) {
+        const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+        const toPhone = PhoneNormalizer.normalize(dept.transferPhone);
+        if (toPhone) {
+          const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+          if (customer) {
+            const custName = customer.name || "Cliente";
+            const custPhone = customer.phone || "—";
+            const msg = [
+              `🔄 *Transferência para ${department}*`,
+              "",
+              `Cliente: ${custName}`,
+              `Telefone: ${custPhone}`,
+              comment ? `Comentário: ${comment}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+            try {
+              const { wa } = await getClients(tenantId);
+              await wa.sendText(toPhone, msg);
+            } catch (waErr) {
+              await baileys.sendText(toPhone, msg, "default", true).catch(() => {});
+            }
+          }
+        }
+      }
+    }
+
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
@@ -298,19 +368,48 @@ router.post("/transfer", authDash, async (req, res) => {
   }
 });
 
+// ── GET /dash/tenants (lista para selector) ────────────────────
+router.get("/tenants", authDash, async (_req, res) => {
+  try {
+    const { listActive } = await import("../services/tenant.service");
+    const tenants = await listActive();
+    res.json((tenants || []).map((t) => ({ id: t.id, name: t.name })));
+  } catch {
+    res.json([]);
+  }
+});
+
 // ── GET /dash/baileys/instances ────────────────────────────────
-router.get("/baileys/instances", authDash, (_req, res) => {
+router.get("/baileys/instances", authDash, async (_req, res) => {
+  const list = await baileys.getAllStatuses();
   res.json(
-    baileys.getAllStatuses().map((s) => ({
+    list.map((s) => ({
       id: s.id,
       status: s.status,
       qr: s.qr,
+      qrUrl: s.qr ? `/dash/baileys/instances/${s.id}/qr` : null,
       botEnabled: s.botEnabled !== false,
       name: s.account?.name || null,
       number: s.account?.phone || null,
       usage: s.usage,
+      instanceTenant: s.instanceTenant || null,
     })),
   );
+});
+
+// ── GET /dash/baileys/instances/:id/qr ─────────────────────────
+router.get("/baileys/instances/:id/qr", authDash, async (req, res) => {
+  try {
+    const status = await baileys.getStatus(req.params.id);
+    if (!status?.qr) return res.status(204).end();
+    const base64 = status.qr.replace(/^data:image\/\w+;base64,/, "");
+    const buf = Buffer.from(base64, "base64");
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "no-store");
+    res.send(buf);
+  } catch {
+    res.status(204).end();
+  }
 });
 
 // ── POST /dash/baileys/instances ───────────────────────────────
@@ -337,9 +436,201 @@ router.patch("/baileys/instances/:id/bot", authAdmin, (req, res) => {
   baileys.setBotEnabled(req.params.id, req.body.enabled !== false);
   res.json({ ok: true });
 });
+router.patch("/baileys/instances/:id/tenant", authDash, async (req, res) => {
+  try {
+    const { tenantId } = req.body;
+    await baileys.setInstanceTenant(req.params.id, tenantId || null);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 router.delete("/baileys/instances/:id", authAdmin, (req, res) => {
   baileys.disconnect(req.params.id);
   res.json({ ok: true });
+});
+
+// ── POST /dash/order ───────────────────────────────────────────
+router.post("/order", authDash, async (req, res) => {
+  try {
+    const { randomUUID } = require("crypto");
+    const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
+    const { recordOrder } = require("../services/customer.service");
+    const { calculate, round2 } = require("../calculators/OrderCalculator");
+
+    const {
+      tenantId,
+      customerId,
+      items,
+      fulfillment,
+      address,
+      paymentMethodId,
+      paymentMethodName,
+      deliveryFee = 0,
+      discount = 0,
+      trocoPara,
+    } = req.body;
+
+    const tid = req.query.tenant || tenantId || "tenant-pappi-001";
+    if (!customerId || !items?.length) {
+      return res.status(200).json({ ok: false, error: "Cliente e itens são obrigatórios" });
+    }
+
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer || customer.tenantId !== tid) {
+      return res.status(200).json({ ok: false, error: "Cliente não encontrado" });
+    }
+
+    const cart = items.map((i) => {
+      const opts = i.options || [];
+      const optsSum = opts.reduce((s, o) => s + (parseFloat(o.unit_price) || 0) * (o.quantity || 1), 0);
+      const fullPrice = parseFloat(i.unit_price) || 0;
+      const basePrice = Math.max(0, fullPrice - optsSum);
+      const addons = opts.map((o) => ({
+        name: o.name || "",
+        unit_price: parseFloat(o.unit_price) || 0,
+        quantity: o.quantity || 1,
+        id: o.option_id,
+      }));
+      return {
+        id: i.id,
+        name: i.name,
+        quantity: parseInt(i.quantity, 10) || 1,
+        unit_price: basePrice,
+        addons,
+      };
+    });
+
+    const calc = calculate({ items: cart, deliveryFee, discount });
+    const idempotencyKey = `${customerId}:${Date.now()}`;
+
+    const cwOrderId = randomUUID();
+    const displayId = cwOrderId.slice(-6).toUpperCase();
+    const phone11 = (customer.phone || "").replace(/\D/g, "").slice(-11);
+
+    const cwPayload = {
+      order_id: cwOrderId,
+      display_id: displayId,
+      order_type: fulfillment === "delivery" ? "delivery" : "takeout",
+      created_at: new Date().toISOString(),
+      customer: phone11 ? { phone: phone11, name: customer.name || "Cliente" } : null,
+      totals: {
+        order_amount: calc.expectedTotal,
+        delivery_fee: round2(deliveryFee),
+        additional_fee: 0,
+        discounts: round2(discount),
+      },
+      items: cart.map((i) => {
+        const addonsSum = (i.addons || []).reduce(
+          (s, a) => s + (a.unit_price || 0) * (a.quantity || 1),
+          0,
+        );
+        return {
+          ...(i.id ? { item_id: String(i.id) } : {}),
+          name: i.name,
+          quantity: i.quantity,
+          unit_price: i.unit_price,
+          total_price: round2((i.unit_price + addonsSum) * i.quantity),
+          ...((i.addons || []).length
+            ? {
+                options: i.addons.map((a) => ({
+                  name: a.name,
+                  quantity: a.quantity || 1,
+                  unit_price: a.unit_price || 0,
+                  ...(a.id ? { option_id: String(a.id) } : {}),
+                })),
+              }
+            : {}),
+        };
+      }),
+      payments: [
+        {
+          total: calc.expectedTotal,
+          payment_method_id: parseInt(paymentMethodId, 10) || paymentMethodId,
+          ...(trocoPara && parseFloat(trocoPara) > calc.expectedTotal
+            ? { change_for: parseFloat(trocoPara) }
+            : {}),
+        },
+      ],
+      ...(trocoPara && parseFloat(trocoPara) > 0
+        ? { observation: `Troco para R$ ${parseFloat(trocoPara).toFixed(2)}` }
+        : {}),
+    };
+
+    if (fulfillment === "delivery" && address) {
+      const postalCode = (address.zipCode || address.postal_code || "").replace(/\D/g, "").slice(0, 8);
+      if (postalCode.length < 8) {
+        return res.status(200).json({ ok: false, error: "CEP é obrigatório para entrega (8 dígitos)" });
+      }
+      cwPayload.delivery_address = {
+        state: (address.state || "SP").slice(0, 2),
+        city: address.city || "",
+        neighborhood: address.neighborhood || "",
+        street: address.street || "",
+        number: String(address.number || ""),
+        ...(address.complement ? { complement: address.complement } : {}),
+        postal_code: postalCode,
+        coordinates: {
+          latitude: parseFloat(address.lat) || 0,
+          longitude: parseFloat(address.lng) || 0,
+        },
+      };
+      cwPayload.totals.delivery_fee = round2(deliveryFee);
+    }
+
+    let cwResponse = null;
+    let createdCwOrderId = null;
+    try {
+      const { cw } = await getClients(tid);
+      cwResponse = await cw.createOrder(cwPayload);
+      createdCwOrderId = cwResponse?.id || cwResponse?.order_id;
+    } catch (cwErr) {
+      console.error(`[${tid}] CW createOrder:`, cwErr.message);
+      const errMsg = cwErr?.data?.errors?.join?.(" ") || cwErr.message;
+      return res.status(200).json({ ok: false, error: errMsg || "Falha ao enviar ao CardápioWeb" });
+    }
+
+    const itemsForDb = cart.map((i) => ({
+      id: i.id,
+      name: i.name,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      addons: i.addons,
+    }));
+
+    const { order } = await createWithIdempotency({
+      tenantId: tid,
+      customerId,
+      idempotencyKey,
+      items: itemsForDb,
+      total: calc.expectedTotal,
+      deliveryFee,
+      discount,
+      paymentMethodId,
+      paymentMethodName,
+      fulfillment,
+      address: fulfillment === "delivery" ? address : null,
+      cwOrderId: createdCwOrderId,
+      cwPayload,
+      cwResponse,
+    });
+
+    if (createdCwOrderId) await setCwOrderId(order.id, createdCwOrderId, cwResponse);
+
+    const summary = cart
+      .map((i) => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`)
+      .join("\n");
+    await recordOrder(customerId, summary, paymentMethodName);
+
+    return res.status(200).json({
+      ok: true,
+      cwOrderId: createdCwOrderId,
+      orderId: order.id,
+    });
+  } catch (err) {
+    console.error("[dash/order]", err);
+    return res.status(200).json({ ok: false, error: err.message || "Tente novamente" });
+  }
 });
 
 // ── GET /dash/catalog ──────────────────────────────────────────
@@ -362,9 +653,26 @@ router.post("/send", authDash, async (req, res) => {
     const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
     if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
 
-    const { wa } = await getClients(tenantId);
-    const result = await wa.sendText(phone, text);
-    const waMessageId = result?.messages?.[0]?.id;
+    const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+    const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+
+    let waMessageId = null;
+    const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
+    const useBaileysInstance = replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
+
+    if (useBaileysInstance) {
+      const sent = await baileys.sendText(normalizedPhone, text, useBaileysInstance, true);
+      if (!sent) throw new Error("Falha ao enviar via WhatsApp interno");
+    } else {
+      try {
+        const { wa } = await getClients(tenantId);
+        const result = await wa.sendText(normalizedPhone, text);
+        waMessageId = result?.messages?.[0]?.id;
+      } catch (waErr) {
+        const sent = await baileys.sendText(normalizedPhone, text, "default", true);
+        if (!sent) throw waErr;
+      }
+    }
 
     if (customerId) {
       const chatMemory = require("../services/chat-memory.service");
@@ -490,11 +798,14 @@ router.get("/settings", authAdmin, async (req, res) => {
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
-    const [attendantsCfg, googleCfg] = await Promise.all([
+    const [attendantsCfg, googleCfg, departmentsCfg] = await Promise.all([
       prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }),
       prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } }),
+      prisma.config.findUnique({ where: { key: `${tenantId}:departments` } }),
     ]);
 
+    const departmentsRaw = departmentsCfg ? JSON.parse(departmentsCfg.value) : [];
+    const departments = (Array.isArray(departmentsRaw) ? departmentsRaw : []).map(normalizeDepartment);
     res.json({
       id: tenant.id,
       name: tenant.name,
@@ -505,6 +816,7 @@ router.get("/settings", authAdmin, async (req, res) => {
       active: tenant.active,
       attendants: attendantsCfg ? JSON.parse(attendantsCfg.value) : [],
       googleUsers: googleCfg ? JSON.parse(googleCfg.value) : [],
+      departments,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -515,7 +827,7 @@ router.get("/settings", authAdmin, async (req, res) => {
 router.patch("/settings", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
-    const { name, city, attendants, googleUsers } = req.body;
+    const { name, city, attendants, googleUsers, departments } = req.body;
 
     const data = {};
     if (name !== undefined) data.name = name;
@@ -538,6 +850,19 @@ router.patch("/settings", authAdmin, async (req, res) => {
         where: { key: `${tenantId}:google_users` },
         create: { key: `${tenantId}:google_users`, value: JSON.stringify(googleUsers) },
         update: { value: JSON.stringify(googleUsers) },
+      });
+    }
+    if (Array.isArray(departments)) {
+      const normalized = departments
+        .map((d) => ({
+          name: typeof d === "string" ? d : d?.name || "",
+          transferPhone: typeof d === "object" && d?.transferPhone ? String(d.transferPhone).trim() || null : null,
+        }))
+        .filter((d) => d.name);
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:departments` },
+        create: { key: `${tenantId}:departments`, value: JSON.stringify(normalized) },
+        update: { value: JSON.stringify(normalized) },
       });
     }
     res.json({ ok: true });
@@ -680,7 +1005,7 @@ router.get("/retention/stats", authAdmin, async (req, res) => {
   }
 });
 
-router.get("/wa-internal/status", authDash, (_req, res) => res.json(baileys.getAllStatuses()));
+router.get("/wa-internal/status", authDash, async (_req, res) => res.json(await baileys.getAllStatuses()));
 router.post("/wa-internal/connect", authAdmin, async (req, res) => {
   try {
     await baileys.start(req.body.instanceId || "default");
@@ -701,11 +1026,12 @@ router.patch("/wa-internal/numbers", authAdmin, (req, res) => {
 router.get("/customer/:id/avatar", authDash, async (req, res) => {
   try {
     const customer = await prisma.customer.findUnique({ where: { id: req.params.id }, select: { phone: true } });
-    if (!customer) return res.json({ url: null });
+    if (!customer) return res.status(404).end();
     const url = await baileys.getProfilePicture(customer.phone).catch(() => null);
-    res.json({ url: url || null });
+    if (url) return res.redirect(url);
+    res.status(204).end();
   } catch {
-    res.json({ url: null });
+    res.status(204).end();
   }
 });
 
@@ -724,7 +1050,7 @@ router.get("/debug", authAdmin, async (req, res) => {
     res.json({
       tenant: { id: tenant?.id, name: tenant?.name, waPhoneNumberId: tenant?.waPhoneNumberId, active: tenant?.active },
       recentCustomers,
-      baileysStatus: baileys.getAllStatuses(),
+      baileysStatus: await baileys.getAllStatuses(),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

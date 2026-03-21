@@ -96,8 +96,8 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) return;
 
-  // Lido + digitando imediatamente (Cloud API) — cliente vê ✓✓ e "digitando..."
-  if (!isEcho && msg.id) wa.markRead(msg.id, true).catch(() => {});
+  // Marca como lido (sem "digitando" — evita ficar travado quando não há resposta)
+  if (!isEcho && msg.id) wa.markRead(msg.id, false).catch(() => {});
 
   const rl = checkWebhook(phone);
 
@@ -106,6 +106,7 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const customer = await findOrCreate(tenant.id, phone, name);
 
   await touchInteraction(customer.id);
+  baileys.setReplyChannel(customer.id, "cloud").catch(() => {});
 
   const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
 
@@ -125,7 +126,12 @@ async function processMessage({ tenant, wa, msg, contacts }) {
     if (echoText) {
       await chatMemory.push(customer.id, "human", echoText, "WhatsApp App", null, "text", msg.id);
       const socketService = require("../services/socket.service");
-      socketService.emitMessage(customer.id, { role: "human", text: echoText, sender: "WhatsApp App", at: new Date().toISOString() });
+      socketService.emitMessage(customer.id, {
+        role: "human",
+        text: echoText,
+        sender: "WhatsApp App",
+        at: new Date().toISOString(),
+      });
     }
     return;
   }
@@ -141,7 +147,8 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   if (!text) return;
 
-  console.log(`[${tenant.id}] MSG de ${phone}: ${text.slice(0, 80)}`);
+  const log = require("../lib/logger").child({ service: "webhook" });
+  log.info({ tenantId: tenant.id, phone, text: text.slice(0, 80) }, "MSG Cloud recebida");
 
   // ── Handoff apenas fora de fluxo ativo ───────────────────
   const sessionService = require("../services/session.service");
@@ -186,7 +193,7 @@ async function extractContent(wa, msg, waToken) {
     if (btn) {
       const id = btn.id;
       const flowIds = ["delivery", "takeout", "confirm_addr", "change_addr", "CONFIRMAR", "CANCELAR", "AVISE_ABERTURA"];
-      text = flowIds.includes(id) ? id : (btn.title || id || null);
+      text = flowIds.includes(id) ? id : btn.title || id || null;
     } else if (list) {
       text = list.title || list.id || null;
     }
@@ -241,7 +248,7 @@ function extractEchoContent(msg) {
   return null;
 }
 
-// Palavras que ativam handoff — SEM "cancelar"/"errado" (conflitavam com pedidos)
+// Comandos PT-BR que ativam handoff (falar com humano) — SEM "cancelar"/"errado" (conflitam com pedidos)
 const HANDOFF_WORDS = [
   "atendente",
   "humano",
@@ -250,6 +257,7 @@ const HANDOFF_WORDS = [
   "falar com alguem",
   "quero ajuda",
   "preciso de ajuda",
+  "preciso ajuda",
   "reclamação",
   "reclamacao",
   "reclamar",
@@ -265,6 +273,9 @@ const HANDOFF_WORDS = [
   "problema",
   "devolução",
   "devolucao",
+  "urgente",
+  "emergência",
+  "emergencia",
 ];
 
 function isHandoffTrigger(text) {

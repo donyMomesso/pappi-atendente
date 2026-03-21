@@ -5,7 +5,10 @@ const prisma = require("../lib/db");
 const TOKEN_KEY = "google_contacts_tokens";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CONTACTS_URL = "https://people.googleapis.com/v1/people:createContact";
-const REDIRECT_URI = "https://pappiatendente.com.br/dash/google-contacts/callback";
+function getRedirectUri() {
+  const ENV = require("../config/env");
+  return `${ENV.APP_URL}/dash/google-contacts/callback`;
+}
 const SCOPE = "https://www.googleapis.com/auth/contacts";
 
 function cfg() {
@@ -17,7 +20,7 @@ function getAuthUrl() {
   const { clientId } = cfg();
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: getRedirectUri(),
     response_type: "code",
     scope: SCOPE,
     access_type: "offline",
@@ -35,7 +38,7 @@ async function exchangeCode(code) {
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: getRedirectUri(),
       grant_type: "authorization_code",
     }),
   });

@@ -26,7 +26,7 @@ router.get("/diag/:tenantId", requireAdminKey, async (req, res) => {
 router.get("/diag/routing/check", requireAdminKey, async (_req, res) => {
   try {
     const tenants = await listActive();
-    const baileysStatus = baileys.getAllStatuses();
+    const baileysStatus = await baileys.getAllStatuses();
     const customerCount = await prisma.customer.count();
     const recentMessages = await prisma.message.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },

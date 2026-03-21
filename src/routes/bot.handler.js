@@ -84,13 +84,17 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     require("../services/socket.service").emitQueueUpdate();
     return;
   }
+  // Status do pedido — comandos PT-BR (t já normalizado)
   if (
     t.includes("onde esta") ||
     t.includes("meu pedido") ||
     t.includes("status") ||
+    t.includes("situacao") ||
     t.includes("chegou") ||
     t.includes("quanto tempo") ||
-    t.includes("previsao")
+    t.includes("previsao") ||
+    t.includes("rastreio") ||
+    t.includes("andamento")
   ) {
     await handleStatusQuery(wa, phone, customer, tenant);
     return;
@@ -112,7 +116,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       t.includes("me avise quando abrir") ||
       (text || "").trim() === "AVISE_ABERTURA";
     if (timeSlot.hasAviseButton && isAviseIntent) {
-      const added = await aviseAbertura.addToAberturaList(tenant.id, phone);
+      await aviseAbertura.addToAberturaList(tenant.id, phone);
       const m =
         "Perfeito! Assim que o forno atingir a temperatura ideal e abrirmos oficialmente, você será o primeiro a receber um toque aqui no Zap! 🍕🔥";
       await wa.sendText(phone, m);
@@ -122,9 +126,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     }
     // Enviar mensagem do slot — com botão em Tarde e Pré-Abertura
     if (timeSlot.hasAviseButton) {
-      await wa.sendButtons(phone, timeSlot.message, [
-        { id: "AVISE_ABERTURA", title: "🔔 Me avise quando abrir" },
-      ]);
+      await wa.sendButtons(phone, timeSlot.message, [{ id: "AVISE_ABERTURA", title: "🔔 Me avise quando abrir" }]);
     } else {
       await wa.sendText(phone, timeSlot.message);
     }
@@ -136,7 +138,9 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     session.isLeadOrder = true;
   }
 
-  if (["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "hey", "oi!", "olá"].includes(t)) {
+  // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
+  const menuTriggers = ["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "opa", "e ai", "fala"];
+  if (menuTriggers.includes(t)) {
     await clearSession(tenant.id, phone);
     const fresh = await getSession(tenant.id, phone);
     if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
@@ -145,7 +149,11 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  if (t.includes("cancel") && (t.includes("pedido") || t.includes("quero")) && session.step !== "CONFIRM") {
+  if (
+    (t.includes("cancelar") || t.includes("cancel")) &&
+    (t.includes("pedido") || t.includes("quero")) &&
+    session.step !== "CONFIRM"
+  ) {
     await handleCancelRequest(wa, phone, customer, tenant);
     return;
   }
@@ -363,8 +371,7 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
 
 // ── FULFILLMENT ───────────────────────────────────────────────
 async function handleFulfillment(wa, cw, phone, text, t, session, customer, tenant) {
-  const isDelivery =
-    t.includes("entrega") || text === "delivery" || (text || "").trim() === "delivery";
+  const isDelivery = t.includes("entrega") || text === "delivery" || (text || "").trim() === "delivery";
   const isTakeout =
     t.includes("retirada") ||
     t.includes("buscar") ||
@@ -423,11 +430,7 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   const isFulfillmentClick =
-    t.includes("entrega") ||
-    t.includes("retirada") ||
-    t.includes("retirar") ||
-    t === "delivery" ||
-    t === "takeout";
+    t.includes("entrega") || t.includes("retirada") || t.includes("retirar") || t === "delivery" || t === "takeout";
   if (isFulfillmentClick) {
     session.addressBuffer = [];
     session.addressFailCount = 0;
@@ -620,8 +623,8 @@ async function startOrdering(wa, cw, phone, session, customer, tenant) {
 
   const m =
     isVip && last
-      ? `Fechado ✅ Pronto pra pedir, ${firstName}! 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
-      : `Fechado ✅ Agora me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
+      ? `Me diz seu pedido 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
+      : `Me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
 
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
