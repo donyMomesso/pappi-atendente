@@ -13,7 +13,7 @@
     :root{
       --orange:#FF6B35;--orange-d:#e55a20;--orange-l:#fde8d8;--orange-ll:#fff3ed;
       --violet:#7C3AED;--violet-d:#6D28D9;--violet-l:#ede9fe;
-      --brand-grad:linear-gradient(135deg,#FF6B35 0%,#7C3AED 55%,#0D0D0D 100%);
+      --brand-grad:linear-gradient(135deg,#FF6B35 0%,#e55a20 45%,#0D0D0D 100%);
       /* legado */
       --purple:#FF6B35;--purple-d:#e55a20;--purple-l:#fde8d8;--purple-ll:#fff3ed;
       --green:#25d366;--red:#e53935;--gray:#757575;--border:#e0e0e0
@@ -46,15 +46,15 @@
 
     /* ── COL 1: CONVERSAS ── */
     .col-conv{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--violet-l)}
-    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--violet);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--orange-ll)}
+    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--orange);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
     .search-box{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:6px 10px;border:1px solid var(--border)}
     .search-box input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
     .search-box svg{color:#aaa;flex-shrink:0}
     .conv-list{overflow-y:auto;flex:1}
     .conv-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
     .conv-item:hover{background:var(--purple-ll)}
-    .conv-item.active{background:var(--violet-l);border-left:3px solid var(--violet)}
+    .conv-item.active{background:var(--orange-ll);border-left:3px solid var(--orange)}
     .conv-item.handoff{background:#fff3e0;border-left:3px solid var(--orange)}
     .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0;position:relative;overflow:hidden}
     .avatar.orange{background:var(--orange)}
@@ -89,8 +89,8 @@
 
     /* ── COL 3: PAINEL DIREITO ── */
     .col-right{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--violet-l)}
-    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--orange-ll)}
+    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
     .client-info{font-size:13px}
     .client-info .cname{font-weight:700;font-size:15px;color:#1a1a1a}
     .client-info .cphone{color:#888;font-size:12px;margin-top:2px}
@@ -221,18 +221,18 @@
     /* ── FILA DE ESPERA ── */
     .col-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
     .col-tab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:#888;transition:.2s;background:#fff}
-    .col-tab.active{color:var(--purple);border-bottom-color:var(--purple)}
+    .col-tab.active{color:var(--orange);border-bottom-color:var(--orange)}
     .queue-list{overflow-y:auto;flex:1}
     .queue-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:.15s}
     .queue-item:hover{background:#fff8f5}
-    .queue-item.claimed-mine{background:#fff3ed;border-left:3px solid var(--purple)}
+    .queue-item.claimed-mine{background:#fff3ed;border-left:3px solid var(--orange)}
     .queue-item.claimed-other{background:#f5f5f5;opacity:.6}
     .queue-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;white-space:nowrap}
     .qb-waiting{background:#fff3cd;color:#856404}
     .qb-mine{background:#fde8d8;color:#c04400}
     .qb-other{background:#e8e8e8;color:#666}
-    .btn-claim{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.2s}
-    .btn-claim:hover{background:var(--purple-d)}
+    .btn-claim{background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;transition:.2s}
+    .btn-claim:hover{background:var(--orange-d)}
     .btn-release{background:#f5f5f5;color:#666;border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;transition:.2s}
     .btn-release:hover{background:#e8e8e8}
     .queue-wait{font-size:10px;color:#aaa;margin-top:2px}
@@ -264,22 +264,32 @@
     /* option indicator */
     .has-options-badge{font-size:10px;background:#fff3ed;color:#c04400;padding:2px 6px;border-radius:8px;font-weight:600;margin-top:2px}
 
-    /* ── SIDEBAR (estilo Digisac) ── */
+    /* ── SIDEBAR (estilo Digisac, expansível, laranja) ── */
     .app-wrap{display:flex;height:100%;overflow:hidden}
-    #sidebar{width:220px;min-width:220px;background:#1a1a1a;color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
-    #sidebar .sidebar-logo{padding:16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px}
-    #sidebar .sidebar-logo img{height:36px;width:auto;object-fit:contain;border-radius:6px}
+    #sidebar{width:220px;min-width:220px;background:linear-gradient(180deg,#0D0D0D 0%,#1a1a1a 100%);color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;transition:width .25s ease;position:relative;border-right:3px solid var(--orange)}
+    #sidebar.sidebar-collapsed{width:64px;min-width:64px}
+    #sidebar.sidebar-collapsed .sidebar-text,#sidebar.sidebar-collapsed .sidebar-logo span:not(.sidebar-toggle),#sidebar.sidebar-collapsed .sidebar-tenant,#sidebar.sidebar-collapsed .sidebar-foot > span{display:none!important}
+    #sidebar.sidebar-collapsed .sidebar-logo{justify-content:center;padding:12px}
+    #sidebar.sidebar-collapsed .sidebar-item{padding:12px;justify-content:center}
+    #sidebar.sidebar-collapsed .sidebar-sep{margin:6px 8px}
+    #sidebar.sidebar-collapsed .sidebar-foot{text-align:center;padding:8px}
+    #sidebar .sidebar-logo{padding:16px;border-bottom:1px solid rgba(255,107,53,.2);display:flex;align-items:center;gap:10px;background:rgba(255,107,53,.08)}
+    #sidebar .sidebar-logo img{height:36px;width:auto;object-fit:contain;border-radius:6px;flex-shrink:0}
+    #sidebar .sidebar-toggle{background:var(--orange);border:none;color:#fff;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-left:auto;font-size:14px;transition:.2s}
+    #sidebar .sidebar-toggle:hover{background:var(--orange-d);transform:rotate(90deg)}
+    #sidebar.sidebar-collapsed .sidebar-toggle{margin-left:0;transform:rotate(-90deg)}
+    #sidebar.sidebar-collapsed .sidebar-toggle:hover{transform:rotate(0deg)}
     #sidebar .sidebar-nav{flex:1;overflow-y:auto;padding:12px 0}
     #sidebar .sidebar-item{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13px;color:rgba(255,255,255,.85);cursor:pointer;transition:.15s;border-left:3px solid transparent;text-decoration:none}
-    #sidebar .sidebar-item:hover{background:rgba(255,255,255,.06);color:#fff}
-    #sidebar .sidebar-item.active{background:rgba(124,58,237,.25);color:#fff;border-left-color:var(--violet)}
+    #sidebar .sidebar-item:hover{background:rgba(255,107,53,.15);color:#fff}
+    #sidebar .sidebar-item.active{background:rgba(255,107,53,.25);color:#fff;border-left-color:var(--orange)}
     #sidebar .sidebar-item.admin-only{opacity:.9}
-    #sidebar .sidebar-sep{height:1px;background:rgba(255,255,255,.1);margin:8px 12px}
-    #sidebar .sidebar-badge{background:#e53935;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:auto}
-    #sidebar .sidebar-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.6)}
-    #sidebar .sidebar-tenant{font-weight:600;color:#fff;margin-bottom:4px}
+    #sidebar .sidebar-sep{height:1px;background:rgba(255,107,53,.25);margin:8px 12px}
+    #sidebar .sidebar-badge{background:var(--orange);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:auto}
+    #sidebar .sidebar-foot{padding:12px 16px;border-top:1px solid rgba(255,107,53,.2);font-size:12px;color:rgba(255,255,255,.6)}
+    #sidebar .sidebar-tenant{font-weight:600;color:var(--orange);margin-bottom:4px}
     #sidebar .sidebar-logout{color:var(--orange);cursor:pointer;margin-top:6px;display:inline-block}
-    #sidebar .sidebar-logout:hover{text-decoration:underline}
+    #sidebar .sidebar-logout:hover{text-decoration:underline;color:#ff8c5a}
     #mainArea{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
     #mainArea .main-header{flex-shrink:0}
     #mainArea .main-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -317,9 +327,11 @@
     }
     @media (max-width: 768px) {
       body{overflow-x:hidden}
-      #sidebar{width:72px;min-width:72px}
-      #sidebar .sidebar-logo span{display:none}
-      #sidebar .sidebar-item{padding:10px;font-size:11px}
+      #sidebar{width:64px!important;min-width:64px!important}
+      #sidebar .sidebar-text,#sidebar .sidebar-logo span:not(.sidebar-toggle),#sidebar .sidebar-tenant,#sidebar .sidebar-foot > span{display:none!important}
+      #sidebar .sidebar-logo{justify-content:center}
+      #sidebar .sidebar-item{justify-content:center;padding:12px}
+      #sidebar .sidebar-foot{text-align:center}
       .layout{grid-template-columns:1fr;grid-template-rows:1fr auto}
       .col-conv{min-height:200px;max-height:45vh}
       .col-center{min-height:300px}
@@ -333,6 +345,7 @@
       #adminTabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex:1;min-width:0;padding-bottom:4px}
       .admin-tab{font-size:11px;padding:8px 12px}
       .settings-grid{grid-template-columns:1fr;max-width:100%}
+      .cfg-grid-2{grid-template-columns:1fr!important}
       #waIntContainer{grid-template-columns:1fr}
       .modal{max-width:calc(100vw - 32px);margin:8px}
       .options-modal{max-width:calc(100vw - 32px)}
@@ -393,25 +406,25 @@
       <div class="sidebar-logo">
         <img src="/logo.png" alt="" onerror="this.style.display='none'"/>
         <span style="font-weight:700;font-size:15px">Pappi</span>
+        <button type="button" class="sidebar-toggle" id="sidebarToggleBtn" onclick="toggleSidebar()" title="Recolher/Expandir menu">◀</button>
       </div>
       <nav class="sidebar-nav">
-        <a class="sidebar-item active" href="#" onclick="navTo('chat');return false" id="navChat">💬 Chat</a>
-        <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos">📋 Pedidos</a>
-        <a class="sidebar-item" href="#" onclick="openContacts();return false">📒 Contatos</a>
+        <a class="sidebar-item active" href="#" onclick="navTo('chat');return false" id="navChat"><span>💬</span><span class="sidebar-text">Chat</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos"><span>📋</span><span class="sidebar-text">Pedidos</span></a>
+        <a class="sidebar-item" href="#" onclick="openContacts();return false"><span>📒</span><span class="sidebar-text">Contatos</span></a>
         <div class="sidebar-sep"></div>
-        <a class="sidebar-item" href="#" onclick="navTo('visao');return false" id="navVisao">📊 Visão geral</a>
-        <a class="sidebar-item" href="#" onclick="navTo('stats');return false" id="navStats">📈 Estatísticas</a>
-        <a class="sidebar-item" href="#" onclick="navTo('rel');return false" id="navRel">📋 Relatórios</a>
-        <a class="sidebar-item" href="#" onclick="navTo('audit');return false" id="navAudit">🔍 Auditoria</a>
+        <a class="sidebar-item" href="#" onclick="navTo('visao');return false" id="navVisao"><span>📊</span><span class="sidebar-text">Visão geral</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('stats');return false" id="navStats"><span>📈</span><span class="sidebar-text">Estatísticas</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('rel');return false" id="navRel"><span>📋</span><span class="sidebar-text">Relatórios</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('audit');return false" id="navAudit"><span>🔍</span><span class="sidebar-text">Auditoria</span></a>
         <div class="sidebar-sep"></div>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none">📤 Transmissão</a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('sac');return false" id="navSac" style="display:none">📩 SAC</a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('usuarios');return false" id="navUsuarios" style="display:none">👥 Usuários</a>
-        <a class="sidebar-item" href="#" onclick="navTo('conexoes');return false" id="navConexoes">🔗 Conexões</a>
-        <a class="sidebar-item" href="#" onclick="navTo('config');return false" id="navConfig">⚙️ Configurações</a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none"><span>📤</span><span class="sidebar-text">Transmissão</span></a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('sac');return false" id="navSac" style="display:none"><span>📩</span><span class="sidebar-text">SAC</span></a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('usuarios');return false" id="navUsuarios" style="display:none"><span>👥</span><span class="sidebar-text">Usuários</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('config');return false" id="navConfig"><span>⚙️</span><span class="sidebar-text">Configurações</span></a>
         <div class="sidebar-sep"></div>
-        <a class="sidebar-item" href="#" onclick="return false">🔔 Notificações <span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
-        <a class="sidebar-item" href="#" onclick="return false">❓ Ajuda</a>
+        <a class="sidebar-item" href="#" onclick="navTo('chat');setConvFilter('human');return false"><span>🔔</span><span class="sidebar-text">Notificações</span> <span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
+        <a class="sidebar-item" href="https://pappiatendente.com.br" target="_blank" rel="noopener"><span>❓</span><span class="sidebar-text">Ajuda</span></a>
       </nav>
       <div class="sidebar-foot">
         <div class="sidebar-tenant" id="sidebarTenant">—</div>
@@ -459,10 +472,10 @@
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             <input id="searchInput" placeholder="Pesquisar..." oninput="filterConv()"/>
           </div>
-          <button onclick="openContacts()" title="Contatos (Google + WhatsApp)" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
+          <button onclick="openContacts()" title="Contatos (Google + WhatsApp)" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;flex-shrink:0">📒</button>
         </div>
         <div style="display:flex;gap:6px;font-size:11px">
-          <span id="filterBtnAll" onclick="setConvFilter('all')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700">Todos</span>
+          <span id="filterBtnAll" onclick="setConvFilter('all')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--orange);color:#fff;font-weight:700">Todos</span>
           <span id="filterBtnBot" onclick="setConvFilter('bot')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">🤖 Bot</span>
           <span id="filterBtnHuman" onclick="setConvFilter('human')" style="cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600">🙋 Humano <span id="queueBadgeCount" style="display:none;background:#e53935;color:#fff;border-radius:8px;padding:0 5px;font-size:10px">0</span></span>
         </div>
@@ -817,55 +830,61 @@
 
   <!-- Painel: Configurações -->
   <div id="adminPanelCfg" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
-    <div style="max-width:860px;margin:0 auto">
+    <div style="max-width:1000px;margin:0 auto">
       <div class="settings-title">⚙️ Configurações</div>
-      <div class="settings-sub">Dados da empresa, usuários Google e integrações.</div>
-      <div class="settings-grid" style="margin-top:0">
+      <div class="settings-sub" style="margin-bottom:20px">Dados da empresa, conexões WhatsApp e integrações.</div>
+
+      <!-- Seção 1: Empresa + WhatsApp lado a lado -->
+      <div class="cfg-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
         <div class="settings-card">
           <div class="settings-card-head">🏪 Dados da Empresa</div>
           <div class="settings-card-body">
             <div class="settings-field"><label>Nome da loja</label><input id="cfg-name" type="text" placeholder="Ex: Pappi Pizzaria"/></div>
             <div class="settings-field"><label>Cidade</label><input id="cfg-city" type="text" placeholder="Ex: Campinas"/></div>
             <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
-            <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
+            <div class="settings-field"><label>WhatsApp API (Phone ID)</label><input id="cfg-waPhone" type="text" readonly/></div>
             <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
           </div>
         </div>
-        <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">👤 Usuários com Login Google</div>
+        <div class="settings-card">
+          <div class="settings-card-head">📲 WhatsApp Interno (QR Code)</div>
           <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Cada atendente entra com sua conta Google. Adicione o e-mail e o papel de cada um.</p>
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte números via QR para notificações e atendimento sem consumir créditos da API.</p>
+            <div id="waIntContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;min-height:120px">
+              <!-- Instâncias renderizadas aqui -->
+            </div>
+            <button class="btn-save-settings" style="width:auto;padding:8px 16px;margin-top:12px" onclick="waIntAddNew()">+ Novo WhatsApp</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Seção 2: Usuários e Google -->
+      <div class="cfg-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div class="settings-card">
+          <div class="settings-card-head">👤 Usuários (Login Google)</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Atendentes autorizados a acessar o painel.</p>
             <div class="attendant-list" id="googleUserList"></div>
             <div class="add-attendant-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
-              <input id="newGoogleEmail" type="email" placeholder="email@gmail.com" style="flex:2;min-width:180px" onkeydown="if(event.key==='Enter')addGoogleUser()"/>
-              <select id="newGoogleRole" style="flex:1;min-width:110px;padding:10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;background:#fff">
+              <input id="newGoogleEmail" type="email" placeholder="email@gmail.com" style="flex:2;min-width:160px" onkeydown="if(event.key==='Enter')addGoogleUser()"/>
+              <select id="newGoogleRole" style="flex:1;min-width:100px;padding:10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;background:#fff">
                 <option value="attendant">Atendente</option>
                 <option value="admin">Admin</option>
               </select>
               <button class="btn-add-att" onclick="addGoogleUser()">+ Adicionar</button>
             </div>
-            <button class="btn-save-settings" style="margin-top:14px" onclick="saveGoogleUsers()">Salvar usuários</button>
+            <button class="btn-save-settings" style="margin-top:12px" onclick="saveGoogleUsers()">Salvar</button>
           </div>
         </div>
-        <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">📒 Google Contacts (Salvar clientes automaticamente)</div>
+        <div class="settings-card">
+          <div class="settings-card-head">📒 Google Contacts</div>
           <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Quando um novo cliente mandar mensagem, ele é salvo automaticamente nos seus Contatos Google.</p>
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Novos clientes salvos automaticamente nos Contatos Google.</p>
             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
               <span id="gcStatus" style="font-size:13px;font-weight:600;color:#888">● verificando...</span>
-              <button id="btnGcConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;display:none" onclick="gcConnect()">🔗 Autorizar Google Contacts</button>
+              <button id="btnGcConnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;display:none" onclick="gcConnect()">🔗 Autorizar</button>
               <button id="btnGcDisconnect" class="btn-save-settings" style="width:auto;padding:8px 16px;margin:0;background:#e53935;display:none" onclick="gcDisconnect()">Desconectar</button>
             </div>
-          </div>
-        </div>
-        <div class="settings-card" style="grid-column:1/-1">
-          <div class="settings-card-head">📲 WhatsApp Interno (Multi-Zap)</div>
-          <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:16px">Conecte múltiplos números para notificações e atendimento auxiliar sem consumir créditos da API Meta.</p>
-            <div id="waIntContainer" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:16px">
-              <!-- Instâncias serão renderizadas aqui -->
-            </div>
-            <button class="btn-save-settings" style="width:auto;padding:10px 20px;margin-top:20px" onclick="waIntAddNew()">+ Adicionar Novo WhatsApp</button>
           </div>
         </div>
       </div>
@@ -888,7 +907,7 @@
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <input id="contactSearchInput" type="text" placeholder="Nome ou telefone (Google + WhatsApp)..." style="flex:1;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;outline:none"
           oninput="searchContactsDebounce()" onkeydown="if(event.key==='Enter')searchContactsNow()"/>
-        <button onclick="searchContactsNow()" style="background:var(--violet);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px">🔍</button>
+        <button onclick="searchContactsNow()" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px">🔍</button>
       </div>
       <div id="contactResults" style="min-height:80px;max-height:320px;overflow-y:auto">
         <p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>
@@ -1206,6 +1225,12 @@ async function doLogin() {
 	  setInterval(waIntRefresh, 10000);
 	  document.getElementById("sidebarTenant").textContent = TENANT.replace("tenant-","").replace(/-/g," ").toUpperCase() || "—";
 	  document.getElementById("sidebarUserName").textContent = ATTENDANT_NAME || "—";
+	  if (localStorage.getItem("pappi_sidebar_collapsed") === "true") {
+	    const sb = document.getElementById("sidebar");
+	    const btn = document.getElementById("sidebarToggleBtn");
+	    if (sb) sb.classList.add("sidebar-collapsed");
+	    if (btn) btn.textContent = "▶";
+	  }
 	}
 
 	function navTo(view) {
@@ -1214,8 +1239,8 @@ async function doLogin() {
 	  document.getElementById("viewKanban").style.display = "none";
 	  document.getElementById("viewAdmin").style.display = "none";
 	  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
-	  const titles = { chat: "Atendimento", pedidos: "Pedidos", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", conexoes: "Conexões", config: "Configurações" };
-	  const navIds = { chat: "navChat", pedidos: "navPedidos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", conexoes: "navConexoes", config: "navConfig" };
+	  const titles = { chat: "Atendimento", pedidos: "Pedidos", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
+	  const navIds = { chat: "navChat", pedidos: "navPedidos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
 	  if (view === "chat") { clearInterval(kanbanTimer); kanbanTimer = null; document.getElementById("app").style.display = "block"; }
 	  else if (view === "pedidos") {
 	    document.getElementById("viewKanban").style.display = "flex";
@@ -1225,8 +1250,8 @@ async function doLogin() {
 	    if (kanbanTimer) clearInterval(kanbanTimer);
 	    kanbanTimer = setInterval(fetchKanban, 10000);
 	  }
-	  else if (["visao","stats","rel","audit","transmissao","sac","usuarios","conexoes","config"].includes(view)) {
-	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", transmissao: "broadcast", sac: "sac", usuarios: "atend", conexoes: "cfg", config: "cfg" };
+	  else if (["visao","stats","rel","audit","transmissao","sac","usuarios","config"].includes(view)) {
+	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
 	    document.getElementById("viewAdmin").style.display = "flex";
 	    adminTab(tabMap[view]);
 	  }
@@ -1241,6 +1266,16 @@ async function doLogin() {
 	  localStorage.removeItem("pappi_name");
 	  localStorage.removeItem("pappi_role");
 	  location.reload();
+	}
+
+	function toggleSidebar() {
+	  const sb = document.getElementById("sidebar");
+	  const btn = document.getElementById("sidebarToggleBtn");
+	  if (!sb) return;
+	  sb.classList.toggle("sidebar-collapsed");
+	  const collapsed = sb.classList.contains("sidebar-collapsed");
+	  localStorage.setItem("pappi_sidebar_collapsed", collapsed);
+	  if (btn) btn.textContent = collapsed ? "▶" : "◀";
 	}
 
 // ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
@@ -1604,7 +1639,7 @@ function setConvFilter(f) {
   ["all","bot","human"].forEach(k => {
     const el = document.getElementById("filterBtn" + k.charAt(0).toUpperCase() + k.slice(1));
     if (el) el.style.cssText = k === f
-      ? "cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--violet);color:#fff;font-weight:700"
+      ? "cursor:pointer;padding:3px 10px;border-radius:10px;background:var(--orange);color:#fff;font-weight:700"
       : "cursor:pointer;padding:3px 10px;border-radius:10px;background:#f0f0f0;color:#888;font-weight:600";
   });
   renderConvs(allConvs);
@@ -2887,7 +2922,10 @@ async function gcConnect() {
 	            <div style="font-size:14px;font-weight:800;color:#1a1a1a">${inst.id === 'default' ? 'Principal' : inst.id}</div>
 	            <div style="font-size:12px;color:#555;margin-top:2px">${inst.name || '—'} ${inst.number ? '('+inst.number+')' : ''}</div>
 	          </div>
-	          ${inst.id !== 'default' ? `<button onclick="waIntDelete('${inst.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:12px;padding:0;font-weight:700">Remover</button>` : ''}
+	          <div style="display:flex;gap:8px;flex-wrap:wrap">
+	            <button onclick="waIntClearAndReconnect('${inst.id}')" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:12px;padding:0;font-weight:700" title="Limpar e conectar outro número">Trocar número</button>
+	            ${inst.id !== 'default' ? `<button onclick="waIntDelete('${inst.id}')" style="background:none;border:none;color:#999;cursor:pointer;font-size:11px;padding:0;font-weight:600" title="Excluir instância">Excluir</button>` : ''}
+	          </div>
 	        </div>
 	        <div style="display:flex;align-items:center;gap:6px">
 	          <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
@@ -2968,6 +3006,14 @@ async function gcConnect() {
 	async function waIntDisconnect(id) {
 	  if (!confirm("Desconectar este WhatsApp? O cliente não receberá mensagens até reconectar.")) return;
 	  await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  waIntRefresh();
+	}
+
+	async function waIntClearAndReconnect(id) {
+	  if (!confirm("Limpar esta conexão e gerar novo QR Code para conectar outro número?")) return;
+	  await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  await new Promise(r => setTimeout(r, 500));
+	  await api(`/baileys/instances/${id}/connect`, { method: "POST", body: "{}" });
 	  waIntRefresh();
 	}
 

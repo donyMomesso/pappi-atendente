@@ -173,6 +173,8 @@ async function start(instanceId = "default") {
       logger: require("pino")({ level: "silent" }),
       browser: ["Pappi Atendente", "Chrome", "1.0"],
       qrTimeout: 60000,
+      connectTimeoutMs: 30000,
+      keepAliveIntervalMs: 15000,
       // Reduz conflito com celular: não marca "online" ao conectar (evita 440)
       markOnlineOnConnect: false,
       // Evita carga pesada na conexão que pode favorecer desconexões
@@ -330,6 +332,7 @@ async function start(instanceId = "default") {
         inst.status = "connected";
         inst.qrBase64 = null;
         inst.starting = false;
+        inst._reconnectDelay = 8000; // reset para próximos disconnects
         const user = sock.user;
         inst.account = {
           phone: user?.id?.split(":")[0] || user?.id || "?",
