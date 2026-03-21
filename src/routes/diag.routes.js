@@ -7,6 +7,26 @@ const prisma = require("../lib/db");
 const baileys = require("../services/baileys.service");
 
 const router = express.Router();
+const ENV = require("../config/env");
+
+// Debug: verifica se ADMIN_API_KEY está configurada (sem revelar o valor)
+router.get("/diag/auth-check", (_req, res) => {
+  res.json({
+    adminKeyConfigured: !!(ENV.ADMIN_API_KEY && ENV.ADMIN_API_KEY.length > 0),
+    hint: ENV.ADMIN_API_KEY ? "Chave existe. Use: ?key=SUA_CHAVE ou header x-api-key" : "ADMIN_API_KEY não configurada no Render/env",
+  });
+});
+
+// Teste de conectividade das IAs (Gemini + OpenAI fallback)
+router.get("/diag/ai", requireAdminKey, async (_req, res) => {
+  try {
+    const gemini = require("../services/gemini.service");
+    const status = await gemini.testAI();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get("/diag/:tenantId", requireAdminKey, async (req, res) => {
   try {

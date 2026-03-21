@@ -18,6 +18,7 @@ const sessionService = require("../services/session.service");
 const metaCapi = require("../services/meta-capi.service");
 const { routeByTime } = require("../services/time-routing.service");
 const aviseAbertura = require("../services/avise-abertura.service");
+const { needsDeescalation, detectHumanRequest } = require("../services/deescalation.service");
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
@@ -74,14 +75,76 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
-  // Atendente e status sempre respondem, independente do horário
-  if (t.includes("atendente") || t.includes("humano") || t.includes("falar com alguem")) {
+  // Atendente/humano: handoff imediato
+  if (detectHumanRequest(text)) {
     const { setHandoff } = require("../services/customer.service");
     await setHandoff(customer.id, true);
     await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
     await chatMemory.push(customer.id, "bot", "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
     await clearSession(tenant.id, phone);
     require("../services/socket.service").emitQueueUpdate();
+    return;
+  }
+
+  // Deescalation: irritação sem pedido explícito de humano — oferece botões
+  const orderSteps = ["MENU", "FULFILLMENT", "ADDRESS", "ADDRESS_NUMBER", "ADDRESS_CONFIRM", "ORDERING"];
+  if (needsDeescalation(text) && orderSteps.includes(session.step)) {
+    session._beforeDeescalationStep = session.step;
+    session.step = "DEESCALATION";
+    await wa.sendButtons(phone, "Entendi 🙏 Vamos resolver agora. Como prefere?", [
+      { id: "HELP_HUMAN", title: "👩‍💼 Atendente" },
+      { id: "HELP_BOT", title: "✅ Continuar" },
+      { id: "FULFILLMENT_RETIRADA", title: "🏪 Retirada" },
+    ]);
+    await chatMemory.push(customer.id, "bot", "Entendi 🙏 Vamos resolver agora. Como prefere?");
+    await saveSession(tenant.id, phone, session);
+    return;
+  }
+
+  // Resposta aos botões de deescalation
+  if (session.step === "DEESCALATION") {
+    if (text === "HELP_HUMAN" || t.includes("atendente")) {
+      const { setHandoff } = require("../services/customer.service");
+      await setHandoff(customer.id, true);
+      await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
+      await chatMemory.push(customer.id, "bot", "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
+      await clearSession(tenant.id, phone);
+      require("../services/socket.service").emitQueueUpdate();
+      return;
+    }
+    if (text === "HELP_BOT" || t.includes("continuar")) {
+      const prev = session._beforeDeescalationStep || (session.fulfillment ? "ORDERING" : "FULFILLMENT");
+      delete session._beforeDeescalationStep;
+      session.step = prev;
+      const m =
+        prev === "ORDERING" || session.fulfillment === "takeout"
+          ? "Beleza! Me diz seu pedido 🍕 (tamanho + sabor, ou meia a meia)"
+          : "Beleza! É Entrega ou Retirada?";
+      if (prev === "ORDERING" || session.fulfillment === "takeout") {
+        await wa.sendText(phone, m);
+      } else {
+        await wa.sendButtons(phone, m, [
+          { id: "delivery", title: "🚚 Entrega" },
+          { id: "takeout", title: "🏪 Retirada" },
+        ]);
+      }
+      await chatMemory.push(customer.id, "bot", m);
+      await saveSession(tenant.id, phone, session);
+      return;
+    }
+    if (text === "FULFILLMENT_RETIRADA" || t.includes("retirada")) {
+      session.fulfillment = "takeout";
+      await startOrdering(wa, cw, phone, session, customer, tenant);
+      await saveSession(tenant.id, phone, session);
+      return;
+    }
+    // Resposta não reconhecida — reenvia os botões
+    await wa.sendButtons(phone, "Escolha uma opção abaixo 👇", [
+      { id: "HELP_HUMAN", title: "👩‍💼 Atendente" },
+      { id: "HELP_BOT", title: "✅ Continuar" },
+      { id: "FULFILLMENT_RETIRADA", title: "🏪 Retirada" },
+    ]);
+    await saveSession(tenant.id, phone, session);
     return;
   }
   // Status do pedido — comandos PT-BR (t já normalizado)
@@ -642,6 +705,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
     storeName: tenant.name || "Pappi Pizza",
     city: tenant.city || "Campinas",
     isVip: (customer.visitCount || 0) > 0,
+    customer: { lastInteraction: customer.lastInteraction, visitCount: customer.visitCount || 0 },
   });
 
   session.orderHistory.push({ role: "bot", text: result.reply });

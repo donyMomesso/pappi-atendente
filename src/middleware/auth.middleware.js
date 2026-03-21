@@ -33,7 +33,10 @@ async function requireAttendantKey(req, res, next) {
 }
 
 function requireAdminKey(req, res, next) {
-  const key = req.headers["x-api-key"] || req.headers["authorization"]?.replace("Bearer ", "");
+  const key =
+    req.headers["x-api-key"] ||
+    req.headers["authorization"]?.replace("Bearer ", "") ||
+    req.query.key;
   if (!ENV.ADMIN_API_KEY || key !== ENV.ADMIN_API_KEY) {
     return res.status(401).json({ error: "unauthorized" });
   }
