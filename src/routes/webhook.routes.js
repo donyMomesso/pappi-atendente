@@ -147,7 +147,8 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   if (!text) return;
 
-  console.log(`[${tenant.id}] MSG de ${phone}: ${text.slice(0, 80)}`);
+  const log = require("../lib/logger").child({ service: "webhook" });
+  log.info({ tenantId: tenant.id, phone, text: text.slice(0, 80) }, "MSG Cloud recebida");
 
   // ── Handoff apenas fora de fluxo ativo ───────────────────
   const sessionService = require("../services/session.service");

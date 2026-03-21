@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>Pappi Atendente</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -33,8 +33,8 @@
 
     /* ── HEADER ── */
     header{background:var(--brand-grad);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-    header .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
-    header .brand .brand-logo{width:32px;height:32px;object-fit:contain;border-radius:6px}
+    header .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+    header .brand .brand-logo{height:40px;width:auto;object-fit:contain;border-radius:6px}
     header .brand .brand-fallback{font-size:22px}
     header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
     header .stat{display:flex;align-items:center;gap:4px}
@@ -283,6 +283,48 @@
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px}
+
+    /* ── RESPONSIVO ── */
+    @media (max-width: 1200px) {
+      .layout{grid-template-columns:240px 1fr 260px}
+    }
+    @media (max-width: 992px) {
+      .layout{grid-template-columns:200px 1fr;grid-template-rows:1fr auto}
+      .col-right{grid-column:1/-1;border-left:none;border-top:1px solid var(--border);max-height:280px}
+    }
+    @media (max-width: 768px) {
+      body{overflow-x:hidden}
+      .layout{grid-template-columns:1fr;grid-template-rows:1fr auto}
+      .col-conv{min-height:200px;max-height:45vh}
+      .col-center{min-height:300px}
+      .col-right{max-height:220px}
+      header{flex-wrap:wrap;height:auto;min-height:54px;padding:10px 12px;gap:8px}
+      header .stats{flex-wrap:wrap;gap:8px;margin-left:0;width:100%;order:3}
+      header .stat{font-size:11px}
+      header .stat strong{font-size:13px}
+      .login-box{width:min(340px, calc(100vw - 32px));padding:24px 20px}
+      #viewAdmin > div:first-child{flex-wrap:wrap}
+      #adminTabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex:1;min-width:0;padding-bottom:4px}
+      .admin-tab{font-size:11px;padding:8px 12px}
+      .settings-grid{grid-template-columns:1fr;max-width:100%}
+      #waIntContainer{grid-template-columns:1fr}
+      .modal{max-width:calc(100vw - 32px);margin:8px}
+      .options-modal{max-width:calc(100vw - 32px)}
+      .grid2{grid-template-columns:1fr}
+      .kpi-card .kpi-val{font-size:22px}
+      #adminDashCards{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+    }
+    @media (max-width: 480px) {
+      .col-conv .col-header{padding:8px 10px}
+      .conv-item{padding:10px 12px}
+      .avatar{width:36px;height:36px;font-size:13px}
+      .chat-header{padding:10px 12px}
+      .chat-body{padding:12px}
+      .msg{max-width:85%;font-size:12px}
+      .order-card{margin:6px 8px}
+      .settings-card-head{font-size:12px;padding:12px 14px}
+      .btn-save-settings{padding:10px 16px;font-size:12px}
+    }
   </style>
 </head>
 <body>
@@ -305,9 +347,11 @@
 
     <!-- Modo chave (fallback admin) -->
     <div id="loginKey" style="display:none">
-      <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
-      <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
-      <button onclick="doLogin()">Entrar</button>
+      <form onsubmit="doLogin(); return false" autocomplete="off">
+        <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
+        <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
+        <button type="submit">Entrar</button>
+      </form>
       <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
       <div style="margin-top:12px;text-align:center">
         <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showGoogleMode(event)">← Voltar</a>
@@ -721,7 +765,9 @@ let convFilter = "all"; // "all" | "bot" | "human" — padrão: Todos (ver todas
 let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
+let orderTroco = null;
 let refreshTimer = null;
+let waIntRefreshTimer = null;
 
 // ── WEBSOCKET (tempo real) ─────────────────────────────────────
 let _socket = null;
@@ -1304,9 +1350,13 @@ function openOrder() {
     neighborhood: selectedCustomer.lastNeighborhood||"",
     complement: selectedCustomer.lastComplement||"",
     city: selectedCustomer.lastCity||"Campinas",
-    state: "SP"
+    state: "SP",
+    zipCode: "",
+    lat: selectedCustomer.lastLat,
+    lng: selectedCustomer.lastLng
   } : {};
   orderPayment = null;
+  orderTroco = null;
   // Abre inline no col-center em vez de popup
   const el = document.getElementById("colCenter");
   el.innerHTML = `
@@ -1350,6 +1400,13 @@ function nextStep() {
     if (!cart.length) { alert("Adicione pelo menos um item"); return; }
     orderStep = 2;
   } else if (orderStep === 2) {
+    if (orderFulfillment === "delivery") {
+      const z = (orderAddress.zipCode||orderAddress.postal_code||"").replace(/\D/g,"");
+      if (!orderAddress.street?.trim() || !orderAddress.number?.trim() || !orderAddress.neighborhood?.trim() || !orderAddress.city?.trim() || z.length < 8) {
+        alert("Preencha todos os campos obrigatórios do endereço (CEP, Rua, Número, Bairro, Cidade)");
+        return;
+      }
+    }
     orderStep = 3;
   } else {
     confirmOrder();
@@ -1607,6 +1664,10 @@ function renderAddressStep(body) {
     </div>
     ${orderFulfillment==='delivery'?`
     <div class="grid2">
+      <div class="field-group">
+        <label>CEP *</label>
+        <input id="a-cep" value="${esc((orderAddress.zipCode||orderAddress.postal_code||"").replace(/(\d{5})(\d{3})/,'$1-$2'))}" placeholder="00000-000" maxlength="9" oninput="orderAddress.zipCode=this.value.replace(/\D/g,'').slice(0,8);this.value=orderAddress.zipCode.replace(/(\d{5})(\d)/,'$1-$2')" onblur="fetchCep(this.value)"/>
+      </div>
       <div class="field-group" style="grid-column:1/-1">
         <label>Rua *</label>
         <input id="a-street" value="${esc(orderAddress.street||"")}" placeholder="Ex: Rua das Flores" oninput="orderAddress.street=this.value"/>
@@ -1628,8 +1689,8 @@ function renderAddressStep(body) {
         <input id="a-city" value="${esc(orderAddress.city||"Campinas")}" oninput="orderAddress.city=this.value"/>
       </div>
       <div class="field-group">
-        <label>UF</label>
-        <input id="a-state" value="${esc(orderAddress.state||"SP")}" maxlength="2" oninput="orderAddress.state=this.value.toUpperCase()"/>
+        <label>UF *</label>
+        <input id="a-state" value="${esc(orderAddress.state||"SP")}" maxlength="2" placeholder="SP" oninput="orderAddress.state=this.value.toUpperCase()"/>
       </div>
     </div>`:"<p style='text-align:center;padding:24px;color:#888;font-size:13px'>Cliente retira no local — sem endereço necessário.</p>"}
   `;
@@ -1637,13 +1698,31 @@ function renderAddressStep(body) {
 
 function setFulfillment(f) { orderFulfillment = f; renderStep(); }
 
+async function fetchCep(cep) {
+  const c = (cep||"").replace(/\D/g,"");
+  if (c.length !== 8) return;
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${c}/json/`);
+    const d = await r.json();
+    if (d.erro) return;
+    orderAddress.street = d.logradouro || orderAddress.street || "";
+    orderAddress.neighborhood = d.bairro || orderAddress.neighborhood || "";
+    orderAddress.city = d.localidade || orderAddress.city || "";
+    orderAddress.state = d.uf || orderAddress.state || "";
+    const es = document.getElementById("a-street"); if (es) es.value = orderAddress.street;
+    const en = document.getElementById("a-neigh"); if (en) en.value = orderAddress.neighborhood;
+    const ec = document.getElementById("a-city"); if (ec) ec.value = orderAddress.city;
+    const eu = document.getElementById("a-state"); if (eu) eu.value = orderAddress.state;
+  } catch (_) {}
+}
+
 function renderPaymentStep(body) {
   const cartTotal = cart.reduce((s,i)=>s+i.unit_price*i.quantity,0);
   body.innerHTML = `
     <div class="field-group">
       <label>Resumo do pedido</label>
       <div style="background:var(--purple-ll);border-radius:8px;padding:12px;font-size:13px">
-        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
+        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}${(i.options||[]).length?` (${i.options.map(o=>esc(o.name)).join(", ")})`:""}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
         <div style="border-top:1px solid #ddd;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-weight:700">
           <span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span>
         </div>
@@ -1660,14 +1739,21 @@ function renderPaymentStep(body) {
         `).join("")}
       </div>
     </div>
+    ${orderPayment&&/dinheiro|dinero|cash/i.test(orderPayment.name||orderPayment.payment_method||"")?`
+    <div class="field-group">
+      <label>Troco para quanto? <span style="font-weight:400;color:#888">(opcional)</span></label>
+      <input type="text" id="orderTrocoInput" placeholder="Ex: 200" value="${orderTroco||""}" oninput="orderTroco=this.value.replace(/[^0-9,]/g,'').replace(',','.')"/>
+    </div>`:""}
   `;
 }
 
-function selectPayment(p) { orderPayment = p; renderStep(); }
+function selectPayment(p) { orderPayment = p; const inp=document.getElementById('orderTrocoInput'); if(inp) orderTroco=inp.value; renderStep(); }
 
 async function confirmOrder() {
   if (!orderPayment) { alert("Selecione a forma de pagamento"); return; }
   if (!selectedCustomer) return;
+  const trocoInp = document.getElementById("orderTrocoInput");
+  if (trocoInp) orderTroco = trocoInp.value?.replace(/[^0-9,.]/g, "").replace(",", ".") || null;
 
   const btn = document.getElementById("btnNext");
   btn.textContent = "Enviando...";
@@ -1685,6 +1771,8 @@ async function confirmOrder() {
       options: (i.options||[]).map(o => ({
         option_group_id: o.option_group_id,
         option_id: o.option_id,
+        name: o.name || "",
+        unit_price: parseFloat(o.price||0),
         quantity: 1,
       })),
     })),
@@ -1694,6 +1782,7 @@ async function confirmOrder() {
     paymentMethodName: orderPayment.name || orderPayment.payment_method,
     deliveryFee: 0,
     discount: 0,
+    trocoPara: orderTroco || null,
   };
 
   const result = await api("/order", { method:"POST", body: JSON.stringify(body) });
@@ -1882,7 +1971,7 @@ function closeAdmin() {
   document.getElementById("viewAdmin").style.display = "none";
   document.getElementById("header").style.display = "flex";
   document.getElementById("app").style.display = "block";
-  clearInterval(waIntTimer); waIntTimer = null;
+  if (waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
 }
 
 function adminTab(tab) {
@@ -2318,7 +2407,6 @@ async function gcConnect() {
 	// ── MULTI-WHATSAPP (BAILEYS) ──────────────────────────────────
 	let waIntInstances = [];
 	let waIntTenants = [];
-	let waIntRefreshTimer = null;
 
 	async function waIntRefresh() {
 	  const [data, tenants] = await Promise.all([

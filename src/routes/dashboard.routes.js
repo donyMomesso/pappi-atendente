@@ -450,6 +450,189 @@ router.delete("/baileys/instances/:id", authAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── POST /dash/order ───────────────────────────────────────────
+router.post("/order", authDash, async (req, res) => {
+  try {
+    const { randomUUID } = require("crypto");
+    const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
+    const { recordOrder } = require("../services/customer.service");
+    const { calculate, round2 } = require("../calculators/OrderCalculator");
+
+    const {
+      tenantId,
+      customerId,
+      items,
+      fulfillment,
+      address,
+      paymentMethodId,
+      paymentMethodName,
+      deliveryFee = 0,
+      discount = 0,
+      trocoPara,
+    } = req.body;
+
+    const tid = req.query.tenant || tenantId || "tenant-pappi-001";
+    if (!customerId || !items?.length) {
+      return res.status(200).json({ ok: false, error: "Cliente e itens são obrigatórios" });
+    }
+
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer || customer.tenantId !== tid) {
+      return res.status(200).json({ ok: false, error: "Cliente não encontrado" });
+    }
+
+    const cart = items.map((i) => {
+      const opts = i.options || [];
+      const optsSum = opts.reduce((s, o) => s + (parseFloat(o.unit_price) || 0) * (o.quantity || 1), 0);
+      const fullPrice = parseFloat(i.unit_price) || 0;
+      const basePrice = Math.max(0, fullPrice - optsSum);
+      const addons = opts.map((o) => ({
+        name: o.name || "",
+        unit_price: parseFloat(o.unit_price) || 0,
+        quantity: o.quantity || 1,
+        id: o.option_id,
+      }));
+      return {
+        id: i.id,
+        name: i.name,
+        quantity: parseInt(i.quantity, 10) || 1,
+        unit_price: basePrice,
+        addons,
+      };
+    });
+
+    const calc = calculate({ items: cart, deliveryFee, discount });
+    const idempotencyKey = `${customerId}:${Date.now()}`;
+
+    const cwOrderId = randomUUID();
+    const displayId = cwOrderId.slice(-6).toUpperCase();
+    const phone11 = (customer.phone || "").replace(/\D/g, "").slice(-11);
+
+    const cwPayload = {
+      order_id: cwOrderId,
+      display_id: displayId,
+      order_type: fulfillment === "delivery" ? "delivery" : "takeout",
+      created_at: new Date().toISOString(),
+      customer: phone11 ? { phone: phone11, name: customer.name || "Cliente" } : null,
+      totals: {
+        order_amount: calc.expectedTotal,
+        delivery_fee: round2(deliveryFee),
+        additional_fee: 0,
+        discounts: round2(discount),
+      },
+      items: cart.map((i) => {
+        const addonsSum = (i.addons || []).reduce(
+          (s, a) => s + (a.unit_price || 0) * (a.quantity || 1),
+          0,
+        );
+        return {
+          ...(i.id ? { item_id: String(i.id) } : {}),
+          name: i.name,
+          quantity: i.quantity,
+          unit_price: i.unit_price,
+          total_price: round2((i.unit_price + addonsSum) * i.quantity),
+          ...((i.addons || []).length
+            ? {
+                options: i.addons.map((a) => ({
+                  name: a.name,
+                  quantity: a.quantity || 1,
+                  unit_price: a.unit_price || 0,
+                  ...(a.id ? { option_id: String(a.id) } : {}),
+                })),
+              }
+            : {}),
+        };
+      }),
+      payments: [
+        {
+          total: calc.expectedTotal,
+          payment_method_id: parseInt(paymentMethodId, 10) || paymentMethodId,
+          ...(trocoPara && parseFloat(trocoPara) > calc.expectedTotal
+            ? { change_for: parseFloat(trocoPara) }
+            : {}),
+        },
+      ],
+      ...(trocoPara && parseFloat(trocoPara) > 0
+        ? { observation: `Troco para R$ ${parseFloat(trocoPara).toFixed(2)}` }
+        : {}),
+    };
+
+    if (fulfillment === "delivery" && address) {
+      const postalCode = (address.zipCode || address.postal_code || "").replace(/\D/g, "").slice(0, 8);
+      if (postalCode.length < 8) {
+        return res.status(200).json({ ok: false, error: "CEP é obrigatório para entrega (8 dígitos)" });
+      }
+      cwPayload.delivery_address = {
+        state: (address.state || "SP").slice(0, 2),
+        city: address.city || "",
+        neighborhood: address.neighborhood || "",
+        street: address.street || "",
+        number: String(address.number || ""),
+        ...(address.complement ? { complement: address.complement } : {}),
+        postal_code: postalCode,
+        coordinates: {
+          latitude: parseFloat(address.lat) || 0,
+          longitude: parseFloat(address.lng) || 0,
+        },
+      };
+      cwPayload.totals.delivery_fee = round2(deliveryFee);
+    }
+
+    let cwResponse = null;
+    let createdCwOrderId = null;
+    try {
+      const { cw } = await getClients(tid);
+      cwResponse = await cw.createOrder(cwPayload);
+      createdCwOrderId = cwResponse?.id || cwResponse?.order_id;
+    } catch (cwErr) {
+      console.error(`[${tid}] CW createOrder:`, cwErr.message);
+      const errMsg = cwErr?.data?.errors?.join?.(" ") || cwErr.message;
+      return res.status(200).json({ ok: false, error: errMsg || "Falha ao enviar ao CardápioWeb" });
+    }
+
+    const itemsForDb = cart.map((i) => ({
+      id: i.id,
+      name: i.name,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      addons: i.addons,
+    }));
+
+    const { order } = await createWithIdempotency({
+      tenantId: tid,
+      customerId,
+      idempotencyKey,
+      items: itemsForDb,
+      total: calc.expectedTotal,
+      deliveryFee,
+      discount,
+      paymentMethodId,
+      paymentMethodName,
+      fulfillment,
+      address: fulfillment === "delivery" ? address : null,
+      cwOrderId: createdCwOrderId,
+      cwPayload,
+      cwResponse,
+    });
+
+    if (createdCwOrderId) await setCwOrderId(order.id, createdCwOrderId, cwResponse);
+
+    const summary = cart
+      .map((i) => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`)
+      .join("\n");
+    await recordOrder(customerId, summary, paymentMethodName);
+
+    return res.status(200).json({
+      ok: true,
+      cwOrderId: createdCwOrderId,
+      orderId: order.id,
+    });
+  } catch (err) {
+    console.error("[dash/order]", err);
+    return res.status(200).json({ ok: false, error: err.message || "Tente novamente" });
+  }
+});
+
 // ── GET /dash/catalog ──────────────────────────────────────────
 router.get("/catalog", authDash, async (req, res) => {
   try {

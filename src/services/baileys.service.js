@@ -9,6 +9,7 @@ const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = r
 const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
 const QRCode = require("qrcode");
 const prisma = require("../lib/db");
+const log = require("../lib/logger").child({ service: "baileys" });
 
 // ── Limites de segurança por instância (bot + notificações) ─────
 const LIMITS = { perHour: 60, perDay: 200, alertAt: 0.7 };
@@ -187,7 +188,10 @@ async function start(instanceId = "default") {
         if (!msg.message || msg.key.fromMe) continue;
         const jid = msg.key.remoteJid;
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
-        if (jid.endsWith("@lid")) continue; // LID não tem número de telefone direto
+        if (jid.endsWith("@lid")) {
+          log.warn({ instanceId, jid }, "Mensagem ignorada: JID @lid (privacidade WhatsApp)");
+          continue;
+        }
 
         // Extrai o telefone: remove sufixo :0 do multi-device (ex: 5511999999999:0 -> 5511999999999)
         const phone = jid.split("@")[0].split(":")[0];
@@ -224,6 +228,8 @@ async function start(instanceId = "default") {
         }
         if (!text) continue;
 
+        log.info({ instanceId, phone, text: text.slice(0, 50) }, "MSG recebida");
+
         try {
           // Lido + digitando (Baileys) — cliente vê ✓✓ e "digitando..."
           try {
@@ -234,13 +240,16 @@ async function start(instanceId = "default") {
           try {
             const tenantId = await detectTenantByPhone(phone, instanceId);
             if (!tenantId) {
-              console.warn(`[Baileys:${instanceId}] Tenant não encontrado para ${phone} — msg ignorada`);
+              log.warn({ instanceId, phone }, "Tenant não encontrado — msg ignorada");
               continue;
             }
 
             const { findOrCreate, touchInteraction } = require("../services/customer.service");
             const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-            if (!tenant) continue;
+            if (!tenant) {
+              log.warn({ instanceId, tenantId }, "Tenant não existe no banco — msg ignorada");
+              continue;
+            }
 
             // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
             const customer = await findOrCreate(tenantId, phone, null);
@@ -256,18 +265,35 @@ async function start(instanceId = "default") {
                 const convState = require("./conversation-state.service");
                 await convState.resetIfEncerrado(customer);
                 const botMayRespond = await convState.shouldBotRespond(customer);
-                if (!botMayRespond) continue;
+                if (!botMayRespond) {
+                  const state = await convState.getState(customer);
+                  log.info({ instanceId, phone, state }, "Bot silencioso (handoff/estado)");
+                  continue;
+                }
                 const wa = {
-                  sendText: (to, msg) => sendText(to, msg, instanceId, true),
+                  sendText: async (to, msg) => {
+                    const ok = await sendText(to, msg, instanceId, true);
+                    if (!ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
+                    return ok;
+                  },
                   sendButtons: (to, body, buttons) =>
                     sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true),
                   sendImage: () => {},
                   sendDocument: () => {},
                 };
+                log.debug({ instanceId, phone }, "Chamando bot.handle");
                 await botHandler.handle({ tenant, wa, customer, text, phone: customer.phone });
                 require("./socket.service").emitConvUpdate(customer.id);
+                log.debug({ instanceId, phone }, "Bot.handle concluído");
               } catch (e) {
-                console.error(`[Baileys:${instanceId}] Erro no bot:`, e.message);
+                log.error({ instanceId, phone, err: e }, "Erro no bot");
+                try {
+                  const fallback = "Desculpe, tive um problema. Tente de novo ou digite *atendente* pra falar com alguém.";
+                  await sendText(customer.phone, fallback, instanceId, true);
+                  await botHandler.saveBaileysMessage(customer.phone, fallback, tenantId, "assistant");
+                } catch (f) {
+                  log.error({ instanceId, err: f }, "Falha ao enviar mensagem de fallback");
+                }
               }
             }
           } finally {
@@ -355,7 +381,10 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
     return false;
   }
 
-  if (!checkLimits(inst)) return false;
+  if (!checkLimits(inst)) {
+    log.warn({ instanceId, to, lastAlert: inst.lastAlert }, "Envio bloqueado: limite atingido");
+    return false;
+  }
 
   try {
     const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
@@ -377,7 +406,7 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
 
     return true;
   } catch (err) {
-    console.error(`[Baileys:${instanceId}] Erro ao enviar:`, err.message);
+    log.error({ instanceId, to, err }, "Erro ao enviar mensagem");
     return false;
   }
 }
