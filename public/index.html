@@ -264,6 +264,26 @@
     /* option indicator */
     .has-options-badge{font-size:10px;background:#fff3ed;color:#c04400;padding:2px 6px;border-radius:8px;font-weight:600;margin-top:2px}
 
+    /* ── SIDEBAR (estilo Digisac) ── */
+    .app-wrap{display:flex;height:100%;overflow:hidden}
+    #sidebar{width:220px;min-width:220px;background:#1a1a1a;color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+    #sidebar .sidebar-logo{padding:16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px}
+    #sidebar .sidebar-logo img{height:36px;width:auto;object-fit:contain;border-radius:6px}
+    #sidebar .sidebar-nav{flex:1;overflow-y:auto;padding:12px 0}
+    #sidebar .sidebar-item{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13px;color:rgba(255,255,255,.85);cursor:pointer;transition:.15s;border-left:3px solid transparent;text-decoration:none}
+    #sidebar .sidebar-item:hover{background:rgba(255,255,255,.06);color:#fff}
+    #sidebar .sidebar-item.active{background:rgba(124,58,237,.25);color:#fff;border-left-color:var(--violet)}
+    #sidebar .sidebar-item.admin-only{opacity:.9}
+    #sidebar .sidebar-sep{height:1px;background:rgba(255,255,255,.1);margin:8px 12px}
+    #sidebar .sidebar-badge{background:#e53935;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:auto}
+    #sidebar .sidebar-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.6)}
+    #sidebar .sidebar-tenant{font-weight:600;color:#fff;margin-bottom:4px}
+    #sidebar .sidebar-logout{color:var(--orange);cursor:pointer;margin-top:6px;display:inline-block}
+    #sidebar .sidebar-logout:hover{text-decoration:underline}
+    #mainArea{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    #mainArea .main-header{flex-shrink:0}
+    #mainArea .main-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
     /* ── ADMIN ── */
     #viewAdmin{background:#f5f5f5}
     .admin-tab{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;transition:.2s;white-space:nowrap}
@@ -297,6 +317,9 @@
     }
     @media (max-width: 768px) {
       body{overflow-x:hidden}
+      #sidebar{width:72px;min-width:72px}
+      #sidebar .sidebar-logo span{display:none}
+      #sidebar .sidebar-item{padding:10px;font-size:11px}
       .layout{grid-template-columns:1fr;grid-template-rows:1fr auto}
       .col-conv{min-height:200px;max-height:45vh}
       .col-center{min-height:300px}
@@ -363,28 +386,57 @@
   </div>
 </div>
 
-<!-- HEADER -->
-<header id="header" style="display:none">
-  <div class="brand">
-    <img src="/logo.png" alt="" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"/>
-    <span class="brand-fallback" style="display:none">🍕</span>
-    Pappi Atendente
-  </div>
-  <div class="stats">
-    <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
-    <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
-    <div class="stat" style="margin-left:8px;gap:8px;display:flex;align-items:center">
-      <span id="h-role-badge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px"></span>
-      <span id="h-user-name" style="font-size:12px;opacity:.8"></span>
-      <button onclick="openKanban()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">📋 Pedidos</button>
-      <button onclick="openContacts()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer" title="Contatos (Google + WhatsApp)">📒 Contatos</button>
-      <button id="btnAdminPanel" onclick="openAdmin()" style="display:none;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">👑 Admin</button>
-      <button id="btnConfig" onclick="openSettings()" style="display:none;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">⚙️ Config</button>
-    </div>
-  </div>
-</header>
-
-<!-- KANBAN PEDIDOS -->
+<!-- APP WRAP (sidebar + main) -->
+<div id="appWrap" style="display:none;flex:1;flex-direction:column;height:100vh;overflow:hidden">
+  <div class="app-wrap">
+    <aside id="sidebar">
+      <div class="sidebar-logo">
+        <img src="/logo.png" alt="" onerror="this.style.display='none'"/>
+        <span style="font-weight:700;font-size:15px">Pappi</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a class="sidebar-item active" href="#" onclick="navTo('chat');return false" id="navChat">💬 Chat</a>
+        <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos">📋 Pedidos</a>
+        <a class="sidebar-item" href="#" onclick="openContacts();return false">📒 Contatos</a>
+        <div class="sidebar-sep"></div>
+        <a class="sidebar-item" href="#" onclick="navTo('visao');return false" id="navVisao">📊 Visão geral</a>
+        <a class="sidebar-item" href="#" onclick="navTo('stats');return false" id="navStats">📈 Estatísticas</a>
+        <a class="sidebar-item" href="#" onclick="navTo('rel');return false" id="navRel">📋 Relatórios</a>
+        <a class="sidebar-item" href="#" onclick="navTo('audit');return false" id="navAudit">🔍 Auditoria</a>
+        <div class="sidebar-sep"></div>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none">📤 Transmissão</a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('sac');return false" id="navSac" style="display:none">📩 SAC</a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('usuarios');return false" id="navUsuarios" style="display:none">👥 Usuários</a>
+        <a class="sidebar-item" href="#" onclick="navTo('conexoes');return false" id="navConexoes">🔗 Conexões</a>
+        <a class="sidebar-item" href="#" onclick="navTo('config');return false" id="navConfig">⚙️ Configurações</a>
+        <div class="sidebar-sep"></div>
+        <a class="sidebar-item" href="#" onclick="return false">🔔 Notificações <span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
+        <a class="sidebar-item" href="#" onclick="return false">❓ Ajuda</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sidebar-tenant" id="sidebarTenant">—</div>
+        <span style="font-size:11px;color:rgba(255,255,255,.5)" id="sidebarUserName">—</span>
+        <a class="sidebar-logout" onclick="doLogout()">Sair</a>
+      </div>
+    </aside>
+    <div id="mainArea">
+      <header id="header" class="main-header">
+        <div class="brand">
+          <img src="/logo.png" alt="" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"/>
+          <span class="brand-fallback" style="display:none">🍕</span>
+          <span id="headerTitle" style="font-size:16px;font-weight:700">Atendimento</span>
+        </div>
+        <div class="stats">
+          <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
+          <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
+          <div class="stat" style="margin-left:8px;gap:8px;display:flex;align-items:center">
+            <span id="h-role-badge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px"></span>
+            <span id="h-user-name" style="font-size:12px;opacity:.8"></span>
+          </div>
+        </div>
+      </header>
+      <div class="main-content">
+        <!-- KANBAN PEDIDOS -->
 <div id="viewKanban" style="display:none;flex-direction:column;flex:1;overflow:hidden;background:#f0f2f5">
   <div style="background:linear-gradient(135deg,var(--purple) 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0">
     <button onclick="closeKanban()" style="margin:8px 0;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">← Voltar</button>
@@ -820,6 +872,10 @@
     </div>
   </div>
 </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL: CONTATOS (Google + WhatsApp) -->
 <div class="modal-bg" id="modalContacts" style="display:none" onclick="if(event.target===this)closeContacts()">
@@ -1140,14 +1196,51 @@ async function doLogin() {
 
 	function enterApp() {
 	  document.getElementById("login").style.display = "none";
-	  document.getElementById("header").style.display = "flex";
-	  document.getElementById("app").style.display = "block";
+	  document.getElementById("appWrap").style.display = "flex";
+	  navTo("chat");
 	  applyRole();
 	  initSocket(); // WebSocket tempo real
 	  startRefresh();
 	  loadCatalog();
 	  waIntRefresh();
 	  setInterval(waIntRefresh, 10000);
+	  document.getElementById("sidebarTenant").textContent = TENANT.replace("tenant-","").replace(/-/g," ").toUpperCase() || "—";
+	  document.getElementById("sidebarUserName").textContent = ATTENDANT_NAME || "—";
+	}
+
+	function navTo(view) {
+	  const views = { chat: "app", pedidos: "viewKanban", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
+	  document.getElementById("app").style.display = "none";
+	  document.getElementById("viewKanban").style.display = "none";
+	  document.getElementById("viewAdmin").style.display = "none";
+	  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
+	  const titles = { chat: "Atendimento", pedidos: "Pedidos", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", conexoes: "Conexões", config: "Configurações" };
+	  const navIds = { chat: "navChat", pedidos: "navPedidos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", conexoes: "navConexoes", config: "navConfig" };
+	  if (view === "chat") { clearInterval(kanbanTimer); kanbanTimer = null; document.getElementById("app").style.display = "block"; }
+	  else if (view === "pedidos") {
+	    document.getElementById("viewKanban").style.display = "flex";
+	    const kd = document.getElementById("kanbanDate");
+	    if (kd) kd.textContent = new Date().toLocaleDateString("pt-BR");
+	    fetchKanban();
+	    if (kanbanTimer) clearInterval(kanbanTimer);
+	    kanbanTimer = setInterval(fetchKanban, 10000);
+	  }
+	  else if (["visao","stats","rel","audit","transmissao","sac","usuarios","conexoes","config"].includes(view)) {
+	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", transmissao: "broadcast", sac: "sac", usuarios: "atend", conexoes: "cfg", config: "cfg" };
+	    document.getElementById("viewAdmin").style.display = "flex";
+	    adminTab(tabMap[view]);
+	  }
+	  const titleEl = document.getElementById("headerTitle");
+	  if (titleEl) titleEl.textContent = titles[view] || "Atendimento";
+	  const navEl = document.getElementById(navIds[view]);
+	  if (navEl) navEl.classList.add("active");
+	}
+
+	function doLogout() {
+	  localStorage.removeItem("pappi_key");
+	  localStorage.removeItem("pappi_name");
+	  localStorage.removeItem("pappi_role");
+	  location.reload();
 	}
 
 // ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
@@ -1183,13 +1276,15 @@ async function doLogin() {
 function applyRole() {
   const isAdmin = USER_ROLE === "admin";
   const badge = document.getElementById("h-role-badge");
-  badge.style.display = "";
-  badge.textContent = isAdmin ? "👑 Admin" : "🎧 Atendente";
-  badge.style.background = isAdmin ? "rgba(255,215,0,.3)" : "rgba(255,255,255,.15)";
-  badge.style.color = isAdmin ? "#ffe066" : "#fff";
-  document.getElementById("h-user-name").textContent = ATTENDANT_NAME;
-  document.getElementById("btnAdminPanel").style.display = isAdmin ? "" : "none";
-  document.getElementById("btnConfig").style.display = isAdmin ? "" : "none";
+  if (badge) { badge.style.display = ""; badge.textContent = isAdmin ? "👑 Admin" : "🎧 Atendente";
+    badge.style.background = isAdmin ? "rgba(255,215,0,.3)" : "rgba(255,255,255,.15)";
+    badge.style.color = isAdmin ? "#ffe066" : "#fff"; }
+  const hName = document.getElementById("h-user-name");
+  if (hName) hName.textContent = ATTENDANT_NAME;
+  ["navTransmissao","navSac","navUsuarios"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isAdmin ? "" : "none";
+  });
   const tb = document.getElementById("atBroadcast");
   if (tb) tb.style.display = isAdmin ? "" : "none";
 }
@@ -1215,6 +1310,11 @@ async function fetchStats() {
   if (d.handoffActive > 0) {
     document.getElementById("h-handoff-stat").style.display = "flex";
     document.getElementById("h-handoff").textContent = d.handoffActive;
+    const sb = document.getElementById("sidebarNotifBadge");
+    if (sb) { sb.textContent = d.handoffActive; sb.style.display = ""; }
+  } else {
+    const sb = document.getElementById("sidebarNotifBadge");
+    if (sb) sb.style.display = "none";
   }
   return true;
 }
@@ -2097,20 +2197,10 @@ const KANBAN_COLS = [
   { key: "cancelled",            label: "❌ Cancelado",     color: "#e74c3c" },
 ];
 
-function openKanban() {
-  document.getElementById("app").style.display = "none";
-  document.getElementById("header").style.display = "none";
-  document.getElementById("viewKanban").style.display = "flex";
-  document.getElementById("kanbanDate").textContent = new Date().toLocaleDateString("pt-BR");
-  fetchKanban();
-  kanbanTimer = setInterval(fetchKanban, 10000);
-}
-
+function openKanban() { navTo("pedidos"); }
 function closeKanban() {
   clearInterval(kanbanTimer); kanbanTimer = null;
-  document.getElementById("viewKanban").style.display = "none";
-  document.getElementById("header").style.display = "flex";
-  document.getElementById("app").style.display = "block";
+  navTo("chat");
 }
 
 async function fetchKanban() {
@@ -2145,18 +2235,10 @@ async function fetchKanban() {
   }).join("");
 }
 
-function openAdmin() {
-  document.getElementById("app").style.display = "none";
-  document.getElementById("header").style.display = "none";
-  document.getElementById("viewAdmin").style.display = "flex";
-  adminTab("dash");
-}
-
+function openAdmin() { navTo("visao"); }
 function closeAdmin() {
-  document.getElementById("viewAdmin").style.display = "none";
-  document.getElementById("header").style.display = "flex";
-  document.getElementById("app").style.display = "block";
   if (waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
+  navTo("chat");
 }
 
 function toggleAnaliseMenu() {
