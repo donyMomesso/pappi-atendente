@@ -623,8 +623,8 @@ async function startOrdering(wa, cw, phone, session, customer, tenant) {
 
   const m =
     isVip && last
-      ? `Fechado ✅ Pronto pra pedir, ${firstName}! 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
-      : `Fechado ✅ Agora me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
+      ? `Me diz seu pedido 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
+      : `Me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
 
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);

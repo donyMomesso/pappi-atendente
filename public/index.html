@@ -451,6 +451,7 @@
       <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📋 Relatórios</button>
       <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
       <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
+      <button class="admin-tab"        id="atAtend"     onclick="adminTab('atend')">👥 Administrar Atendente</button>
       <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
     </div>
   </div>
@@ -544,6 +545,41 @@
     </div>
   </div>
 
+  <!-- Painel: Administrar Atendente (Setor + Atendentes) -->
+  <div id="adminPanelAtend" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
+    <div style="max-width:860px;margin:0 auto">
+      <div class="settings-title">👥 Administrar Atendente</div>
+      <div class="settings-sub">Configure departamentos (setores) e atendentes autorizados.</div>
+      <div class="settings-grid" style="margin-top:20px">
+        <div class="settings-card">
+          <div class="settings-card-head">🔄 Departamentos (Setores)</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados. Opcionalmente, informe um número WhatsApp para receber notificação quando houver transferência.</p>
+            <div class="attendant-list" id="departmentList"></div>
+            <div class="add-attendant-row" style="flex-wrap:wrap;gap:8px">
+              <input id="newDepartmentName" type="text" placeholder="Nome (ex: SAC, Financeiro)" style="min-width:140px" onkeydown="if(event.key==='Enter')addDepartment()"/>
+              <input id="newDepartmentPhone" type="text" placeholder="Nº WhatsApp para transferir (opcional)" style="min-width:200px" onkeydown="if(event.key==='Enter')addDepartment()"/>
+              <button class="btn-add-att" onclick="addDepartment()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveDepartments()">Salvar departamentos</button>
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-head">👤 Atendentes Autorizados</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Nomes dos atendentes que podem ser atribuídos aos chamados.</p>
+            <div class="attendant-list" id="attendantList"></div>
+            <div class="add-attendant-row">
+              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
+              <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
+            </div>
+            <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel: SAC -->
   <div id="adminPanelSac" class="admin-panel" style="display:none">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
@@ -558,7 +594,7 @@
   <div id="adminPanelCfg" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:860px;margin:0 auto">
       <div class="settings-title">⚙️ Configurações</div>
-      <div class="settings-sub">Gerencie os dados da empresa e os atendentes autorizados.</div>
+      <div class="settings-sub">Dados da empresa, usuários Google e integrações.</div>
       <div class="settings-grid" style="margin-top:0">
         <div class="settings-card">
           <div class="settings-card-head">🏪 Dados da Empresa</div>
@@ -568,30 +604,6 @@
             <div class="settings-field"><label>ID da Loja (CW)</label><input id="cfg-storeId" type="text" readonly/></div>
             <div class="settings-field"><label>WhatsApp Phone Number ID</label><input id="cfg-waPhone" type="text" readonly/></div>
             <button class="btn-save-settings" onclick="saveCompany()">Salvar empresa</button>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-head">🔄 Departamentos de Transferência</div>
-          <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Lista de departamentos exibidos ao transferir chamados. Opcionalmente, informe um número WhatsApp para receber notificação quando houver transferência.</p>
-            <div class="attendant-list" id="departmentList"></div>
-            <div class="add-attendant-row" style="flex-wrap:wrap;gap:8px">
-              <input id="newDepartmentName" type="text" placeholder="Nome (ex: SAC, Financeiro)" style="min-width:140px" onkeydown="if(event.key==='Enter')addDepartment()"/>
-              <input id="newDepartmentPhone" type="text" placeholder="Nº WhatsApp para transferir (opcional)" style="min-width:200px" onkeydown="if(event.key==='Enter')addDepartment()"/>
-              <button class="btn-add-att" onclick="addDepartment()">+ Adicionar</button>
-            </div>
-            <button class="btn-save-settings" style="margin-top:14px" onclick="saveDepartments()">Salvar departamentos</button>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-head">👥 Atendentes Autorizados</div>
-          <div class="settings-card-body">
-            <div class="attendant-list" id="attendantList"></div>
-            <div class="add-attendant-row">
-              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
-              <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
-            </div>
-            <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
           </div>
         </div>
         <div class="settings-card" style="grid-column:1/-1">
@@ -1875,7 +1887,7 @@ function closeAdmin() {
 
 function adminTab(tab) {
   currentAdminTab = tab;
-  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", cfg:"Cfg" };
+  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", atend:"Atend", cfg:"Cfg" };
   Object.entries(tabIds).forEach(([k, v]) => {
     const btn = document.getElementById("at"+v);
     const panel = document.getElementById("adminPanel"+v);
@@ -1884,7 +1896,7 @@ function adminTab(tab) {
   });
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
-  if (tab === "cfg")   loadAdminSettings();
+  if (tab === "cfg" || tab === "atend") loadAdminSettings();
 }
 
 // ── ESTATÍSTICAS ──────────────────────────────────────────────
