@@ -191,7 +191,7 @@ router.get("/queue", authDash, async (req, res) => {
 router.put("/handoff", authDash, async (req, res) => {
   try {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
-    let { customerId, phone, enabled } = req.body;
+    let { customerId, phone, enabled, attendant } = req.body;
     if (!customerId && phone) {
       const { findByPhone } = require("../services/customer.service");
       const c = await findByPhone(tenantId, phone);
@@ -199,6 +199,16 @@ router.put("/handoff", authDash, async (req, res) => {
     }
     if (!customerId) return res.status(400).json({ error: "customerId ou phone obrigatório" });
     await setHandoff(customerId, !!enabled);
+    // Quando atendente desliga o bot (handoff=true), assume e envia saudação
+    if (!!enabled && attendant) {
+      const attendantName = attendant || req.attendant?.name || "Atendente";
+      await claimFromQueue(customerId, attendantName);
+      try {
+        await sendAttendantGreeting(customerId, attendantName, tenantId);
+      } catch (greetingErr) {
+        console.error("[Handoff] Erro ao enviar saudação:", greetingErr.message);
+      }
+    }
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
@@ -755,14 +765,91 @@ router.get("/customer/:id/messages", authDash, async (req, res) => {
 });
 
 // ── GET /dash/customer/:id/orders ─────────────────────────────
+// Retorna pedidos do nosso DB + histórico do CardapioWeb (extraído por telefone)
 router.get("/customer/:id/orders", authDash, async (req, res) => {
   try {
-    const orders = await prisma.order.findMany({
-      where: { customerId: req.params.id },
-      orderBy: { createdAt: "desc" },
-      take: 20,
+    const customerId = req.params.id;
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { phone: true },
     });
-    res.json(orders);
+    if (!customer) return res.json([]);
+
+    const dbOrders = await prisma.order.findMany({
+      where: { customerId },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+    });
+
+    const mapCwStatus = (s) => {
+      const t = String(s || "").toLowerCase();
+      if (t.includes("confirm") || t === "confirmed") return "confirmed";
+      if (t.includes("prepar") || t === "in_preparation") return "in_preparation";
+      if (t.includes("dispatch") || t === "dispatched") return "dispatched";
+      if (t.includes("conclu") || t === "concluded" || t === "delivered") return "concluded";
+      if (t.includes("cancel")) return "cancelled";
+      return t || "waiting_confirmation";
+    };
+
+    const toDisplayFormat = (o, source = "db") => {
+      let items = [];
+      if (source === "db" && o.itemsSnapshot) {
+        try {
+          items = JSON.parse(o.itemsSnapshot);
+        } catch {}
+      } else if (source === "cw" && o.items) {
+        items = Array.isArray(o.items) ? o.items : [];
+      } else if (source === "cw" && o.order_items) {
+        items = (o.order_items || []).map((i) => ({
+          quantity: i.quantity || 1,
+          name: i.name || i.product_name || i.description || "Item",
+        }));
+      }
+      return {
+        id: o.id,
+        cwOrderId: o.id || o.cwOrderId || o.order_id,
+        status: mapCwStatus(o.status),
+        total: parseFloat(o.total ?? o.totals?.order_amount ?? o.order_amount ?? 0) || 0,
+        fulfillment: (o.order_type || o.fulfillment || "delivery") === "takeout" ? "takeout" : "delivery",
+        paymentMethodName: o.payment_method_name || o.paymentMethodName || "—",
+        items: items.map((i) => ({
+          quantity: i.quantity || 1,
+          name: i.name || i.product_name || i.description || "Item",
+        })),
+        createdAt: o.created_at || o.createdAt,
+      };
+    };
+
+    const seen = new Set();
+    const merged = [];
+    for (const o of dbOrders) {
+      const formatted = toDisplayFormat(o, "db");
+      const key = o.cwOrderId || o.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(formatted);
+      }
+    }
+
+    let cwOrders = [];
+    try {
+      const { cw } = await getClients(tenantId);
+      cwOrders = (await cw.listOrdersByPhone(customer.phone, 30)) || [];
+    } catch (e) {
+      console.warn("[Customer orders] CW listOrdersByPhone:", e.message);
+    }
+
+    for (const o of cwOrders) {
+      const cwId = o.id || o.order_id;
+      if (cwId && !seen.has(cwId)) {
+        seen.add(cwId);
+        merged.push(toDisplayFormat(o, "cw"));
+      }
+    }
+
+    merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json(merged.slice(0, 30));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1088,6 +1175,20 @@ router.post("/wa-internal/disconnect", authAdmin, (req, res) => {
   baileys.disconnect(req.body.instanceId || "default");
   res.json({ ok: true });
 });
+
+// POST /dash/broadcast — Lista de transmissão (admin only, usa WhatsApp Interno/Baileys)
+router.post("/broadcast", authAdmin, async (req, res) => {
+  try {
+    const { numbers, message, instanceId = "default", delayMs = 5000 } = req.body;
+    if (!Array.isArray(numbers) || numbers.length === 0 || !message || typeof message !== "string")
+      return res.status(400).json({ error: "numbers (array) e message (string) obrigatórios" });
+    const delay = Math.max(3000, Math.min(60000, parseInt(delayMs, 10) || 5000));
+    const result = await baileys.broadcastSend(numbers, message.trim(), instanceId, delay);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 router.patch("/wa-internal/numbers", authAdmin, (req, res) => {
   baileys.setNotifyNumbers(Array.isArray(req.body.numbers) ? req.body.numbers : [], req.body.instanceId || "default");
   res.json({ ok: true });
@@ -1102,6 +1203,18 @@ router.get("/customer/:id/avatar", authDash, async (req, res) => {
     res.status(204).end();
   } catch {
     res.status(204).end();
+  }
+});
+
+// Perfil WhatsApp (foto) por telefone — para enriquecer contatos
+router.get("/contact/wa-profile", authDash, async (req, res) => {
+  try {
+    const phone = (req.query.phone || "").replace(/\D/g, "");
+    if (!phone || phone.length < 10) return res.status(400).json({ error: "phone obrigatório" });
+    const url = await baileys.getProfilePicture(phone).catch(() => null);
+    res.json({ profilePictureUrl: url || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

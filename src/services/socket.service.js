@@ -41,8 +41,13 @@ function emitQueueUpdate() {
   _io.emit("queue_update");
 }
 
+function emitBaileysDisconnected(instanceId, reason) {
+  if (!_io) return;
+  _io.emit("baileys_disconnected", { instanceId, reason });
+}
+
 function getIO() {
   return _io;
 }
 
-module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, getIO };
+module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, emitBaileysDisconnected, getIO };

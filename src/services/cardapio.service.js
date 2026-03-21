@@ -207,6 +207,36 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
     }
   }
 
+  async function listOrdersByPhone(phone, limit = 30) {
+    const normalized = String(phone).replace(/\D/g, "");
+    if (!normalized || normalized.length < 10) return [];
+    const endpoints = [
+      `orders?phone_number=${normalized}&per_page=${limit}`,
+      `orders?customer_phone=${normalized}&per_page=${limit}`,
+    ];
+    for (const ep of endpoints) {
+      try {
+        const resp = await fetchWithTimeout(`${base}/api/partner/v1/${ep}`, { headers: headersPartner() });
+        const data = await safeJson(resp);
+        if (!resp.ok) continue;
+        const raw = Array.isArray(data) ? data : data?.data ?? data?.orders ?? [];
+        if (Array.isArray(raw) && raw.length > 0) return raw.slice(0, limit);
+      } catch {}
+    }
+    const customer = await getCustomerByPhone(normalized);
+    if (customer?.id) {
+      try {
+        const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders?customer_id=${customer.id}&per_page=${limit}`, { headers: headersPartner() });
+        const data = await safeJson(resp);
+        if (resp.ok && data) {
+          const raw = Array.isArray(data) ? data : data?.data ?? data?.orders ?? [];
+          return Array.isArray(raw) ? raw.slice(0, limit) : [];
+        }
+      } catch {}
+    }
+    return [];
+  }
+
   async function isOpen() {
     const merchant = await getMerchant();
     if (!merchant) return true;
@@ -241,6 +271,7 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
     getDeliveryFee,
     getCustomerByPhone,
     getOrderById,
+    listOrdersByPhone,
     isOpen,
   };
 }

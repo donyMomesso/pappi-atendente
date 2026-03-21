@@ -90,13 +90,20 @@ async function isAuthorized() {
   return !!t.refresh_token;
 }
 
-async function createContact(name, phone) {
+async function createContact(name, phone, options = {}) {
   try {
     const token = await getAccessToken();
     if (!token) return false;
+    let names = [];
+    if (name) {
+      const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+      const givenName = parts[0] || name;
+      const familyName = options.familyName || (parts.length > 1 ? parts.slice(1).join(" ") : undefined);
+      names = [{ displayName: name, givenName, familyName }];
+    }
     const body = {
-      names: name ? [{ displayName: name, givenName: name }] : [],
-      phoneNumbers: [{ value: `+${phone}`, type: "mobile" }],
+      names: names.length ? names : [],
+      phoneNumbers: [{ value: `+${String(phone).replace(/\D/g, "")}`, type: "mobile" }],
     };
     const res = await fetch(`${CONTACTS_URL}?personFields=names,phoneNumbers`, {
       method: "POST",
@@ -118,20 +125,36 @@ async function searchContacts(query) {
   try {
     const token = await getAccessToken();
     if (!token) return [];
-    const params = new URLSearchParams({ query, readMask: "names,phoneNumbers", pageSize: 20 });
-    const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.results || [])
-      .map((r) => {
+    const digits = (query || "").replace(/\D/g, "");
+    const queriesToTry = [query.trim()];
+    if (digits.length >= 8) {
+      if (!digits.startsWith("55")) queriesToTry.push("55" + digits, "+55" + digits);
+      queriesToTry.push(digits);
+    }
+    const seen = new Set();
+    const results = [];
+    for (const q of queriesToTry) {
+      if (!q) continue;
+      const params = new URLSearchParams({ query: q, readMask: "names,phoneNumbers", pageSize: 20 });
+      const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const r of data.results || []) {
         const p = r.person;
-        const name = p.names?.[0]?.displayName || "";
         const phone = p.phoneNumbers?.[0]?.value?.replace(/\D/g, "") || "";
-        return { name, phone };
-      })
-      .filter((c) => c.phone);
+        if (!phone || seen.has(phone)) continue;
+        seen.add(phone);
+        const n = p.names?.[0];
+        const givenName = n?.givenName || "";
+        const familyName = n?.familyName || "";
+        const displayName = n?.displayName || [givenName, familyName].filter(Boolean).join(" ").trim() || "";
+        results.push({ name: displayName || null, familyName: familyName || null, phone });
+      }
+      if (results.length >= 15) break;
+    }
+    return results;
   } catch (e) {
     return [];
   }

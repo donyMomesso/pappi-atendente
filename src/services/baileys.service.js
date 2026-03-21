@@ -252,7 +252,11 @@ async function start(instanceId = "default") {
             }
 
             // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
-            const customer = await findOrCreate(tenantId, phone, null);
+            const pushName = msg.pushName || msg.verifiedBizName || null;
+            const customer = await findOrCreate(tenantId, phone, pushName);
+            if (pushName && !customer.name) {
+              await prisma.customer.update({ where: { id: customer.id }, data: { name: pushName } }).catch(() => {});
+            }
             await touchInteraction(customer.id);
             await setReplyChannel(customer.id, `baileys:${instanceId}`);
 
@@ -337,6 +341,22 @@ async function start(instanceId = "default") {
         inst.status = "disconnected";
         inst.socket = null;
         inst.starting = false;
+
+        if (!inst._intentionalDisconnect) {
+          const reason = loggedOut
+            ? "Logout (401)"
+            : replaced
+              ? "Sessão substituída (440)"
+              : code
+                ? `Conexão fechada (code ${code})`
+                : "Conexão fechada";
+          try {
+            require("./socket.service").emitBaileysDisconnected(instanceId, reason);
+          } catch (e) {
+            log.warn({ err: e }, "Falha ao emitir baileys_disconnected");
+          }
+        }
+        inst._intentionalDisconnect = false;
 
         if (loggedOut) {
           console.log(`[Baileys:${instanceId}] Logout — limpando auth.`);
@@ -484,6 +504,7 @@ function disconnect(instanceId = "default") {
   const inst = INSTANCES.get(instanceId);
   if (!inst) return;
   inst.starting = false;
+  inst._intentionalDisconnect = true;
   if (inst.socket) {
     try {
       inst.socket.end();
@@ -509,6 +530,33 @@ async function getProfilePicture(phone) {
   return null;
 }
 
+function delay(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function broadcastSend(numbers, message, instanceId = "default", delayMs = 5000) {
+  const normalized = numbers
+    .map((n) => String(n || "").replace(/\D/g, ""))
+    .filter((n) => n.length >= 10);
+  const unique = [...new Set(normalized)];
+  const results = { sent: 0, failed: 0, errors: [] };
+  for (const phone of unique) {
+    try {
+      const ok = await sendText(phone, message, instanceId, true);
+      if (ok) results.sent++;
+      else {
+        results.failed++;
+        results.errors.push({ phone, error: "Falha ao enviar" });
+      }
+    } catch (err) {
+      results.failed++;
+      results.errors.push({ phone, error: err.message || "Erro" });
+    }
+    if (delayMs > 0) await delay(delayMs);
+  }
+  return results;
+}
+
 module.exports = {
   start,
   initAll,
@@ -523,4 +571,5 @@ module.exports = {
   getProfilePicture,
   getReplyChannel,
   setReplyChannel,
+  broadcastSend,
 };

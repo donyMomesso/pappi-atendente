@@ -504,6 +504,7 @@
         </div>
       </div>
       <button class="admin-tab" id="atSac" onclick="adminTab('sac')">📩 SAC</button>
+      <button class="admin-tab" id="atBroadcast" onclick="adminTab('broadcast')" style="display:none">📤 Transmissão</button>
       <button class="admin-tab" id="atAtend" onclick="adminTab('atend')">👥 Usuários</button>
       <button class="admin-tab" id="atCfg" onclick="adminTab('cfg')">⚙️ Config</button>
     </div>
@@ -633,6 +634,50 @@
   </div>
 
   <!-- Painel: SAC — único que envia para outro número -->
+  <!-- Painel: Lista de Transmissão (admin only) -->
+  <div id="adminPanelBroadcast" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
+    <div style="max-width:640px;margin:0 auto">
+      <div class="settings-title">📤 Lista de Transmissão</div>
+      <div class="settings-sub">Envio em massa via WhatsApp Interno (Baileys). Apenas admin.</div>
+
+      <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:14px 18px;margin:20px 0;font-size:13px;color:#856404;line-height:1.6">
+        <strong>⚠️ Restrições e avisos</strong>
+        <ul style="margin:8px 0 0 16px;padding:0">
+          <li><strong>Delay obrigatório:</strong> Use no mínimo 5 segundos entre mensagens. Spam pode levar ao <strong>banimento do número</strong>.</li>
+          <li><strong>Contato salvo:</strong> A mensagem só é entregue se o destinatário tiver seu número na agenda.</li>
+          <li><strong>Formato:</strong> Números no padrão 55 + DDD + número (ex: 5511999999999).</li>
+          <li><strong>ToS WhatsApp:</strong> Automações em massa podem violar os termos de serviço do WhatsApp.</li>
+        </ul>
+      </div>
+
+      <div class="settings-card" style="margin-top:16px">
+        <div class="settings-card-head">📲 Enviar mensagem</div>
+        <div class="settings-card-body">
+          <div class="settings-field">
+            <label>Números (um por linha ou separados por vírgula)</label>
+            <textarea id="broadcastNumbers" rows="6" placeholder="5511999999999&#10;5511888888888&#10;..." style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:monospace;resize:vertical"></textarea>
+          </div>
+          <div class="settings-field">
+            <label>Mensagem</label>
+            <textarea id="broadcastMessage" rows="4" placeholder="Olá! Esta é uma mensagem de transmissão." style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-size:13px;resize:vertical"></textarea>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div class="settings-field" style="flex:1;min-width:140px">
+              <label>Delay entre envios (segundos)</label>
+              <input id="broadcastDelay" type="number" min="5" max="60" value="5" style="width:100%"/>
+            </div>
+            <div class="settings-field" style="flex:1;min-width:140px">
+              <label>WhatsApp (instância)</label>
+              <select id="broadcastInstance" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px"></select>
+            </div>
+          </div>
+          <div id="broadcastStatus" style="margin-top:12px;font-size:13px;color:#666;display:none"></div>
+          <button id="btnBroadcastSend" class="btn-save-settings" style="margin-top:16px" onclick="sendBroadcast()">📤 Enviar transmissão</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="adminPanelSac" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:560px;margin:0 auto">
       <div class="settings-title">📩 SAC — Reclamações e Elogios</div>
@@ -815,6 +860,36 @@ function initSocket() {
     fetchConvs();
     if (selectedCustomer?.id === customerId) fetchQueue();
   });
+
+  // WhatsApp Interno desconectou inesperadamente
+  _socket.on("baileys_disconnected", ({ instanceId, reason }) => {
+    showWaDisconnectAlert(instanceId, reason);
+  });
+}
+
+function showWaDisconnectAlert(instanceId, reason) {
+  const name = instanceId === "default" ? "Principal" : instanceId;
+  const overlay = document.createElement("div");
+  overlay.id = "wa-disconnect-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;animation:fadeIn .2s";
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.3);border:3px solid #e53935">
+      <div style="font-size:48px;text-align:center;margin-bottom:12px">📵</div>
+      <h3 style="margin:0 0 12px;font-size:18px;color:#e53935;text-align:center">WhatsApp Interno Desconectado</h3>
+      <p style="margin:0 0 8px;font-size:14px;color:#333;line-height:1.5">${esc(name)} desconectou inesperadamente.</p>
+      <p style="margin:0 0 16px;font-size:12px;color:#666">Motivo: ${esc(reason)}</p>
+      <p style="margin:0 0 20px;font-size:12px;color:#888">Reconexão automática em andamento. Caso não reconecte, vá em Configurações > WhatsApp Interno e clique em Conectar.</p>
+      <button onclick="this.closest('#wa-disconnect-overlay').remove()" style="width:100%;background:var(--violet);color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer">Entendi</button>
+    </div>
+  `;
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  if (!document.querySelector("style#wa-disconnect-style")) {
+    const s = document.createElement("style");
+    s.id = "wa-disconnect-style";
+    s.textContent = "@keyframes fadeIn{from{opacity:0}to{opacity:1}}";
+    document.head.appendChild(s);
+  }
 }
 
 function appendMsgToChat(body, m) {
@@ -1034,6 +1109,8 @@ function applyRole() {
   document.getElementById("h-user-name").textContent = ATTENDANT_NAME;
   document.getElementById("btnAdminPanel").style.display = isAdmin ? "" : "none";
   document.getElementById("btnConfig").style.display = isAdmin ? "" : "none";
+  const tb = document.getElementById("atBroadcast");
+  if (tb) tb.style.display = isAdmin ? "" : "none";
 }
 document.getElementById("loginKeyInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
 document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKeyInput").focus(); });
@@ -1298,21 +1375,30 @@ function renderRight(c) {
 function renderOrders(orders) {
   const el = document.getElementById("ordersList");
   if (!el) return;
-  if (!orders.length) { el.innerHTML = '<div class="no-orders">Nenhum pedido ainda</div>'; return; }
-  el.innerHTML = orders.map((o,i) => `
+  if (!orders || !orders.length) { el.innerHTML = '<div class="no-orders">Nenhum pedido ainda</div>'; return; }
+  const getItems = (o) => {
+    if (Array.isArray(o.items)) return o.items;
+    if (o.itemsSnapshot) try { return JSON.parse(o.itemsSnapshot); } catch { }
+    return [];
+  };
+  el.innerHTML = orders.map((o,i) => {
+    const items = getItems(o);
+    const total = typeof o.total === "number" ? o.total : parseFloat(o.total) || 0;
+    const itemStr = items.slice(0,3).map(it=>`${it.quantity||1}x ${esc(it.name||"item")}`).join(", ");
+    return `
     <div class="order-card">
       <div class="oc-head">
         <span class="oc-num">Pedido #${orders.length - i}</span>
-        <span class="status-pill s-${o.status==="lead"?"lead":o.status==="cw_failed"?"cw_failed":o.status.includes("cancel")?"cancelled":o.status.includes("deliver")?"delivered":o.status.includes("confirm")?"confirmed":o.status.includes("prepar")?"preparing":"waiting"}">${statusLabel(o.status)}</span>
-        <span class="oc-total">R$ ${o.total.toFixed(2)}</span>
+        <span class="status-pill s-${o.status==="lead"?"lead":o.status==="cw_failed"?"cw_failed":(o.status||"").includes("cancel")?"cancelled":(o.status||"").includes("deliver")?"delivered":(o.status||"").includes("confirm")?"confirmed":(o.status||"").includes("prepar")?"preparing":"waiting"}">${statusLabel(o.status)}</span>
+        <span class="oc-total">R$ ${total.toFixed(2)}</span>
       </div>
       <div class="oc-body">
-        <div>${o.fulfillment==="delivery"?"🛵 Entrega":"🏪 Retirada"} · ${esc(o.paymentMethodName||"—")}</div>
-        <div class="oc-items">${o.items.slice(0,3).map(i=>`${i.quantity}x ${esc(i.name)}`).join(", ")}${o.items.length>3?` +${o.items.length-3} itens`:""}</div>
+        <div>${(o.fulfillment||"delivery")==="takeout"?"🏪 Retirada":"🛵 Entrega"} · ${esc(o.paymentMethodName||"—")}</div>
+        <div class="oc-items">${itemStr}${items.length>3?` +${items.length-3} itens`:""}</div>
         <div style="font-size:11px;color:#aaa;margin-top:3px">${new Date(o.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
       </div>
     </div>
-  `).join("");
+  `}).join("");
 }
 
 // ── HANDOFF TOGGLE ───────────────────────────────────────────
@@ -1323,10 +1409,11 @@ async function toggleHandoff(botEnabled) {
   const handoff = !botEnabled;
   await api("/handoff", {
     method: "PUT",
-    body: JSON.stringify({ phone: selectedCustomer.phone, enabled: handoff, tenantId: TENANT })
+    body: JSON.stringify({ phone: selectedCustomer.phone, enabled: handoff, tenantId: TENANT, attendant: ATTENDANT_NAME })
   });
   selectedCustomer.handoff = handoff;
-  allConvs = allConvs.map(c => c.id === selectedCustomer.id ? {...c, handoff} : c);
+  if (handoff && ATTENDANT_NAME) selectedCustomer.claimedBy = ATTENDANT_NAME;
+  allConvs = allConvs.map(c => c.id === selectedCustomer.id ? {...c, handoff, ...(handoff && ATTENDANT_NAME ? { claimedBy: ATTENDANT_NAME } : {})} : c);
   renderConvs(allConvs);
 }
 
@@ -1830,9 +1917,9 @@ function playBell() {
     osc.connect(gain); gain.connect(ctx.destination);
     osc.frequency.setValueAtTime(880, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
-    gain.gain.setValueAtTime(0.6, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+    gain.gain.setValueAtTime(1.0, ctx.currentTime); // volume alto para cozinha barulhenta
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6);
   } catch(e) {}
 }
 function startBell() {
@@ -2004,7 +2091,7 @@ document.addEventListener("click", function(e) {
 });
 function adminTab(tab) {
   currentAdminTab = tab;
-  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", atend:"Atend", cfg:"Cfg" };
+  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", broadcast:"Broadcast", atend:"Atend", cfg:"Cfg" };
   const analiseTabs = ["dash","stats","rel","audit"];
   Object.entries(tabIds).forEach(([k, v]) => {
     const btn = document.getElementById("at"+v);
@@ -2017,6 +2104,59 @@ function adminTab(tab) {
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
   if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();
+  if (tab === "broadcast") loadBroadcastPanel();
+}
+
+async function loadBroadcastPanel() {
+  const sel = document.getElementById("broadcastInstance");
+  if (!sel) return;
+  const data = await api("/baileys/instances");
+  const list = Array.isArray(data) ? data : [];
+  sel.innerHTML = list.map(i => `<option value="${esc(i.id)}" ${i.status==="connected"?"":"disabled"}>${esc(i.id)} ${i.status==="connected"?"✓":"—"}</option>`).join("") || "<option value=\"default\">default</option>";
+}
+
+async function sendBroadcast() {
+  const numbersEl = document.getElementById("broadcastNumbers");
+  const msgEl = document.getElementById("broadcastMessage");
+  const delayEl = document.getElementById("broadcastDelay");
+  const instanceEl = document.getElementById("broadcastInstance");
+  const statusEl = document.getElementById("broadcastStatus");
+  const btnEl = document.getElementById("btnBroadcastSend");
+  if (!numbersEl || !msgEl) return;
+  const raw = numbersEl.value.trim();
+  const msg = msgEl.value.trim();
+  if (!raw || !msg) {
+    alert("Preencha os números e a mensagem.");
+    return;
+  }
+  const numbers = raw.split(/[\n,;]+/).map(s => s.trim().replace(/\D/g, "")).filter(n => n.length >= 10);
+  if (!numbers.length) {
+    alert("Nenhum número válido. Use formato 5511999999999.");
+    return;
+  }
+  const delaySec = Math.max(5, Math.min(60, parseInt(delayEl?.value || "5", 10) || 5));
+  if (!confirm(`Enviar para ${numbers.length} contato(s)? Delay de ${delaySec}s entre cada. Tempo estimado: ${Math.ceil(numbers.length * delaySec / 60)} min.`)) return;
+
+  btnEl.disabled = true;
+  statusEl.style.display = "";
+  statusEl.textContent = "Enviando...";
+
+  const r = await api("/broadcast", {
+    method: "POST",
+    body: JSON.stringify({
+      numbers,
+      message: msg,
+      instanceId: instanceEl?.value || "default",
+      delayMs: delaySec * 1000,
+    }),
+  });
+
+  btnEl.disabled = false;
+  if (r?.ok) {
+    statusEl.innerHTML = `<span style="color:#25d366">✅ Enviados: ${r.sent} | Falhas: ${r.failed}</span>`;
+  } else {
+    statusEl.innerHTML = `<span style="color:#e53935">Erro: ${r?.error || "Tente novamente"}</span>`;
+  }
 }
 
 // ── ESTATÍSTICAS ──────────────────────────────────────────────
@@ -2347,27 +2487,58 @@ async function searchContactsNow() {
   const results = [];
   for (const c of [...waRes, ...googleRes]) {
     const phone = String(c.phone || "").replace(/\D/g, "");
-    if (!phone || seen.has(phone)) continue;
-    seen.add(phone);
-    results.push({ name: c.name || null, phone: c.phone || phone });
+    if (!phone) continue;
+    const merged = results.find(r => String(r.phone).replace(/\D/g,"") === phone);
+    if (merged) {
+      if (c.name && (!merged.name || (c.familyName && c.name.length > (merged.name||"").length))) merged.name = c.name;
+      if (c.familyName) merged.familyName = c.familyName;
+    } else {
+      seen.add(phone);
+      results.push({ name: c.name || null, familyName: c.familyName || null, phone: c.phone || phone });
+    }
   }
 
   if (!results.length) {
-    el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Nenhum contato encontrado. Busca em Google Contacts e clientes WhatsApp.</p>';
+    el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Nenhum contato encontrado. Busca por nome ou telefone em Google Contacts e clientes WhatsApp.</p>';
     return;
   }
 
-  el.innerHTML = results.map(c => `
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f5f5f5;cursor:pointer;border-radius:8px;transition:.15s"
+  const ts = Date.now();
+  el.innerHTML = results.map((c, i) => {
+    const displayName = c.name ? (c.familyName && !c.name.includes(c.familyName) ? c.name + " " + c.familyName : c.name) : null;
+    const phoneFormatted = c.phone.replace(/^(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3");
+    const label = displayName || "Sem nome";
+    const aid = "contact-avatar-" + ts + "-" + i;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f5f5f5;cursor:pointer;border-radius:8px;transition:.15s"
       onmouseenter="this.style.background='var(--violet-l)'" onmouseleave="this.style.background=''"
-      onclick="startConvFromContact('${esc(c.name)}','${esc(c.phone)}')">
-      <div class="avatar" style="width:36px;height:36px;font-size:14px">${(c.name||c.phone||"?")[0].toUpperCase()}</div>
-      <div style="flex:1">
-        <div style="font-size:14px;font-weight:600;color:#1a1a1a">${esc(c.name||"Sem nome")}</div>
-        <div style="font-size:12px;color:#888">+${esc(c.phone)}</div>
+      onclick="startConvFromContact('${esc(displayName||"")}','${esc(c.phone)}')">
+      <div id="${aid}" class="avatar contact-avatar" data-phone="${esc(c.phone)}" style="width:36px;height:36px;font-size:14px">${(label||c.phone||"?")[0].toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;color:#1a1a1a">${esc(label)}</div>
+        <div style="font-size:12px;color:#888">${esc(phoneFormatted)}</div>
       </div>
-      <button style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">Conversar</button>
-    </div>`).join("");
+      <button style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;flex-shrink:0">Conversar</button>
+    </div>`;
+  }).join("");
+  results.slice(0, 5).forEach((c, i) => {
+    const av = document.getElementById("contact-avatar-" + ts + "-" + i);
+    if (av) fetchWaAvatar(c.phone, av);
+  });
+}
+
+async function fetchWaAvatar(phone, el) {
+  if (!el || el.querySelector("img")) return;
+  try {
+    const d = await api(`/contact/wa-profile?phone=${encodeURIComponent(phone)}`);
+    if (d?.profilePictureUrl && el && !el.querySelector("img")) {
+      const img = document.createElement("img");
+      img.src = d.profilePictureUrl;
+      img.style.cssText = "width:100%;height:100%;object-fit:cover;border-radius:50%";
+      img.onerror = () => img.remove();
+      el.innerHTML = "";
+      el.appendChild(img);
+    }
+  } catch (_) {}
 }
 
 async function startConvFromContact(name, phone) {
@@ -2567,7 +2738,7 @@ async function gcConnect() {
 	}
 
 	async function waIntDisconnect(id) {
-	  if (!confirm("Desconectar este WhatsApp?")) return;
+	  if (!confirm("Desconectar este WhatsApp? O cliente não receberá mensagens até reconectar.")) return;
 	  await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
 	  waIntRefresh();
 	}
