@@ -1176,6 +1176,85 @@ router.post("/wa-internal/disconnect", authAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /dash/broadcast/contacts — Contatos para transmissão com filtros (admin only)
+router.get("/broadcast/contacts", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const period = req.query.period || "all"; // this_week | this_month | 3_months | over_3_months | all
+    const janela24h = req.query.janela24h === "true" || req.query.janela24h === "1";
+    const limit = Math.min(500, Math.max(25, parseInt(req.query.limit, 10) || 50));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+    const now = new Date();
+    const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const since90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    let customerIds = null;
+    if (period !== "all") {
+      const orderFilter =
+        period === "this_week"
+          ? { createdAt: { gte: since7d } }
+          : period === "this_month"
+            ? { createdAt: { gte: since30d } }
+            : period === "3_months"
+              ? { createdAt: { gte: since90d } }
+              : period === "over_3_months"
+                ? { createdAt: { lt: since90d } }
+                : {};
+      if (period === "over_3_months") {
+        const orderedRecently = await prisma.order.findMany({
+          where: { tenantId, createdAt: { gte: since90d } },
+          select: { customerId: true },
+          distinct: ["customerId"],
+        });
+        const recentIds = new Set(orderedRecently.map((o) => o.customerId));
+        const allCustomers = await prisma.customer.findMany({
+          where: { tenantId },
+          select: { id: true },
+        });
+        customerIds = allCustomers.filter((c) => !recentIds.has(c.id)).map((c) => c.id);
+      } else {
+        const orders = await prisma.order.findMany({
+          where: { tenantId, ...orderFilter },
+          select: { customerId: true },
+          distinct: ["customerId"],
+        });
+        customerIds = orders.map((o) => o.customerId);
+      }
+    }
+
+    const where = { tenantId };
+    if (customerIds && customerIds.length > 0) where.id = { in: customerIds };
+    else if (customerIds && customerIds.length === 0) return res.json({ contacts: [], total: 0 });
+    if (janela24h) where.lastInteraction = { gte: since24h };
+
+    const [contacts, total] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        select: { id: true, phone: true, name: true, lastInteraction: true },
+        orderBy: { lastInteraction: "desc" },
+        skip: offset,
+        take: limit,
+      }),
+      prisma.customer.count({ where }),
+    ]);
+
+    res.json({
+      contacts: contacts.map((c) => ({
+        id: c.id,
+        phone: c.phone,
+        name: c.name || "Sem nome",
+        lastInteraction: c.lastInteraction,
+      })),
+      total,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /dash/broadcast — Lista de transmissão (admin only, usa WhatsApp Interno/Baileys)
 router.post("/broadcast", authAdmin, async (req, res) => {
   try {

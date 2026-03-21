@@ -633,10 +633,9 @@
     </div>
   </div>
 
-  <!-- Painel: SAC — único que envia para outro número -->
   <!-- Painel: Lista de Transmissão (admin only) -->
   <div id="adminPanelBroadcast" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
-    <div style="max-width:640px;margin:0 auto">
+    <div style="max-width:720px;margin:0 auto">
       <div class="settings-title">📤 Lista de Transmissão</div>
       <div class="settings-sub">Envio em massa via WhatsApp Interno (Baileys). Apenas admin.</div>
 
@@ -650,6 +649,72 @@
         </ul>
       </div>
 
+      <!-- Buscar contatos salvos -->
+      <div class="settings-card" style="margin-top:16px">
+        <div class="settings-card-head">📒 Buscar contatos salvos</div>
+        <div class="settings-card-body">
+          <p style="font-size:13px;color:#555;margin-bottom:12px">Selecione clientes por período de compra e adicione em lotes seguros.</p>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+            <div class="settings-field" style="flex:1;min-width:160px">
+              <label>Período (última compra)</label>
+              <select id="broadcastFilterPeriod" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+                <option value="all">Todos os clientes</option>
+                <option value="this_week">Comprou esta semana</option>
+                <option value="this_month">Comprou este mês</option>
+                <option value="3_months">Comprou nos últimos 3 meses</option>
+                <option value="over_3_months">Inativo (+ de 3 meses)</option>
+              </select>
+            </div>
+            <div class="settings-field" style="flex:1;min-width:140px">
+              <label>Janela 24h aberta</label>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:6px;cursor:pointer">
+                <input type="checkbox" id="broadcastFilter24h"/>
+                <span style="font-size:13px">Só quem falou nas últimas 24h</span>
+              </label>
+            </div>
+            <div class="settings-field" style="flex:0 0 100px">
+              <label>Lote (máx)</label>
+              <select id="broadcastBatchSize" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="loadBroadcastContacts()">🔍 Carregar contatos</button>
+            <span id="broadcastContactsCount" style="font-size:13px;color:#666"></span>
+          </div>
+          <div id="broadcastContactsList" style="margin-top:12px;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff;display:none">
+            <div style="padding:8px 12px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px;background:#fafafa">
+              <input type="checkbox" id="broadcastSelectAll" onchange="toggleBroadcastSelectAll()"/>
+              <span style="font-size:12px;font-weight:600">Selecionar lote</span>
+              <button type="button" style="margin-left:auto;padding:4px 10px;font-size:11px;background:var(--violet);color:#fff;border:none;border-radius:6px;cursor:pointer" onclick="addSelectedContactsToBroadcast()">Adicionar selecionados</button>
+            </div>
+            <div id="broadcastContactsItems"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cupom — Janela 24h (Meta template) -->
+      <div class="settings-card" style="margin-top:16px">
+        <div class="settings-card-head">🎟️ Cupom — Clientes com janela 24h aberta</div>
+        <div class="settings-card-body">
+          <p style="font-size:13px;color:#555;margin-bottom:12px">Para enviar cupom sem template aprovado, use o campo de mensagem abaixo (WhatsApp Interno). Para usar Meta/API oficial, suba um template no Business Manager.</p>
+          <div class="settings-field">
+            <label>Modelo de mensagem (cupom)</label>
+            <textarea id="broadcastCouponMessage" rows="4" placeholder="Olá {{1}}! 🎟️ Aqui está seu cupom de 10% de desconto: CUPOM10. Válido até 31/12. Use no próximo pedido!" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-size:13px;resize:vertical"></textarea>
+          </div>
+          <div style="background:#e8f4fd;border:1px solid #0d6efd;border-radius:8px;padding:12px 14px;margin-top:12px;font-size:12px;color:#084298;line-height:1.5">
+            <strong>📋 Modelo para Meta (Business Manager):</strong><br/>
+            Para enviar via API oficial (fora da janela 24h), crie um template em WhatsApp Manager → Mensagens → Modelos.<br/>
+            <code style="background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:11px;display:block;margin-top:6px">Olá {{1}}! Aqui está seu cupom de 10%: CUPOM10. Válido até {{2}}. Use no próximo pedido!</code>
+          </div>
+          <button class="btn-save-settings" style="margin-top:12px;width:auto" onclick="useCouponForBroadcast()">Usar cupom na mensagem</button>
+        </div>
+      </div>
+
+      <!-- Enviar mensagem -->
       <div class="settings-card" style="margin-top:16px">
         <div class="settings-card-head">📲 Enviar mensagem</div>
         <div class="settings-card-body">
@@ -677,6 +742,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Painel: SAC -->
 
   <div id="adminPanelSac" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:560px;margin:0 auto">
@@ -867,18 +934,32 @@ function initSocket() {
   });
 }
 
+let _waAlertLastShown = {}; // { "instanceId": timestamp }
+const WA_ALERT_COOLDOWN_MS = 5 * 60 * 1000;  // 5 min geral
+const WA_ALERT_COOLDOWN_440_MS = 15 * 60 * 1000; // 15 min para 440 (mais frequente)
+
 function showWaDisconnectAlert(instanceId, reason) {
+  const key = instanceId || "default";
+  const cooldown = (reason || "").includes("440") ? WA_ALERT_COOLDOWN_440_MS : WA_ALERT_COOLDOWN_MS;
+  if (_waAlertLastShown[key] && Date.now() - _waAlertLastShown[key] < cooldown) return;
+  _waAlertLastShown[key] = Date.now();
+
   const name = instanceId === "default" ? "Principal" : instanceId;
+  const is440 = (reason || "").includes("440");
+  const extra440 = is440
+    ? '<p style="margin:0 0 12px;font-size:12px;color:#856404;background:#fff3cd;padding:10px;border-radius:8px"><strong>Dica:</strong> O 440 ocorre quando o celular ou outro dispositivo conecta. Evite ter o mesmo WhatsApp aberto em vários lugares ao mesmo tempo.</p>'
+    : "";
   const overlay = document.createElement("div");
   overlay.id = "wa-disconnect-overlay";
   overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;animation:fadeIn .2s";
   overlay.innerHTML = `
-    <div style="background:#fff;border-radius:16px;padding:24px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.3);border:3px solid #e53935">
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.3);border:3px solid #e53935">
       <div style="font-size:48px;text-align:center;margin-bottom:12px">📵</div>
       <h3 style="margin:0 0 12px;font-size:18px;color:#e53935;text-align:center">WhatsApp Interno Desconectado</h3>
-      <p style="margin:0 0 8px;font-size:14px;color:#333;line-height:1.5">${esc(name)} desconectou inesperadamente.</p>
-      <p style="margin:0 0 16px;font-size:12px;color:#666">Motivo: ${esc(reason)}</p>
-      <p style="margin:0 0 20px;font-size:12px;color:#888">Reconexão automática em andamento. Caso não reconecte, vá em Configurações > WhatsApp Interno e clique em Conectar.</p>
+      <p style="margin:0 0 8px;font-size:14px;color:#333;line-height:1.5">${esc(name)} desconectou.</p>
+      <p style="margin:0 0 12px;font-size:12px;color:#666">Motivo: ${esc(reason)}</p>
+      ${extra440}
+      <p style="margin:0 0 20px;font-size:12px;color:#888">Reconexão automática em andamento. Caso não reconecte, vá em Configurações → WhatsApp Interno e clique em Conectar.</p>
       <button onclick="this.closest('#wa-disconnect-overlay').remove()" style="width:100%;background:var(--violet);color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer">Entendi</button>
     </div>
   `;
@@ -2107,12 +2188,63 @@ function adminTab(tab) {
   if (tab === "broadcast") loadBroadcastPanel();
 }
 
+let broadcastContactsCache = [];
+
 async function loadBroadcastPanel() {
   const sel = document.getElementById("broadcastInstance");
   if (!sel) return;
   const data = await api("/baileys/instances");
   const list = Array.isArray(data) ? data : [];
   sel.innerHTML = list.map(i => `<option value="${esc(i.id)}" ${i.status==="connected"?"":"disabled"}>${esc(i.id)} ${i.status==="connected"?"✓":"—"}</option>`).join("") || "<option value=\"default\">default</option>";
+}
+
+async function loadBroadcastContacts() {
+  const period = document.getElementById("broadcastFilterPeriod")?.value || "all";
+  const janela24h = document.getElementById("broadcastFilter24h")?.checked || false;
+  const batchSize = parseInt(document.getElementById("broadcastBatchSize")?.value || "50", 10);
+  const countEl = document.getElementById("broadcastContactsCount");
+  const listEl = document.getElementById("broadcastContactsList");
+  const itemsEl = document.getElementById("broadcastContactsItems");
+
+  countEl.textContent = "Carregando...";
+  const d = await api(`/broadcast/contacts?period=${period}&janela24h=${janela24h}&limit=${batchSize}&offset=0`);
+  if (!d) { countEl.textContent = "Erro ao carregar"; return; }
+
+  broadcastContactsCache = d.contacts || [];
+  countEl.textContent = `${broadcastContactsCache.length} de ${d.total || 0} contatos`;
+  listEl.style.display = broadcastContactsCache.length ? "block" : "none";
+  document.getElementById("broadcastSelectAll").checked = false;
+
+  itemsEl.innerHTML = broadcastContactsCache.map((c, i) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:13px">
+      <input type="checkbox" class="broadcast-contact-cb" data-phone="${esc(c.phone)}"/>
+      <span style="flex:1">${esc(c.name)}</span>
+      <span style="color:#888;font-size:11px">${c.phone}</span>
+    </label>
+  `).join("");
+}
+
+function toggleBroadcastSelectAll() {
+  const all = document.getElementById("broadcastSelectAll")?.checked;
+  document.querySelectorAll(".broadcast-contact-cb").forEach(cb => { cb.checked = !!all; });
+}
+
+function addSelectedContactsToBroadcast() {
+  const phones = [];
+  document.querySelectorAll(".broadcast-contact-cb:checked").forEach(cb => {
+    phones.push(cb.getAttribute("data-phone") || "");
+  });
+  const ta = document.getElementById("broadcastNumbers");
+  if (!ta) return;
+  const current = ta.value.trim();
+  const add = phones.filter(Boolean).join("\n");
+  ta.value = current ? current + "\n" + add : add;
+}
+
+function useCouponForBroadcast() {
+  const coupon = document.getElementById("broadcastCouponMessage")?.value?.trim();
+  const msg = document.getElementById("broadcastMessage");
+  if (msg && coupon) msg.value = coupon;
 }
 
 async function sendBroadcast() {
@@ -2680,9 +2812,23 @@ async function gcConnect() {
 	          <span style="font-size:12px;color:${statusColor};font-weight:700">${isConn?'connected':inst.status}</span>
 	        </div>
 	        ${isQr ? `
-	          <div style="text-align:center">
-	            <p style="font-size:11px;color:#888;margin-bottom:6px">Escaneie para conectar</p>
-	            <img src="${inst.qrUrl ? inst.qrUrl + '?tenant=' + encodeURIComponent(TENANT) + '&key=' + encodeURIComponent(API_KEY) : inst.qr}" data-fallback="${inst.qr || ''}" style="width:150px;height:150px;border:1px solid #ddd;padding:4px;background:#fff" onerror="var f=this.getAttribute('data-fallback');if(f){this.onerror=null;this.src=f}"/>
+	          <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;padding:16px 0;border-top:1px solid var(--border);margin-top:8px">
+	            <div style="min-width:0;flex:1 1 200px">
+	              ${inst.number ? `<p style="font-size:12px;color:#25d366;margin-bottom:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>📱</span> ${inst.number} — <em>Número vinculado anteriormente</em></p>` : ''}
+	              <p style="font-size:12px;color:#333;font-weight:600;margin-bottom:10px">Para ${inst.number ? 'reconectar' : 'conectar'} esta conexão, siga os passos abaixo:</p>
+	              <ol style="margin:0;padding-left:18px;font-size:12px;color:#555;line-height:1.9">
+	                <li>Pegue o celular com o número${inst.number ? ' ' + inst.number : ' que deseja conectar'}.</li>
+	                <li>Abra o aplicativo WhatsApp.</li>
+	                <li>Vá em <b>Configurações &gt; Aparelhos conectados &gt; Conectar aparelho</b>.</li>
+	                <li>Aponte a câmera para o QR Code ao lado.</li>
+	                <li>Aguarde a sincronização.</li>
+	              </ol>
+	              <p style="font-size:11px;color:#888;margin-top:14px"><button type="button" onclick="waIntRefresh()" style="background:none;border:none;color:var(--violet);cursor:pointer;text-decoration:underline;padding:0;font-size:11px">Escaneie depois</button></p>
+	            </div>
+	            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);flex-shrink:0">
+	              <p style="font-size:11px;color:#888;margin:0 0 8px;text-align:center;font-weight:600">Escaneie o QR Code</p>
+	              <img src="${inst.qrUrl ? inst.qrUrl + '?tenant=' + encodeURIComponent(TENANT) + '&key=' + encodeURIComponent(API_KEY) : inst.qr}" data-fallback="${inst.qr || ''}" style="width:220px;height:220px;display:block" onerror="var f=this.getAttribute('data-fallback');if(f){this.onerror=null;this.src=f}"/>
+	            </div>
 	          </div>
 	        ` : ''}
 	        ${inst.usage ? `

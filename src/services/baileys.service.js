@@ -173,6 +173,10 @@ async function start(instanceId = "default") {
       logger: require("pino")({ level: "silent" }),
       browser: ["Pappi Atendente", "Chrome", "1.0"],
       qrTimeout: 60000,
+      // Reduz conflito com celular: não marca "online" ao conectar (evita 440)
+      markOnlineOnConnect: false,
+      // Evita carga pesada na conexão que pode favorecer desconexões
+      syncFullHistory: false,
     });
 
     inst.socket = sock;
@@ -364,8 +368,9 @@ async function start(instanceId = "default") {
           inst.qrBase64 = null;
           inst._reconnectDelay = 8000;
         } else if (replaced) {
-          // Outra sessão substituiu esta — espera mais antes de reconectar
-          inst._reconnectDelay = Math.min((inst._reconnectDelay || 8000) * 2, 300_000);
+          // Outra sessão substituiu (440): delay maior evita loop (sessão antiga pode não ter fechado)
+          const base440 = 45000; // 45s inicial
+          inst._reconnectDelay = Math.min((inst._reconnectDelay || base440) * 2, 120_000);
           console.log(
             `[Baileys:${instanceId}] Sessão substituída (440) — reconectando em ${inst._reconnectDelay / 1000}s...`,
           );
