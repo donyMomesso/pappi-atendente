@@ -10,6 +10,7 @@ function toNumber(v, fallback = null) {
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: toNumber(process.env.PORT, 10000),
+  APP_URL: (process.env.APP_URL || "https://pappiatendente.com.br").replace(/\/$/, ""),
   WEBHOOK_VERIFY_TOKEN: process.env.WEBHOOK_VERIFY_TOKEN || "",
   WHATSAPP_TOKEN: process.env.WHATSAPP_TOKEN || "",
   WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
