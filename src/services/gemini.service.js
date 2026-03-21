@@ -62,17 +62,7 @@ async function _generateWithFallback(prompt, opts = {}) {
     }
   }
 
-  // 2. Fallback OpenAI
-  if (openaiFallback.hasOpenAIKey()) {
-    try {
-      const text = await openaiFallback.generate(prompt, { temperature, maxTokens });
-      return { text, provider: "openai" };
-    } catch (err) {
-      console.warn("[IA] Fallback OpenAI falhou:", err.message);
-    }
-  }
-
-  // 3. Fallback Groq (Llama)
+  // 2. Fallback Groq (Llama)
   if (groqFallback.hasGroqKey()) {
     try {
       const text = await groqFallback.generate(prompt, { temperature, maxTokens });
@@ -82,7 +72,17 @@ async function _generateWithFallback(prompt, opts = {}) {
     }
   }
 
-  throw new Error("Gemini falhou e nenhum fallback (OpenAI/Groq) configurado ou disponível");
+  // 3. Fallback OpenAI
+  if (openaiFallback.hasOpenAIKey()) {
+    try {
+      const text = await openaiFallback.generate(prompt, { temperature, maxTokens });
+      return { text, provider: "openai" };
+    } catch (err) {
+      console.warn("[IA] Fallback OpenAI falhou:", err.message);
+    }
+  }
+
+  throw new Error("Gemini falhou e nenhum fallback (Groq/OpenAI) configurado ou disponível");
 }
 
 /**

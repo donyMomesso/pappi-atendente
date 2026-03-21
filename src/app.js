@@ -59,7 +59,13 @@ app.use(express.static(path.join(__dirname, "../public")));
 
 // Saúde
 app.get("/health", async (_req, res) => {
-  const status = { ok: true, version: "3.1.0", db: "ok" };
+  const ENV = require("./config/env");
+  const status = {
+    ok: true,
+    version: "3.1.0",
+    db: "ok",
+    adminKeyConfigured: !!(ENV.ADMIN_API_KEY && ENV.ADMIN_API_KEY.length > 0),
+  };
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {
