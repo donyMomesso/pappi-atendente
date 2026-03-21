@@ -17,6 +17,45 @@ router.get("/diag/auth-check", (_req, res) => {
   });
 });
 
+// Teste de conectividade do Cardápio Web (usado pelo bot para catalog, pedidos, etc.)
+router.get("/diag/cw", requireAdminKey, async (req, res) => {
+  try {
+    const tenants = await listActive();
+    if (!tenants.length) {
+      return res.json({ ok: false, error: "Nenhum tenant ativo" });
+    }
+    const tenantId = req.query.tenant || tenants[0].id;
+    const { cw, config } = await getClients(tenantId);
+
+    const result = { tenantId, tenantName: config.name, cw: {} };
+
+    const [catalog, merchant, paymentMethods] = await Promise.all([
+      cw.getCatalog().catch((e) => ({ error: e.message })),
+      cw.getMerchant().catch((e) => ({ error: e.message })),
+      cw.getPaymentMethods().catch((e) => ({ error: e.message })),
+    ]);
+
+    result.cw.catalog = catalog?.error
+      ? { ok: false, error: catalog.error }
+      : {
+          ok: true,
+          categories: catalog?.categories?.length ?? catalog?.data?.categories?.length ?? 0,
+          hasData: !!catalog && (!!catalog.categories?.length || !!catalog.data?.categories?.length),
+        };
+    result.cw.merchant = merchant?.error ? { ok: false, error: merchant.error } : { ok: true };
+    result.cw.paymentMethods = paymentMethods?.error
+      ? { ok: false, error: paymentMethods.error }
+      : { ok: true, count: Array.isArray(paymentMethods) ? paymentMethods.length : 0 };
+
+    result.ok =
+      result.cw.catalog.ok && result.cw.merchant.ok && (result.cw.paymentMethods.ok || !paymentMethods?.length);
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Teste de conectividade das IAs (Gemini + OpenAI fallback)
 router.get("/diag/ai", requireAdminKey, async (_req, res) => {
   try {

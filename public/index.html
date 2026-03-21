@@ -269,6 +269,9 @@
     .admin-tab{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;transition:.2s;white-space:nowrap}
     .admin-tab:hover{background:rgba(255,255,255,.2)}
     .admin-tab.active{background:#fff;color:var(--purple)}
+    .analise-checklist-item{padding:10px 16px;font-size:12px;cursor:pointer;color:#333;border-bottom:1px solid #f0f0f0;transition:background .15s}
+    .analise-checklist-item:hover{background:#f5f5f5}
+    .analise-checklist-item:last-child{border-bottom:none}
     .admin-panel{flex:1;overflow-y:auto}
     .kpi-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center}
     .kpi-card .kpi-val{font-size:28px;font-weight:800;color:var(--purple);margin-bottom:4px}
@@ -490,14 +493,19 @@
   <!-- Navbar admin -->
   <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
     <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
-    <div id="adminTabs" style="display:flex;gap:2px">
-      <button class="admin-tab active" id="atDash"      onclick="adminTab('dash')">📊 Dashboard</button>
-      <button class="admin-tab"        id="atStats"     onclick="adminTab('stats')">📈 Estatísticas</button>
-      <button class="admin-tab"        id="atRel"       onclick="adminTab('rel')">📋 Relatórios</button>
-      <button class="admin-tab"        id="atAudit"     onclick="adminTab('audit')">🔍 Auditoria</button>
-      <button class="admin-tab"        id="atSac"       onclick="adminTab('sac')">📩 SAC</button>
-      <button class="admin-tab"        id="atAtend"     onclick="adminTab('atend')">👥 Organização</button>
-      <button class="admin-tab"        id="atCfg"       onclick="adminTab('cfg')">⚙️ Config</button>
+    <div id="adminTabs" style="display:flex;gap:2px;align-items:center;flex-wrap:wrap">
+      <div class="admin-analise-wrap" style="position:relative;display:inline-block">
+        <button class="admin-tab active" id="atAnalise" onclick="toggleAnaliseMenu()">📊 Análise ▾</button>
+        <div id="analiseChecklist" class="analise-checklist" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;margin-top:4px;overflow:hidden">
+          <div class="analise-checklist-item" onclick="adminTab('dash');closeAnaliseMenu()">☐ 📊 Dashboard</div>
+          <div class="analise-checklist-item" onclick="adminTab('stats');closeAnaliseMenu()">☐ 📈 Estatísticas</div>
+          <div class="analise-checklist-item" onclick="adminTab('rel');closeAnaliseMenu()">☐ 📋 Relatórios</div>
+          <div class="analise-checklist-item" onclick="adminTab('audit');closeAnaliseMenu()">☐ 🔍 Auditoria</div>
+        </div>
+      </div>
+      <button class="admin-tab" id="atSac" onclick="adminTab('sac')">📩 SAC</button>
+      <button class="admin-tab" id="atAtend" onclick="adminTab('atend')">👥 Usuários</button>
+      <button class="admin-tab" id="atCfg" onclick="adminTab('cfg')">⚙️ Config</button>
     </div>
   </div>
 
@@ -590,10 +598,10 @@
     </div>
   </div>
 
-  <!-- Painel: Organização (Setor + Atendentes) -->
+  <!-- Painel: Usuários (Setor + Atendentes) -->
   <div id="adminPanelAtend" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:860px;margin:0 auto">
-      <div class="settings-title">👥 Organização</div>
+      <div class="settings-title">👥 Usuários</div>
       <div class="settings-sub">Configure departamentos (setores) e atendentes autorizados.</div>
       <div class="settings-grid" style="margin-top:20px">
         <div class="settings-card">
@@ -1983,15 +1991,29 @@ function closeAdmin() {
   if (waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
 }
 
+function toggleAnaliseMenu() {
+  const el = document.getElementById("analiseChecklist");
+  if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+}
+function closeAnaliseMenu() {
+  const el = document.getElementById("analiseChecklist");
+  if (el) el.style.display = "none";
+}
+document.addEventListener("click", function(e) {
+  if (!e.target.closest(".admin-analise-wrap")) closeAnaliseMenu();
+});
 function adminTab(tab) {
   currentAdminTab = tab;
   const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", atend:"Atend", cfg:"Cfg" };
+  const analiseTabs = ["dash","stats","rel","audit"];
   Object.entries(tabIds).forEach(([k, v]) => {
     const btn = document.getElementById("at"+v);
     const panel = document.getElementById("adminPanel"+v);
-    if (btn) btn.className = "admin-tab" + (k===tab?" active":"");
     if (panel) panel.style.display = k===tab ? "flex" : "none";
+    if (btn && !analiseTabs.includes(k)) btn.className = "admin-tab" + (k===tab?" active":"");
   });
+  const atAnalise = document.getElementById("atAnalise");
+  if (atAnalise) atAnalise.className = "admin-tab" + (analiseTabs.includes(tab)?" active":"");
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
   if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();

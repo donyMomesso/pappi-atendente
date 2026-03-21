@@ -153,7 +153,7 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   // ── Handoff apenas fora de fluxo ativo ───────────────────
   const sessionService = require("../services/session.service");
   const session = await sessionService.get(tenant.id, phone);
-  const inActiveFlow = session && !["MENU", "ASK_NAME", "FULFILLMENT"].includes(session.step);
+  const inActiveFlow = session && !["MENU", "ASK_NAME", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step);
 
   if (!inActiveFlow && isHandoffTrigger(text)) {
     await setHandoff(customer.id, true);

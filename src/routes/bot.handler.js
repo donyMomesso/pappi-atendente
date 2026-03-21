@@ -87,7 +87,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   }
 
   // Deescalation: irritação sem pedido explícito de humano — oferece botões
-  const orderSteps = ["MENU", "FULFILLMENT", "ADDRESS", "ADDRESS_NUMBER", "ADDRESS_CONFIRM", "ORDERING"];
+  const orderSteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT", "ADDRESS", "ADDRESS_NUMBER", "ADDRESS_CONFIRM", "ASK_SIZE", "ORDERING"];
   if (needsDeescalation(text) && orderSteps.includes(session.step)) {
     session._beforeDeescalationStep = session.step;
     session.step = "DEESCALATION";
@@ -113,19 +113,27 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       return;
     }
     if (text === "HELP_BOT" || t.includes("continuar")) {
-      const prev = session._beforeDeescalationStep || (session.fulfillment ? "ORDERING" : "FULFILLMENT");
+      const prev = session._beforeDeescalationStep || (session.fulfillment ? (session.chosenSize ? "ORDERING" : "ASK_SIZE") : (session.productType ? "FULFILLMENT" : "CHOOSE_PRODUCT_TYPE"));
       delete session._beforeDeescalationStep;
       session.step = prev;
-      const m =
-        prev === "ORDERING" || session.fulfillment === "takeout"
-          ? "Beleza! Me diz seu pedido 🍕 (tamanho + sabor, ou meia a meia)"
-          : "Beleza! É Entrega ou Retirada?";
-      if (prev === "ORDERING" || session.fulfillment === "takeout") {
+      let m;
+      if (prev === "ORDERING") m = "Beleza! Me diz seu pedido 🍕 (tamanho + sabor, ou meia a meia)";
+      else if (prev === "ASK_SIZE") m = `Qual tamanho de ${session.productType === "lasanha" ? "lasanha" : "pizza"}?`; // será enviado com botões abaixo
+      else if (prev === "FULFILLMENT") m = "Beleza! Deseja entrega ou retirada?";
+      else m = "Beleza! Pizza ou lasanha?";
+      if (prev === "ORDERING") {
         await wa.sendText(phone, m);
-      } else {
+      } else if (prev === "ASK_SIZE" && session.sizeOptions?.length) {
+        await wa.sendButtons(phone, m, session.sizeOptions.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })));
+      } else if (prev === "FULFILLMENT") {
         await wa.sendButtons(phone, m, [
           { id: "delivery", title: "🚚 Entrega" },
           { id: "takeout", title: "🏪 Retirada" },
+        ]);
+      } else {
+        await wa.sendButtons(phone, m, [
+          { id: "pizza", title: "🍕 Pizza" },
+          { id: "lasanha", title: "🍝 Lasanha" },
         ]);
       }
       await chatMemory.push(customer.id, "bot", m);
@@ -221,7 +229,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  if (session.step === "MENU") {
+  if (["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)) {
     try {
       const intent = await Gemini.classifyIntent(text);
       if (intent === "STATUS") {
@@ -254,7 +262,10 @@ async function _handle({ tenant, wa, customer, text, phone }) {
 
   switch (session.step) {
     case "MENU":
-      await sendFulfillmentPromptOnly(wa, phone, customer, tenant, session);
+      await sendProductTypePrompt(wa, phone, customer, session);
+      break;
+    case "CHOOSE_PRODUCT_TYPE":
+      await handleChooseProductType(wa, cw, phone, text, t, session, customer, tenant);
       break;
     case "ASK_NAME":
       await handleAskName(wa, cw, phone, text, session, customer, tenant);
@@ -271,6 +282,9 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     case "ADDRESS_CONFIRM":
       await handleAddressConfirm(wa, cw, phone, text, t, session, customer, tenant);
       break;
+    case "ASK_SIZE":
+      await handleAskSize(wa, cw, phone, text, session, customer, tenant);
+      break;
     case "ORDERING":
       await handleOrdering(wa, cw, phone, text, session, customer, tenant);
       break;
@@ -281,7 +295,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       await handleConfirm(wa, cw, phone, text, t, session, customer, tenant);
       break;
     default:
-      await sendFulfillmentPromptOnly(wa, phone, customer, tenant, session);
+      await sendProductTypePrompt(wa, phone, customer, session);
   }
 
   if (session._cleared) {
@@ -366,9 +380,11 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
 
 // ── Saudação ──────────────────────────────────────────────────
 async function sendGreeting(wa, cw, phone, customer, tenant, session) {
+  const storeName = tenant.name || "Pappi Pizza";
+
   if (!customer.name) {
     session.step = "ASK_NAME";
-    const m = "Oi! 😊 Qual seu nome pra eu anotar aqui?";
+    const m = `Oi! 😊 Bem-vindo(a) à ${storeName}! Qual seu nome pra eu te atender?`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -379,7 +395,6 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
 
   const isVip = (customer.visitCount || 0) > 0;
   const firstName = customer.name.split(" ")[0];
-  const storeName = tenant.name || "Pappi Pizza";
 
   let menuUrl = "";
   try {
@@ -391,27 +406,86 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   const leadLine = session.isLeadOrder
     ? "\n\n⚠️ _Estamos fechados no momento. Você pode deixar seu pedido — entraremos em contato quando abrirmos!_"
     : "";
-  const greeting = isVip
-    ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min${leadLine}\n\nÉ Entrega ou Retirada?`
-    : `Olá, ${firstName}! 👋 Bem-vindo(a) à ${storeName} 🍕${urlLine}\n⏱️ Entrega 40-60 min | Retirada 30-40 min${leadLine}\n\nÉ Entrega ou Retirada?`;
+  const timing = "\n⏱️ Entrega 40-60 min | Retirada 30-40 min";
 
-  session.step = "FULFILLMENT";
+  const greeting = isVip
+    ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}${timing}${leadLine}\n\nPizza ou lasanha?`
+    : `Olá, ${firstName}! 👋 Prazer em te conhecer!${urlLine}${timing}${leadLine}\n\nPizza ou lasanha?`;
+
+  session.step = "CHOOSE_PRODUCT_TYPE";
   await wa.sendButtons(phone, greeting, [
-    { id: "delivery", title: "🚚 Entrega" },
-    { id: "takeout", title: "🏪 Retirada" },
+    { id: "pizza", title: "🍕 Pizza" },
+    { id: "lasanha", title: "🍝 Lasanha" },
   ]);
   await chatMemory.push(customer.id, "bot", greeting);
 }
 
-// Prompt curto: só "É Entrega ou Retirada?" (sem repetir o greeting completo)
+// Pergunta Pizza ou Lasanha
+async function sendProductTypePrompt(wa, phone, customer, session) {
+  session.step = "CHOOSE_PRODUCT_TYPE";
+  const m = "Pizza ou lasanha? Escolha uma opção 👇";
+  await wa.sendButtons(phone, m, [
+    { id: "pizza", title: "🍕 Pizza" },
+    { id: "lasanha", title: "🍝 Lasanha" },
+  ]);
+  await chatMemory.push(customer.id, "bot", m);
+}
+
+// Pergunta Entrega ou Retirada
 async function sendFulfillmentPromptOnly(wa, phone, customer, tenant, session) {
   session.step = "FULFILLMENT";
-  const m = "É Entrega ou Retirada? Escolha uma opção abaixo 👇";
+  const m = "Deseja entrega ou retirada? Escolha uma opção abaixo 👇";
   await wa.sendButtons(phone, m, [
     { id: "delivery", title: "🚚 Entrega" },
     { id: "takeout", title: "🏪 Retirada" },
   ]);
   await chatMemory.push(customer.id, "bot", m);
+}
+
+// ── Filtra catálogo por tipo (pizza/lasanha) e extrai tamanhos
+function filterCatalogByProductType(catalog, productType) {
+  const cats = catalog?.categories || catalog?.data?.categories || catalog?.sections || [];
+  const key = productType === "lasanha" ? "lasanha" : "pizza";
+  const filtered = cats.filter((c) => {
+    const n = (c.name || c.title || "").toLowerCase();
+    return key === "pizza" ? /pizza/.test(n) : /lasanha/.test(n);
+  });
+  const useCats = filtered.length ? filtered : cats;
+  const sizes = new Set();
+  for (const cat of useCats) {
+    for (const item of cat.items || cat.products || []) {
+      if (item.status === "INACTIVE") continue;
+      for (const g of item.option_groups || []) {
+        if (g.status === "INACTIVE" || !g.options) continue;
+        const gn = (g.name || "").toLowerCase();
+        if (/tamanho|size|fatias|escolha.*1/.test(gn)) {
+          for (const o of g.options) {
+            if (o.status !== "INACTIVE" && o.name) sizes.add(o.name.trim());
+          }
+        }
+      }
+    }
+  }
+  const sizeList = [...sizes].length ? [...sizes] : ["Broto", "Média", "Grande"];
+  const outCatalog = filtered.length ? { categories: filtered } : catalog;
+  return { catalog: outCatalog, sizes: sizeList };
+}
+
+// ── CHOOSE_PRODUCT_TYPE ───────────────────────────────────────
+async function handleChooseProductType(wa, cw, phone, text, t, session, customer, tenant) {
+  const isPizza = t.includes("pizza") || text === "pizza" || (text || "").trim() === "pizza";
+  const isLasanha = t.includes("lasanha") || text === "lasanha" || (text || "").trim() === "lasanha";
+
+  if (isPizza) {
+    session.productType = "pizza";
+  } else if (isLasanha) {
+    session.productType = "lasanha";
+  } else {
+    await sendProductTypePrompt(wa, phone, customer, session);
+    return;
+  }
+
+  await sendFulfillmentPromptOnly(wa, phone, customer, tenant, session);
 }
 
 // ── ASK_NAME ──────────────────────────────────────────────────
@@ -426,8 +500,6 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
   customer.name = updated.name;
   customer.visitCount = updated.visitCount;
 
-  const firstName = name.split(" ")[0];
-  await wa.sendText(phone, `Perfeito, ${firstName}! 👊🍕`);
   session.step = "MENU";
   await sendGreeting(wa, cw, phone, updated, tenant, session);
 }
@@ -669,25 +741,64 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
 // ── startOrdering ─────────────────────────────────────────────
 async function startOrdering(wa, cw, phone, session, customer, tenant) {
   const [rawCatalog] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods()]);
-  // Normaliza: CardápioWeb pode retornar { catalog: {...} }, { data: {...} } ou { categories: [...] }
-  session.catalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
-  if (!session.catalog?.categories?.length && !session.catalog?.sections?.length) {
-    console.warn(`[${tenant.id}] Catálogo vazio ou formato inesperado - cliente pode receber "Pode repetir"`);
+  const fullCatalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
+  session.catalog = fullCatalog;
+
+  const productType = session.productType || "pizza";
+  const { catalog: filteredCatalog, sizes } = filterCatalogByProductType(fullCatalog, productType);
+  session.filteredCatalog = filteredCatalog;
+  session.sizeOptions = sizes;
+
+  if (!sizes.length) {
+    session.step = "ORDERING";
+    session.orderHistory = [];
+    const m = `Me diz seu pedido ${productType === "lasanha" ? "🍝" : "🍕"} (tamanho + sabor)`;
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
   }
+
+  session.step = "ASK_SIZE";
+  const tipo = productType === "lasanha" ? "lasanha" : "pizza";
+  const m = `Qual tamanho de ${tipo}? Escolha uma opção 👇`;
+  const buttons = sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s }));
+  await wa.sendButtons(phone, m, buttons);
+  await chatMemory.push(customer.id, "bot", m);
+}
+
+// ── ASK_SIZE ──────────────────────────────────────────────────
+async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
+  const sizes = session.sizeOptions || [];
+  let chosen = null;
+  if (text?.startsWith("size_")) {
+    chosen = text.replace("size_", "");
+  } else if (sizes.some((s) => text?.toLowerCase().includes(s.toLowerCase()))) {
+    chosen = sizes.find((s) => text?.toLowerCase().includes(s.toLowerCase()));
+  }
+
+  if (!chosen && sizes.length) {
+    const m = `Qual tamanho? Escolha uma opção 👇`;
+    await wa.sendButtons(phone, m, sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })));
+    return;
+  }
+
+  session.chosenSize = chosen || sizes[0];
   session.step = "ORDERING";
   session.orderHistory = [];
 
-  // ── CAPI: ViewContent (cliente acessou o cardápio) ──────────
   metaCapi.trackViewContent({ customer, tenantName: tenant.name }).catch(() => {});
 
+  const productType = session.productType || "pizza";
+  const catalog = session.filteredCatalog || session.catalog;
   const isVip = (customer.visitCount || 0) > 0;
-  const firstName = customer.name?.split(" ")[0] || "";
   const last = customer.lastOrderSummary;
 
   const m =
     isVip && last
-      ? `Me diz seu pedido 🍕\n_(da última vez você pediu: ${last})_\n\nQuer o mesmo ou vai mudar?`
-      : `Me diz seu pedido 🍕\n_(tamanho + sabor, ou meia a meia)_`;
+      ? `Me diz o sabor 🍕\n_(da última vez: ${last})_\n\nQuer o mesmo ou vai mudar?`
+      : productType === "lasanha"
+        ? `Qual sabor de lasanha? 🍝`
+        : `Me diz o sabor da pizza 🍕\n_(ou meia a meia: ex: meia Calabresa meia Frango)_`;
 
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
@@ -697,15 +808,23 @@ async function startOrdering(wa, cw, phone, session, customer, tenant) {
 async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
   session.orderHistory.push({ role: "customer", text });
 
+  const catalog = session.filteredCatalog && (session.filteredCatalog?.categories?.length || session.filteredCatalog?.sections?.length)
+    ? session.filteredCatalog
+    : session.catalog;
+  const sizeHint = session.chosenSize ? `Tamanho já escolhido: ${session.chosenSize}. ` : "";
+
   const result = await Gemini.chatOrder({
     history: session.orderHistory,
-    catalog: session.catalog,
+    catalog,
     customerName: customer.name,
     lastOrder: customer.lastOrderSummary,
     storeName: tenant.name || "Pappi Pizza",
     city: tenant.city || "Campinas",
     isVip: (customer.visitCount || 0) > 0,
     customer: { lastInteraction: customer.lastInteraction, visitCount: customer.visitCount || 0 },
+    productType: session.productType,
+    chosenSize: session.chosenSize,
+    sizeHint,
   });
 
   session.orderHistory.push({ role: "bot", text: result.reply });

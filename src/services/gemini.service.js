@@ -191,11 +191,20 @@ async function chatOrder({
   city = "Campinas",
   isVip = false,
   customer = null,
+  productType = null,
+  chosenSize = null,
+  sizeHint = "",
 }) {
   try {
     const catalogText = _formatCatalog(catalog);
     const nameInfo = customerName ? `Nome do cliente: ${customerName}` : "";
     const mode = getMode({ customer, now: new Date() });
+    const productInfo =
+      productType && chosenSize
+        ? `Cliente escolheu: ${productType === "lasanha" ? "Lasanha" : "Pizza"}, tamanho: ${chosenSize}. Use esse tamanho.`
+        : productType
+          ? `Cliente escolheu: ${productType === "lasanha" ? "Lasanha" : "Pizza"}. Ofereça apenas itens desse tipo.`
+          : "";
     const rulesText = loadRulesFromFiles(mode);
     const historyText = history
       .map((m) => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${m.text}`)
@@ -223,6 +232,7 @@ async function chatOrder({
 ${nameInfo}
 ${vipInfo}
 ${modeInfo}
+${productInfo}
 ${toneGuidance}
 
 REGRAS DE ATENDIMENTO:
