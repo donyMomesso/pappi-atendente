@@ -104,15 +104,15 @@ function extractPhoneFromMessage(msg) {
     const remoteJid = key.remoteJid || "";
     const m = msg?.message || {};
 
+    // Ordem exata: remoteJidAlt resolve @lid (ex: "5519981399133@s.whatsapp.net")
     const candidates = [
+      key.remoteJidAlt,
       key.participantPn,
       key.senderPn,
       msg?.participantPn,
       msg?.senderPn,
       key.participant,
       msg?.participant,
-      msg?.pushNamePhone,
-      msg?.messageContextInfo?.participant,
       m?.extendedTextMessage?.contextInfo?.participant,
       m?.imageMessage?.contextInfo?.participant,
       m?.videoMessage?.contextInfo?.participant,
@@ -316,7 +316,6 @@ async function start(instanceId = "default") {
               instanceId,
               jid,
               key: msg?.key,
-              pushName: msg?.pushName,
               messageStubType: msg?.messageStubType,
               messageStubParameters: msg?.messageStubParameters,
             },
