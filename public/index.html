@@ -1383,19 +1383,27 @@ async function doLogin() {
   const name = document.getElementById("loginName").value.trim();
   const key  = document.getElementById("loginKeyInput").value.trim();
   if (!key || !name) { document.getElementById("loginErrKey").style.display = "block"; return; }
-  if (!TENANT) {
-    document.getElementById("loginErrKey").textContent = "Tenant obrigatório. Acesse com ?tenant=seu-tenant na URL.";
-    document.getElementById("loginErrKey").style.display = "block";
-    return;
-  }
   API_KEY = key;
   ATTENDANT_NAME = name;
 
-  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}&tenant=${encodeURIComponent(TENANT)}`);
-  if (!authRes.ok) { document.getElementById("loginErrKey").style.display = "block"; API_KEY = ""; return; }
+  const authRes = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
+  if (!authRes.ok) {
+    const errData = await authRes.json().catch(() => ({}));
+    const errEl = document.getElementById("loginErrKey");
+    errEl.textContent = errData.error || "Não autorizado.";
+    errEl.style.display = "block";
+    API_KEY = "";
+    return;
+  }
   const { role, tenantId: authTenantId } = await authRes.json();
   USER_ROLE = role;
   if (authTenantId) TENANT = authTenantId;
+  if (!TENANT) {
+    document.getElementById("loginErrKey").textContent = "Tenant obrigatório. Acesse com ?tenant=seu-tenant na URL.";
+    document.getElementById("loginErrKey").style.display = "block";
+    API_KEY = "";
+    return;
+  }
 
   const ok = await fetchStats();
   if (ok) {
@@ -1538,7 +1546,7 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 
   enterApp();
   try {
-    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}&tenant=${encodeURIComponent(TENANT)}`);
+    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
     if (r.status === 401) {
       localStorage.removeItem("pappi_key");
       localStorage.removeItem("pappi_name");
@@ -3179,13 +3187,21 @@ async function searchContactsNow() {
   if (!q) { el.innerHTML = '<p style="text-align:center;color:#bbb;font-size:13px;padding:24px">Digite para buscar</p>'; return; }
   el.innerHTML = '<p style="text-align:center;color:#aaa;font-size:13px;padding:24px">🔍 Buscando...</p>';
 
-  const [googleRes, waRes] = await Promise.all([
-    api(`/google-contacts/search?q=${encodeURIComponent(q)}`),
-    api(`/customers/search?q=${encodeURIComponent(q)}`),
+  const base = (API_BASE||"") + "/dash";
+  const tenantParam = TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : "";
+  const authHeaders = {};
+  if (SESSION_ACCESS_TOKEN) authHeaders["Authorization"] = "Bearer " + SESSION_ACCESS_TOKEN;
+  else if (API_KEY) authHeaders["x-api-key"] = API_KEY;
+
+  const [googleResRaw, waResRaw] = await Promise.all([
+    fetch(`${base}/google-contacts/search?q=${encodeURIComponent(q)}${tenantParam}`, { headers: { "Content-Type": "application/json", ...authHeaders } })
+      .then(r => r.ok ? r.json() : []).catch(() => []),
+    fetch(`${base}/customers/search?q=${encodeURIComponent(q)}${tenantParam}`, { headers: { "Content-Type": "application/json", ...authHeaders } })
+      .then(r => r.ok ? r.json() : []).catch(() => []),
   ]);
 
-  const ga = Array.isArray(googleRes) ? googleRes : [];
-  const wa = Array.isArray(waRes) ? waRes : [];
+  const ga = Array.isArray(googleResRaw) ? googleResRaw : [];
+  const wa = Array.isArray(waResRaw) ? waResRaw : [];
   const seen = new Set();
   const results = [];
   for (const c of [...wa, ...ga]) {
