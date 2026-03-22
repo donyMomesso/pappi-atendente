@@ -84,13 +84,11 @@ router.post("/reset-password", async (req, res) => {
 /** GET /auth/config — configuração pública para o cliente (url, anon key) */
 router.get("/config", (_req, res) => {
   const ENV = require("../config/env");
-  if (!ENV.SUPABASE_URL || !ENV.SUPABASE_ANON_KEY) {
-    return res.status(503).json({ error: "Auth não configurado" });
-  }
+  const configured = !!(ENV.SUPABASE_URL && ENV.SUPABASE_ANON_KEY);
   res.json({
-    supabaseUrl: ENV.SUPABASE_URL,
-    supabaseAnonKey: ENV.SUPABASE_ANON_KEY,
-    useStaffAuth: ENV.USE_STAFF_AUTH,
+    supabaseUrl: ENV.SUPABASE_URL || "",
+    supabaseAnonKey: ENV.SUPABASE_ANON_KEY || "",
+    useStaffAuth: configured && ENV.USE_STAFF_AUTH,
   });
 });
 

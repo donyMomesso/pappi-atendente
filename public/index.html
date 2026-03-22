@@ -766,13 +766,13 @@
   <div id="modalStaffUser" class="modal-bg" style="display:none" onclick="if(event.target===this)closeStaffUserModal()">
     <div class="modal" style="max-width:420px">
       <div class="modal-head"><h3 id="modalStaffUserTitle">Novo usuário</h3><button onclick="closeStaffUserModal()">×</button></div>
-      <div class="modal-body" style="padding:20px">
+      <form class="modal-body" style="padding:20px" onsubmit="saveStaffUser(); return false">
         <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail</label><input id="staffUserEmail" type="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="email@empresa.com"/></div>
-        <div style="margin-bottom:12px" id="staffUserPasswordWrap"><label style="font-size:12px;color:#666">Senha</label><input id="staffUserPassword" type="password" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Mín. 6 caracteres"/></div>
+        <div style="margin-bottom:12px" id="staffUserPasswordWrap"><label style="font-size:12px;color:#666">Senha</label><input id="staffUserPassword" type="password" autocomplete="new-password" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Mín. 6 caracteres"/></div>
         <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Nome</label><input id="staffUserName" type="text" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Nome completo"/></div>
         <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Perfil</label><select id="staffUserRole" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"><option value="attendant">Atendente</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>
         <div style="margin-bottom:12px" id="staffUserTenantWrap"><label style="font-size:12px;color:#666">Tenant</label><select id="staffUserTenant" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"></select></div>
-      </div>
+      </form>
       <div class="modal-foot" style="padding:12px 20px;display:flex;gap:8px;justify-content:flex-end">
         <button class="btn-cancel" onclick="closeStaffUserModal()">Cancelar</button>
         <button class="btn-confirm" id="btnStaffUserSave" onclick="saveStaffUser()">Salvar</button>
@@ -1383,19 +1383,26 @@ async function doLogin() {
   const name = document.getElementById("loginName").value.trim();
   const key  = document.getElementById("loginKeyInput").value.trim();
   if (!key || !name) { document.getElementById("loginErrKey").style.display = "block"; return; }
+  if (!TENANT) {
+    document.getElementById("loginErrKey").textContent = "Tenant obrigatório. Acesse com ?tenant=seu-tenant na URL.";
+    document.getElementById("loginErrKey").style.display = "block";
+    return;
+  }
   API_KEY = key;
   ATTENDANT_NAME = name;
 
-  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
+  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}&tenant=${encodeURIComponent(TENANT)}`);
   if (!authRes.ok) { document.getElementById("loginErrKey").style.display = "block"; API_KEY = ""; return; }
-  const { role } = await authRes.json();
+  const { role, tenantId: authTenantId } = await authRes.json();
   USER_ROLE = role;
+  if (authTenantId) TENANT = authTenantId;
 
   const ok = await fetchStats();
   if (ok) {
     localStorage.setItem("pappi_key", key);
     localStorage.setItem("pappi_name", name);
     localStorage.setItem("pappi_role", role);
+    localStorage.setItem("tenantId", TENANT);
     enterApp();
   } else {
     document.getElementById("loginErrKey").style.display = "block";
@@ -1404,7 +1411,11 @@ async function doLogin() {
 }
 
 	function enterApp() {
-  if (TENANT) localStorage.setItem("tenantId", TENANT);
+  if (!TENANT) {
+    alert("Tenant não configurado. Acesse com ?tenant=seu-tenant na URL (ex: ?tenant=tenant-pappi-001).");
+    return;
+  }
+  localStorage.setItem("tenantId", TENANT);
 	  document.getElementById("login").style.display = "none";
 	  document.getElementById("appWrap").style.display = "flex";
 	  navTo("chat");
@@ -1516,7 +1527,10 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
   const key  = localStorage.getItem("pappi_key");
   const name = localStorage.getItem("pappi_name");
   const role = localStorage.getItem("pappi_role");
+  const savedTenant = localStorage.getItem("tenantId");
   if (!key || !name || !role) return;
+  if (!TENANT && savedTenant) TENANT = savedTenant;
+  if (!TENANT) return; // sem tenant não entra
 
   API_KEY        = key;
   ATTENDANT_NAME = name;
@@ -1524,7 +1538,7 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 
   enterApp();
   try {
-    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
+    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}&tenant=${encodeURIComponent(TENANT)}`);
     if (r.status === 401) {
       localStorage.removeItem("pappi_key");
       localStorage.removeItem("pappi_name");
@@ -3166,13 +3180,15 @@ async function searchContactsNow() {
   el.innerHTML = '<p style="text-align:center;color:#aaa;font-size:13px;padding:24px">🔍 Buscando...</p>';
 
   const [googleRes, waRes] = await Promise.all([
-    fetch(`/dash/google-contacts/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`).then(r => r.json()).catch(() => []),
-    fetch(`/dash/customers/search?q=${encodeURIComponent(q)}&tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`).then(r => r.json()).catch(() => []),
+    api(`/google-contacts/search?q=${encodeURIComponent(q)}`),
+    api(`/customers/search?q=${encodeURIComponent(q)}`),
   ]);
 
+  const ga = Array.isArray(googleRes) ? googleRes : [];
+  const wa = Array.isArray(waRes) ? waRes : [];
   const seen = new Set();
   const results = [];
-  for (const c of [...waRes, ...googleRes]) {
+  for (const c of [...wa, ...ga]) {
     const phone = String(c.phone || "").replace(/\D/g, "");
     if (!phone) continue;
     const merged = results.find(r => String(r.phone).replace(/\D/g,"") === phone);

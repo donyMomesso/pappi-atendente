@@ -64,17 +64,20 @@ try {
 const ENV = require("./config/env");
 const app = express();
 
-// CORS para app em domínio separado
+// CORS para app em domínio separado (ou * para aceitar qualquer origem)
 if (ENV.CORS_ORIGIN) {
   const origins = ENV.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
   if (origins.length) {
+    const allowAny = origins.includes("*");
     app.use((req, res, next) => {
       const origin = req.headers.origin;
-      if (origin && origins.some((o) => origin === o || o === "*")) {
-        res.setHeader("Access-Control-Allow-Origin", origin === "*" ? "*" : origin);
+      if (allowAny && origin) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+      } else if (origin && origins.some((o) => o !== "*" && origin === o)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
       }
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-tenant-id");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-attendant-key, x-tenant-id");
       res.setHeader("Access-Control-Allow-Credentials", "true");
       if (req.method === "OPTIONS") return res.sendStatus(204);
       next();

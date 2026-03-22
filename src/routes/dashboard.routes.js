@@ -16,7 +16,7 @@ const ENV = require("../config/env");
 const router = express.Router();
 
 function resolveTenant(req) {
-  return req.query.tenant || req.body?.tenantId || req.staffUser?.tenantId;
+  return req.query.tenant || req.body?.tenantId || req.staffUser?.tenantId || req.tenantId;
 }
 
 // Normaliza departamento: string -> { name }, objeto -> { name, transferPhone? }
@@ -58,16 +58,18 @@ router.get("/auth", async (req, res) => {
     const key = req.query.key || req.headers["x-api-key"] || req.headers["x-attendant-key"];
     if (!key) return res.status(401).json({ error: "unauthorized" });
 
-    if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) return res.json({ role: "admin", name: "Admin" });
+    const tenantIdFromQuery = req.query.tenant;
+    if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY)
+      return res.json({ role: "admin", name: "Admin", tenantId: tenantIdFromQuery || null });
     if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY)
-      return res.json({ role: "attendant", name: "Atendente" });
+      return res.json({ role: "attendant", name: "Atendente", tenantId: tenantIdFromQuery || null });
 
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
     if (cfg) {
       const att = JSON.parse(cfg.value).find((a) => a.key === key);
-      if (att) return res.json({ role: att.role || "attendant", name: att.name });
+      if (att) return res.json({ role: att.role || "attendant", name: att.name, tenantId });
     }
     return res.status(401).json({ error: "unauthorized" });
   } catch (err) {
@@ -109,6 +111,8 @@ router.get("/stats", authDash, async (req, res) => {
   try {
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    const tenantExists = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenantExists) return res.status(404).json({ error: "tenant não encontrado", tenantId });
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -126,6 +130,8 @@ router.get("/stats", authDash, async (req, res) => {
     ]);
     res.json({ ordersToday, handoffActive, cwFailed, delayAlerts });
   } catch (err) {
+    const log = require("../lib/logger").child({ route: "stats" });
+    log.error({ err, tenantId: req.query.tenant }, "Erro em /dash/stats");
     res.status(500).json({ error: err.message });
   }
 });
@@ -136,6 +142,8 @@ router.get("/conversations", authDash, async (req, res) => {
   try {
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    const tenantExists = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenantExists) return res.status(404).json({ error: "tenant não encontrado", tenantId });
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     // IDs de clientes com mensagens nas últimas 24h (histórico real, não só lastInteraction)
@@ -175,6 +183,8 @@ router.get("/conversations", authDash, async (req, res) => {
     );
     res.json(withState);
   } catch (err) {
+    const log = require("../lib/logger").child({ route: "conversations" });
+    log.error({ err, tenantId: req.query.tenant }, "Erro em /dash/conversations");
     res.status(500).json({ error: err.message });
   }
 });
