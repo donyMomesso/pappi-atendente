@@ -70,6 +70,27 @@ async function updateStatus(orderId, status, source = "system", note = null) {
   return order;
 }
 
+/** Atualiza status vindo do CardápioWeb e campos de monitoramento de atraso */
+async function updateCwStatus(orderId, cwStatus) {
+  const normalized = String(cwStatus || "").toLowerCase();
+  const isProd = ["em_producao", "in_production"].includes(normalized);
+  const isOut = ["saiu_para_entrega", "pronto_para_retirada", "dispatched", "ready_for_pickup"].includes(normalized);
+  const isDone = ["pedido_concluido", "delivered", "concluded"].includes(normalized);
+  const data = {
+    status: cwStatus,
+    cardapiowebStatus: cwStatus,
+    statusChangedAt: new Date(),
+  };
+  if (isDone) {
+    data.deliveryRiskLevel = null;
+    data.watchedByAttendant = null;
+  }
+  return prisma.order.update({
+    where: { id: orderId },
+    data,
+  });
+}
+
 async function setCwOrderId(orderId, cwOrderId, cwResponse = null) {
   return prisma.order.update({
     where: { id: orderId },
@@ -83,6 +104,13 @@ async function setCwOrderId(orderId, cwOrderId, cwResponse = null) {
 async function findByCwOrderId(tenantId, cwOrderId) {
   return prisma.order.findFirst({
     where: { tenantId, cwOrderId },
+    include: { customer: true },
+  });
+}
+
+async function findOrderByCwOrderIdGlobal(cwOrderId) {
+  return prisma.order.findFirst({
+    where: { cwOrderId },
     include: { customer: true },
   });
 }
@@ -113,8 +141,10 @@ async function findFailedCwOrders(tenantId, limit = 20) {
 module.exports = {
   createWithIdempotency,
   updateStatus,
+  updateCwStatus,
   setCwOrderId,
   findByCwOrderId,
+  findOrderByCwOrderIdGlobal,
   findByCustomer,
   findFailedCwOrders,
 };

@@ -37,6 +37,14 @@ try {
   console.warn("[CW-Retry] scheduler error:", e.message);
 }
 
+// ── Monitor de atraso de pedidos (em_producao > 60 min) ───────
+try {
+  const orderDelayMonitor = require("./services/order-delay-monitor.service");
+  orderDelayMonitor.startScheduler();
+} catch (e) {
+  console.warn("[OrderDelay] scheduler error:", e.message);
+}
+
 // ── Agendador "Me avise quando abrir" — disparo às 18h ────────
 try {
   const aviseScheduler = require("./services/avise-abertura-scheduler");
@@ -53,7 +61,27 @@ try {
   console.warn("[HandoffTimeout] scheduler error:", e.message);
 }
 
+const ENV = require("./config/env");
 const app = express();
+
+// CORS para app em domínio separado
+if (ENV.CORS_ORIGIN) {
+  const origins = ENV.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
+  if (origins.length) {
+    app.use((req, res, next) => {
+      const origin = req.headers.origin;
+      if (origin && origins.some((o) => origin === o || o === "*")) {
+        res.setHeader("Access-Control-Allow-Origin", origin === "*" ? "*" : origin);
+      }
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-tenant-id");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+      next();
+    });
+  }
+}
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "../public")));
 
@@ -79,10 +107,13 @@ app.get("/health", async (_req, res) => {
 app.get("/privacy", (_req, res) => res.sendFile(path.join(__dirname, "../public/privacy.html")));
 
 // Rotas
+app.use("/auth", require("./routes/auth.routes"));
 app.use("/", webhookRoutes);
 app.use("/orders", ordersRoutes);
 app.use("/internal", internalRoutes);
+app.use("/admin/users", require("./routes/admin-users.routes"));
 app.use("/admin", adminRoutes);
+app.use("/dash/staff-users", require("./routes/staff-users.routes"));
 app.use("/dash", dashRoutes);
 app.use("/", diagRoutes);
 

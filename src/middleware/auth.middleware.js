@@ -1,56 +1,151 @@
 // src/middleware/auth.middleware.js
-// CORREÇÃO: usa singleton do PrismaClient
+// Autenticação: sessão Supabase (staff) OU API key (integrações técnicas).
+// Painel usa sessão; API key só para integrações quando ALLOW_API_KEY_FALLBACK.
 
 const ENV = require("../config/env");
 const prisma = require("../lib/db");
+const authService = require("../services/auth.service");
 
-async function requireAttendantKey(req, res, next) {
+/** Extrai Bearer token do header (nunca de query string para humano) */
+function getBearerToken(req) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith("Bearer ")) return null;
+  return auth.slice(7).trim();
+}
+
+/** Carrega staff user na req (após validação) */
+function attachStaffToReq(req, staff) {
+  if (!staff) return;
+  req.user = { id: staff.authUserId, email: staff.email };
+  req.staffUser = staff;
+  req.tenantScope = staff.tenantId;
+  req.role = staff.role;
+  req.attendant = { name: staff.name, key: staff.id, role: staff.role };
+}
+
+/** Autenticação por sessão Supabase (Bearer token) — usa auth.service */
+async function authBySession(req) {
+  const token = getBearerToken(req);
+  if (!token) return false;
+  const result = await authService.verifySessionAndAuthorize(token, {
+    ip: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+  if (!result?.staffUser) return false;
+  attachStaffToReq(req, result.staffUser);
+  return true;
+}
+
+/** Fallback: auth direta quando auth.service não configurado (Supabase ausente) */
+async function authBySessionFallback(req) {
+  if (authService.isAuthConfigured()) return false;
+  const supabaseAuth = require("../services/supabase-auth.service");
+  const token = getBearerToken(req);
+  if (!token) return false;
+  const user = await supabaseAuth.verifyToken(token);
+  if (!user) return false;
+  const staff = await prisma.staffUser.findFirst({
+    where: { authUserId: user.id, active: true },
+    include: { tenant: true },
+  });
+  if (!staff) return false;
+  attachStaffToReq(req, staff);
+  return true;
+}
+
+/** Autenticação por API key (fallback para integrações) */
+async function authByApiKey(req) {
   const key =
     req.headers["x-api-key"] ||
-    req.headers["authorization"]?.replace("Bearer ", "") ||
     req.headers["x-attendant-key"] ||
-    req.query.key;
+    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
   const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
 
-  if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) return next();
-  if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) return next();
-
+  if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) {
+    req.role = "admin";
+    req.staffUser = { role: "admin", tenantId: null, name: "API Admin" };
+    req.tenantScope = tenantId || null;
+    req.attendant = { name: "API Admin", role: "admin" };
+    return true;
+  }
+  if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) {
+    req.role = "attendant";
+    req.staffUser = { role: "attendant", tenantId: tenantId || "tenant-pappi-001", name: "API Attendant" };
+    req.tenantScope = tenantId || "tenant-pappi-001";
+    req.attendant = { name: "API Attendant", role: "attendant" };
+    return true;
+  }
   if (tenantId && key) {
-    const attendantsConfig = await prisma.config.findUnique({
-      where: { key: `${tenantId}:attendants` },
-    });
-    if (attendantsConfig) {
-      const attendants = JSON.parse(attendantsConfig.value);
-      const attendant = attendants.find((att) => att.key === key);
-      if (attendant) {
-        req.attendant = attendant;
-        return next();
+    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
+    if (cfg) {
+      const attendants = JSON.parse(cfg.value);
+      const att = attendants.find((a) => a.key === key);
+      if (att) {
+        req.role = att.role || "attendant";
+        req.staffUser = { role: req.role, tenantId, name: att.name };
+        req.tenantScope = tenantId;
+        req.attendant = att;
+        return true;
       }
     }
   }
+  return false;
+}
 
+/** Painel: exige sessão Supabase. Fallback API key só se ALLOW_API_KEY_FALLBACK. */
+async function requireStaffAuth(req, res, next) {
+  if (await authBySession(req)) return next();
+  if (await authBySessionFallback(req)) return next();
+  if (ENV.ALLOW_API_KEY_FALLBACK && (await authByApiKey(req))) return next();
+  return res.status(401).json({
+    error: "unauthorized",
+    code: "SESSION_REQUIRED",
+    message: "Sessão inválida ou expirada. Faça login novamente.",
+  });
+}
+
+/** Dash: acesso a atendimento (attendant, manager, admin) */
+async function authDash(req, res, next) {
+  return requireStaffAuth(req, res, next);
+}
+
+/** Admin: apenas role admin */
+async function authAdmin(req, res, next) {
+  if (await authBySession(req) || await authBySessionFallback(req)) {
+    if (req.role === "admin") return next();
+    return res.status(403).json({ error: "forbidden", message: "Acesso restrito a administradores." });
+  }
+  if (ENV.ALLOW_API_KEY_FALLBACK && (await authByApiKey(req))) {
+    if (req.role === "admin") return next();
+    return res.status(403).json({ error: "forbidden" });
+  }
+  return res.status(401).json({
+    error: "unauthorized",
+    code: "SESSION_REQUIRED",
+    message: "Sessão inválida ou expirada. Faça login novamente.",
+  });
+}
+
+/** API key pura (integrações técnicas) - sem staff */
+async function requireAdminKey(req, res, next) {
+  const raw = req.headers["x-api-key"] || req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
+  if (ENV.ADMIN_API_KEY && raw === ENV.ADMIN_API_KEY) return next();
   return res.status(401).json({ error: "unauthorized" });
 }
 
-function requireAdminKey(req, res, next) {
-  const raw =
-    req.headers["x-api-key"] ||
-    req.headers["authorization"]?.replace(/^Bearer\s+/i, "").trim() ||
-    (typeof req.query.key === "string" ? req.query.key.trim() : "");
-  const key = raw;
-  const expected = ENV.ADMIN_API_KEY ? String(ENV.ADMIN_API_KEY).trim() : "";
-  if (!expected || key !== expected) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-  next();
+/** API key attendant (integrações) */
+async function requireAttendantKey(req, res, next) {
+  return authByApiKey(req) ? next() : res.status(401).json({ error: "unauthorized" });
 }
 
-async function authDash(req, res, next) {
-  return requireAttendantKey(req, res, next);
-}
-
-async function authAdmin(req, res, next) {
-  return requireAdminKey(req, res, next);
-}
-
-module.exports = { requireAttendantKey, requireAdminKey, authDash, authAdmin };
+module.exports = {
+  requireStaffAuth,
+  authDash,
+  authAdmin,
+  requireRole,
+  requireTenantAccess,
+  requireAdminKey,
+  requireAttendantKey,
+  getBearerToken,
+  attachStaffToReq,
+};

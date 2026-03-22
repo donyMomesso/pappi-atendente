@@ -11,24 +11,72 @@ datasource db {
 }
 
 model Tenant {
-  id              String     @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id              String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   name            String
-  active          Boolean    @default(true)
+  active          Boolean      @default(true)
   waToken         String
-  waPhoneNumberId String     @unique
+  waPhoneNumberId String       @unique
   waWabaId        String?
-  cwBaseUrl       String     @default("https://integracao.cardapioweb.com")
+  cwBaseUrl       String       @default("https://integracao.cardapioweb.com")
   cwApiKey        String
   cwPartnerKey    String
   cwStoreId       String?
   city            String?
   webhookToken    String?
-  createdAt       DateTime   @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime   @default(now()) @updatedAt @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
   customers       Customer[]
   orders          Order[]
+  staffUsers      StaffUser[]
 
   @@map("tenants")
+  @@schema("public")
+}
+
+model StaffUser {
+  id            String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  authUserId    String    @unique
+  tenantId      String?
+  email         String
+  name          String
+  role          String    // admin | manager | attendant
+  active        Boolean   @default(true)
+  invitedBy     String?
+  lastLoginAt   DateTime? @db.Timestamptz(6)
+  canViewOrders Boolean   @default(true)
+  canSendMessages Boolean @default(true)
+  canManageCoupons Boolean @default(false)
+  canManageSettings Boolean @default(false)
+  canManageUsers Boolean   @default(false)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([email], map: "idx_staff_users_email")
+  @@index([authUserId], map: "idx_staff_users_auth_user_id")
+  @@index([tenantId], map: "idx_staff_users_tenant")
+  @@index([role], map: "idx_staff_users_role")
+  @@index([tenantId, active], map: "idx_staff_users_tenant_active")
+  @@map("staff_users")
+  @@schema("public")
+}
+
+model AuditLog {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String?
+  userId       String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  metadata     String?  // JSON
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt], map: "idx_audit_logs_tenant_created")
+  @@index([userId, createdAt], map: "idx_audit_logs_user_created")
+  @@index([action, createdAt], map: "idx_audit_logs_action_created")
+  @@map("audit_logs")
   @@schema("public")
 }
 
@@ -85,6 +133,27 @@ model Order {
   cwResponse        String?
   createdAt         DateTime         @default(now()) @db.Timestamptz(6)
   updatedAt         DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  // ── Monitoramento de atraso (CardápioWeb) ──
+  cardapiowebStatus           String?
+  statusChangedAt             DateTime? @db.Timestamptz(6)
+  timeInCurrentStatusMinutes  Int?
+  dailyAvgProdToOutMinutes    Float?
+  dailyAvgOutToDoneMinutes    Float?
+  estimatedRemainingMin       Int?
+  estimatedRemainingMax       Int?
+  weatherDelayFactor          Float?
+  delayAlertSentAt            DateTime? @db.Timestamptz(6)
+  secondDelayAlertSentAt      DateTime? @db.Timestamptz(6)
+  thirdDelayAlertSentAt       DateTime? @db.Timestamptz(6)
+  attendantAlertSentAt        DateTime? @db.Timestamptz(6)
+  watchedByAttendant          String?
+  deliveryRiskLevel           String?
+  compensationEligible        Boolean   @default(false)
+  compensationReason          String?
+  compensationType            String?
+  couponCode                  String?
+  couponGeneratedAt           DateTime? @db.Timestamptz(6)
+  couponSentAt                DateTime? @db.Timestamptz(6)
   statusLogs        OrderStatusLog[]
   customer          Customer         @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -92,6 +161,7 @@ model Order {
   @@unique([tenantId, idempotencyKey], name: "tenantId_idempotencyKey")
   @@index([customerId], map: "idx_orders_customerid")
   @@index([tenantId, status], map: "idx_orders_tenantid_status")
+  @@index([tenantId, cardapiowebStatus], map: "idx_orders_tenant_cw_status")
   @@map("orders")
   @@schema("public")
 }

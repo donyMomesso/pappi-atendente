@@ -6,6 +6,7 @@
   <title>Pappi Atendente</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -264,7 +265,7 @@
     /* option indicator */
     .has-options-badge{font-size:10px;background:#fff3ed;color:#c04400;padding:2px 6px;border-radius:8px;font-weight:600;margin-top:2px}
 
-    /* ── SIDEBAR (estilo Digisac, expansível, laranja) ── */
+    /* ── SIDEBAR (estilo, expansível, laranja) ── */
     .app-wrap{display:flex;height:100%;overflow:hidden}
     #sidebar{width:220px;min-width:220px;background:linear-gradient(180deg,#0D0D0D 0%,#1a1a1a 100%);color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;transition:width .25s ease;position:relative;border-right:3px solid var(--orange)}
     #sidebar.sidebar-collapsed{width:64px;min-width:64px}
@@ -378,25 +379,46 @@
     <h1>Pappi Atendente</h1>
     <p>Painel de Atendimento</p>
 
-    <!-- Modo Google (padrão) -->
-    <div id="loginGoogle">
-      <div id="g_signin" style="display:flex;justify-content:center;margin-bottom:16px;min-height:44px"></div>
-      <div id="loginErr" class="login-err" style="display:none">Acesso negado.</div>
-      <div style="margin-top:20px;text-align:center">
-        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showKeyMode(event)">Entrar com chave admin</a>
+    <!-- Modo Staff (email/senha) — uso corporativo -->
+    <div id="loginStaff" style="display:none">
+      <form onsubmit="doStaffLogin(event); return false" autocomplete="off">
+        <input id="loginEmail" type="email" placeholder="E-mail" autocomplete="email" required/>
+        <input id="loginPassword" type="password" placeholder="Senha" autocomplete="current-password" required/>
+        <button type="submit" id="btnStaffLogin">Entrar</button>
+      </form>
+      <div id="loginErrStaff" class="login-err" style="display:none"></div>
+      <div style="margin-top:12px;text-align:center">
+        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showForgotPassword(event)">Esqueci minha senha</a>
       </div>
     </div>
 
-    <!-- Modo chave (fallback admin) -->
-    <div id="loginKey" style="display:none">
-      <form onsubmit="doLogin(); return false" autocomplete="off">
-        <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
-        <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
-        <button type="submit">Entrar</button>
+    <!-- Esqueci senha -->
+    <div id="loginForgot" style="display:none">
+      <form onsubmit="doResetPassword(event); return false" autocomplete="off">
+        <input id="resetEmail" type="email" placeholder="Seu e-mail" autocomplete="email"/>
+        <button type="submit">Enviar instruções</button>
       </form>
-      <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
-      <div style="margin-top:12px;text-align:center">
-        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showGoogleMode(event)">← Voltar</a>
+      <div id="loginErrForgot" class="login-err" style="display:none"></div>
+      <a href="#" style="font-size:11px;color:#bbb;text-decoration:none;margin-top:12px;display:inline-block" onclick="showStaffLogin(event)">← Voltar ao login</a>
+    </div>
+
+    <!-- Modo legado (Google + chave) — quando staff auth não configurado -->
+    <div id="loginLegacy">
+      <div id="loginGoogle">
+        <div id="g_signin" style="display:flex;justify-content:center;margin-bottom:16px;min-height:44px"></div>
+        <div id="loginErr" class="login-err" style="display:none">Acesso negado.</div>
+        <div style="margin-top:20px;text-align:center">
+          <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showKeyMode(event)">Entrar com chave</a>
+        </div>
+      </div>
+      <div id="loginKey" style="display:none">
+        <form onsubmit="doLogin(); return false" autocomplete="off">
+          <input id="loginName" type="text" placeholder="Seu nome" autocomplete="off"/>
+          <input id="loginKeyInput" type="password" placeholder="Chave de acesso" autocomplete="off"/>
+          <button type="submit">Entrar</button>
+        </form>
+        <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
+        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none;margin-top:12px;display:inline-block" onclick="showGoogleMode(event)">← Voltar</a>
       </div>
     </div>
   </div>
@@ -415,6 +437,7 @@
         <a class="sidebar-item active" href="#" onclick="navTo('chat');return false" id="navChat"><span>💬</span><span class="sidebar-text">Chat</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('chat');setConvFilter('human');return false"><span>🔔</span><span class="sidebar-text">Notificações</span><span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos"><span>📦</span><span class="sidebar-text">Pedidos</span></a>
+        <a class="sidebar-item" href="#" onclick="navTo('atrasos');return false" id="navAtrasos"><span>⏱️</span><span class="sidebar-text">Atrasos</span><span class="sidebar-badge" id="sidebarAtrasosBadge" style="display:none">0</span></a>
         <a class="sidebar-item" href="#" onclick="openContacts();return false"><span>📒</span><span class="sidebar-text">Contatos</span></a>
         <div class="sidebar-sep"></div>
         <div class="sidebar-section">Análise</div>
@@ -463,6 +486,16 @@
     <button onclick="fetchKanban()" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">🔄 Atualizar</button>
   </div>
   <div id="kanbanBoard" style="display:flex;gap:12px;padding:16px;overflow-x:auto;flex:1;align-items:flex-start"></div>
+</div>
+
+<!-- VIEW ATRASOS (pedidos em monitoramento de atraso) -->
+<div id="viewAtrasos" style="display:none;flex-direction:column;flex:1;overflow:hidden;background:#f0f2f5">
+  <div style="background:linear-gradient(135deg,var(--orange) 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0">
+    <button onclick="navTo('chat')" style="margin:8px 0;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">← Voltar</button>
+    <span style="color:#fff;font-size:14px;font-weight:700">⏱️ Alertas de Atraso</span>
+    <button onclick="loadDelayAlerts()" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">🔄 Atualizar</button>
+  </div>
+  <div id="delayAlertsList" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px"></div>
 </div>
 
 <!-- APP -->
@@ -699,6 +732,33 @@
             <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
           </div>
         </div>
+        <!-- Usuários Internos (staff auth) — apenas quando auth corporativo ativo -->
+        <div class="settings-card" id="staffUsersCard" style="display:none">
+          <div class="settings-card-head">🔐 Usuários Internos</div>
+          <div class="settings-card-body">
+            <p style="font-size:13px;color:#555;margin-bottom:12px">Usuários autorizados a acessar o painel (login e-mail/senha).</p>
+            <div id="staffUsersList" style="margin-bottom:12px"></div>
+            <button class="btn-save-settings" style="width:auto" onclick="openNewStaffUserModal()">+ Novo usuário</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Novo/Editar usuário interno -->
+  <div id="modalStaffUser" class="modal-bg" style="display:none" onclick="if(event.target===this)closeStaffUserModal()">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-head"><h3 id="modalStaffUserTitle">Novo usuário</h3><button onclick="closeStaffUserModal()">×</button></div>
+      <div class="modal-body" style="padding:20px">
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail</label><input id="staffUserEmail" type="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="email@empresa.com"/></div>
+        <div style="margin-bottom:12px" id="staffUserPasswordWrap"><label style="font-size:12px;color:#666">Senha</label><input id="staffUserPassword" type="password" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Mín. 6 caracteres"/></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Nome</label><input id="staffUserName" type="text" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Nome completo"/></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Perfil</label><select id="staffUserRole" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"><option value="attendant">Atendente</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>
+        <div style="margin-bottom:12px" id="staffUserTenantWrap"><label style="font-size:12px;color:#666">Tenant</label><select id="staffUserTenant" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"></select></div>
+      </div>
+      <div class="modal-foot" style="padding:12px 20px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-cancel" onclick="closeStaffUserModal()">Cancelar</button>
+        <button class="btn-confirm" id="btnStaffUserSave" onclick="saveStaffUser()">Salvar</button>
       </div>
     </div>
   </div>
@@ -957,9 +1017,13 @@
 </div>
 
 <script>
-const TENANT = "tenant-pappi-001";
+let TENANT = "tenant-pappi-001";
 let API_KEY = "";
+let API_BASE = ""; // "" = same origin; ou "https://api.pappiatendente.com.br" em split deploy
 let allConvs = [];
+let USE_STAFF_AUTH = false;
+let SUPABASE_CLIENT = null;
+let SESSION_ACCESS_TOKEN = null;
 let selectedCustomer = null;
 let catalog = null;
 let payments = [];
@@ -1011,6 +1075,13 @@ function initSocket() {
   // WhatsApp Interno desconectou inesperadamente
   _socket.on("baileys_disconnected", ({ instanceId, reason }) => {
     showWaDisconnectAlert(instanceId, reason);
+  });
+
+  // Alerta de atraso de pedido (pedido em produção há muito tempo)
+  _socket.on("delay_alert", ({ tenantId }) => {
+    if (tenantId && tenantId !== TENANT) return;
+    fetchStats();
+    if (document.getElementById("viewAtrasos")?.style?.display !== "none") loadDelayAlerts();
   });
 }
 
@@ -1203,6 +1274,80 @@ async function handleGoogleLogin(response) {
 
 function showKeyMode(e)    { e.preventDefault(); document.getElementById("loginGoogle").style.display="none"; document.getElementById("loginKey").style.display="block"; }
 function showGoogleMode(e) { e.preventDefault(); document.getElementById("loginKey").style.display="none"; document.getElementById("loginGoogle").style.display="block"; }
+function showStaffLogin(e) { if(e) e.preventDefault(); document.getElementById("loginForgot").style.display="none"; document.getElementById("loginStaff").style.display="block"; }
+function showForgotPassword(e) { e.preventDefault(); document.getElementById("loginStaff").style.display="none"; document.getElementById("loginForgot").style.display="block"; document.getElementById("loginErrForgot").style.display="none"; }
+
+async function doStaffLogin(e) {
+  e?.preventDefault();
+  const errEl = document.getElementById("loginErrStaff");
+  errEl.style.display = "none";
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  if (!email || !password) { errEl.textContent = "Preencha e-mail e senha."; errEl.style.display="block"; return; }
+  const btn = document.getElementById("btnStaffLogin");
+  btn.disabled = true;
+  try {
+    const { data, error } = await SUPABASE_CLIENT.auth.signInWithPassword({ email, password });
+    if (error) {
+      if (error.message.includes("Invalid login")) errEl.textContent = "E-mail ou senha incorretos.";
+      else if (error.message.includes("Email not confirmed")) errEl.textContent = "E-mail ainda não confirmado.";
+      else errEl.textContent = error.message || "Erro ao entrar.";
+      errEl.style.display = "block";
+      btn.disabled = false;
+      return;
+    }
+    SESSION_ACCESS_TOKEN = data.session?.access_token;
+    const meRes = await fetch((API_BASE||"")+"/auth/me", { headers: { "Authorization": "Bearer "+SESSION_ACCESS_TOKEN } });
+    const meData = await meRes.json();
+    if (!meRes.ok) {
+      if (meRes.status === 401 || meData.error === "user_not_authorized") errEl.textContent = "Usuário não autorizado. Entre em contato com o administrador.";
+      else if (meData.message) errEl.textContent = meData.message;
+      else errEl.textContent = "Acesso negado.";
+      errEl.style.display = "block";
+      await SUPABASE_CLIENT.auth.signOut();
+      SESSION_ACCESS_TOKEN = null;
+      btn.disabled = false;
+      return;
+    }
+    ATTENDANT_NAME = meData.name;
+    USER_ROLE = meData.role;
+    if (meData.tenantId) TENANT = meData.tenantId;
+    API_KEY = ""; // não usar mais API key
+    enterApp();
+  } catch (err) {
+    errEl.textContent = "Erro de conexão. Tente novamente.";
+    errEl.style.display = "block";
+  }
+  btn.disabled = false;
+}
+
+async function doResetPassword(e) {
+  e?.preventDefault();
+  const errEl = document.getElementById("loginErrForgot");
+  errEl.style.display = "none";
+  const email = document.getElementById("resetEmail").value.trim();
+  if (!email) { errEl.textContent = "Informe seu e-mail."; errEl.style.display="block"; return; }
+  try {
+    const r = await fetch((API_BASE||"")+"/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      errEl.textContent = "Se o e-mail existir, você receberá as instruções.";
+      errEl.style.color = "#27ae60";
+      errEl.style.display = "block";
+    } else {
+      errEl.textContent = d.message || d.error || "Erro ao enviar.";
+      errEl.style.color = "";
+      errEl.style.display = "block";
+    }
+  } catch {
+    errEl.textContent = "Erro de conexão.";
+    errEl.style.display = "block";
+  }
+}
 
 // ── LOGIN CHAVE (fallback admin) ───────────────────────────────
 async function doLogin() {
@@ -1250,14 +1395,15 @@ async function doLogin() {
 	}
 
 	function navTo(view) {
-	  const views = { chat: "app", pedidos: "viewKanban", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
+	  const views = { chat: "app", pedidos: "viewKanban", atrasos: "viewAtrasos", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
 	  document.getElementById("app").style.display = "none";
 	  document.getElementById("viewKanban").style.display = "none";
 	  document.getElementById("viewAdmin").style.display = "none";
 	  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
-	  const titles = { chat: "Atendimento", pedidos: "Pedidos", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
-	  const navIds = { chat: "navChat", pedidos: "navPedidos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
+const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
+  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
 	  if (view === "chat") { clearInterval(kanbanTimer); kanbanTimer = null; document.getElementById("app").style.display = "block"; }
+  if (view === "atrasos") loadDelayAlerts();
 	  else if (view === "pedidos") {
 	    document.getElementById("viewKanban").style.display = "flex";
 	    const kd = document.getElementById("kanbanDate");
@@ -1277,10 +1423,13 @@ async function doLogin() {
 	  if (navEl) navEl.classList.add("active");
 	}
 
-	function doLogout() {
+	async function doLogout() {
+	  if (SUPABASE_CLIENT) await SUPABASE_CLIENT.auth.signOut();
+	  SESSION_ACCESS_TOKEN = null;
 	  localStorage.removeItem("pappi_key");
 	  localStorage.removeItem("pappi_name");
 	  localStorage.removeItem("pappi_role");
+	  localStorage.removeItem("pappi_staff_session");
 	  location.reload();
 	}
 
@@ -1296,6 +1445,40 @@ async function doLogin() {
 
 // ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
 (async function restoreSession() {
+  // 1. Staff auth: verifica config e sessão Supabase
+  try {
+    const cfgRes = await fetch((API_BASE||"")+"/auth/config");
+    const cfg = await cfgRes.json();
+    USE_STAFF_AUTH = cfg.useStaffAuth && cfg.supabaseUrl && cfg.supabaseAnonKey;
+    if (USE_STAFF_AUTH) {
+      document.getElementById("loginLegacy").style.display = "none";
+      document.getElementById("loginStaff").style.display = "block";
+      SUPABASE_CLIENT = (typeof window.supabase === "function" ? window.supabase(cfg.supabaseUrl, cfg.supabaseAnonKey) : null);
+      if (SUPABASE_CLIENT) {
+        const { data: { session } } = await SUPABASE_CLIENT.auth.getSession();
+        if (session?.access_token) {
+          SESSION_ACCESS_TOKEN = session.access_token;
+          const meRes = await fetch((API_BASE||"")+"/auth/me", { headers: { "Authorization": "Bearer "+session.access_token } });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            ATTENDANT_NAME = me.name;
+            USER_ROLE = me.role;
+            if (me.tenantId) TENANT = me.tenantId;
+            enterApp();
+            SUPABASE_CLIENT.auth.onAuthStateChange((_e, s) => {
+              if (!s?.access_token) { SESSION_ACCESS_TOKEN = null; location.reload(); }
+              else SESSION_ACCESS_TOKEN = s.access_token;
+            });
+            return;
+          }
+        }
+        SESSION_ACCESS_TOKEN = null;
+      }
+      return;
+    }
+  } catch (_) {}
+
+  // 2. Legacy: API key
   const key  = localStorage.getItem("pappi_key");
   const name = localStorage.getItem("pappi_name");
   const role = localStorage.getItem("pappi_role");
@@ -1305,23 +1488,16 @@ async function doLogin() {
   ATTENDANT_NAME = name;
   USER_ROLE      = role;
 
-  // Entra no app imediatamente com os dados salvos
   enterApp();
-
-  // Valida a chave em background — só desloga se vier 401 explícito
   try {
-    const r = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
+    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}`);
     if (r.status === 401) {
-      // Chave inválida ou alterada — força logout
       localStorage.removeItem("pappi_key");
       localStorage.removeItem("pappi_name");
       localStorage.removeItem("pappi_role");
       location.reload();
     }
-    // Qualquer outro erro (500, network, cold start) → mantém sessão
-  } catch(e) {
-    // Servidor offline ou cold start → mantém sessão, não desloga
-  }
+  } catch(_) {}
 })();
 
 function applyRole() {
@@ -1344,11 +1520,19 @@ document.getElementById("loginName").addEventListener("keydown", e => { if(e.key
 
 // ── API ───────────────────────────────────────────────────────
 async function api(path, opts={}) {
+  const base = API_BASE || "";
   const sep = path.includes("?") ? "&" : "?";
-  const r = await fetch(`/dash${path}${sep}tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`, {
-    headers: {"Content-Type":"application/json","x-api-key": API_KEY},
-    ...opts
-  });
+  const url = `${base}/dash${path}${sep}tenant=${TENANT}`;
+  const headers = { "Content-Type": "application/json" };
+  if (SESSION_ACCESS_TOKEN) headers["Authorization"] = "Bearer " + SESSION_ACCESS_TOKEN;
+  else if (API_KEY) headers["x-api-key"] = API_KEY;
+  const r = await fetch(url, { headers, ...opts });
+  if (r.status === 401 && SESSION_ACCESS_TOKEN) {
+    SESSION_ACCESS_TOKEN = null;
+    if (SUPABASE_CLIENT) await SUPABASE_CLIENT.auth.signOut();
+    localStorage.removeItem("pappi_staff_session");
+    location.reload();
+  }
   if (!r.ok) return null;
   return r.json();
 }
@@ -1366,6 +1550,11 @@ async function fetchStats() {
   } else {
     const sb = document.getElementById("sidebarNotifBadge");
     if (sb) sb.style.display = "none";
+  }
+  const ab = document.getElementById("sidebarAtrasosBadge");
+  if (ab) {
+    if (d.delayAlerts > 0) { ab.textContent = d.delayAlerts; ab.style.display = ""; }
+    else ab.style.display = "none";
   }
   return true;
 }
@@ -2254,6 +2443,60 @@ function closeKanban() {
   navTo("chat");
 }
 
+async function loadDelayAlerts() {
+  const data = await api("/delay-alerts");
+  const list = Array.isArray(data) ? data : [];
+  const el = document.getElementById("delayAlertsList");
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = '<p style="text-align:center;padding:32px;color:#888;font-size:14px">Nenhum pedido em monitoramento de atraso no momento.</p>';
+    return;
+  }
+  const riskLabels = { medio: "Médio", alto: "Alto", critico: "Crítico", prioridade_maxima: "Prioridade máxima" };
+  el.innerHTML = list.map(o => {
+    const risk = riskLabels[o.deliveryRiskLevel] || o.deliveryRiskLevel;
+    const riskColor = o.deliveryRiskLevel === "prioridade_maxima" ? "#e53935" : o.deliveryRiskLevel === "critico" ? "#f57c00" : o.deliveryRiskLevel === "alto" ? "#ff9800" : "#8e44ad";
+    const timeStr = o.timeInCurrentStatusMinutes != null ? `${o.timeInCurrentStatusMinutes} min em produção` : "";
+    const previsao = (o.estimatedRemainingMin != null && o.estimatedRemainingMax != null) ? `${o.estimatedRemainingMin}-${o.estimatedRemainingMax} min` : "";
+    const rain = o.weatherDelayFactor > 1 ? " 🌧️" : "";
+    return `
+      <div style="background:#fff;border-radius:12px;border:1px solid #e0e0e0;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-left:4px solid ${riskColor}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <span style="font-weight:700;color:#333;font-size:15px">#${esc(o.orderRef)}</span>
+            <span style="background:${riskColor};color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px">${risk}${rain}</span>
+          </div>
+          <div style="font-size:12px;color:#888">${timeStr}</div>
+        </div>
+        <div style="font-size:13px;color:#555;margin-bottom:6px">👤 ${esc(o.customerName||"—")} · 📞 ${esc(o.customerPhone||"—")}</div>
+        <div style="font-size:12px;color:#666;margin-bottom:10px">Previsão: ${previsao || "—"} · R$ ${(+o.total).toFixed(2)}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="selectCustomerById('${o.customerId}'); navTo('chat')" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Acompanhar</button>
+          <button onclick="doWatchOrder('${o.id}')" style="background:#2980b9;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">Assumir</button>
+          ${o.couponCode ? `<span style="font-size:11px;color:#27ae60;padding:4px 8px;background:#e8f5e9;border-radius:6px">Cupom: ${esc(o.couponCode)}</span>` : `<button onclick="doCompensateOrder('${o.id}')" style="background:#27ae60;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">Compensar</button>`}
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function doWatchOrder(orderId) {
+  const r = await api("/orders/"+orderId+"/watch", { method: "POST", body: JSON.stringify({ watchedBy: ATTENDANT_NAME }) });
+  if (r?.ok) { loadDelayAlerts(); fetchStats(); }
+  else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+async function doCompensateOrder(orderId) {
+  if (!confirm("Gerar cupom de compensação (borda grátis) e enviar ao cliente?")) return;
+  const r = await api("/orders/"+orderId+"/compensate", { method: "POST", body: JSON.stringify({ type: "borda_gratis", reason: "atraso" }) });
+  if (r?.ok) { alert("Cupom " + r.code + " enviado ao cliente!"); loadDelayAlerts(); }
+  else alert("Erro: " + (r?.error || "Tente novamente"));
+}
+
+function selectCustomerById(customerId) {
+  const c = allConvs.find(x => x.id === customerId);
+  if (c) selectedCustomer = c; renderConvs(allConvs); renderCenter(selectedCustomer); renderRight(selectedCustomer); loadChatHistory(selectedCustomer?.id);
+}
+
 async function fetchKanban() {
   const data = await api("/orders/kanban");
   if (!data) return;
@@ -2598,6 +2841,94 @@ async function loadAdminSettings() {
   renderGoogleUserList();
   gcRefreshStatus();
   waIntRefresh();
+  if (USE_STAFF_AUTH && USER_ROLE === "admin") {
+    document.getElementById("staffUsersCard").style.display = "block";
+    loadStaffUsers();
+  } else {
+    document.getElementById("staffUsersCard").style.display = "none";
+  }
+}
+
+let staffUserEditId = null;
+async function loadStaffUsers() {
+  const list = await api("/staff-users");
+  const el = document.getElementById("staffUsersList");
+  if (!list || !list.length) {
+    el.innerHTML = '<p style="font-size:12px;color:#999;padding:12px">Nenhum usuário interno cadastrado.</p>';
+    return;
+  }
+  const roleLbl = { admin: "Admin", manager: "Manager", attendant: "Atendente" };
+  el.innerHTML = list.map(u => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#fafafa;border-radius:8px;margin-bottom:6px;border:1px solid #eee">
+      <div>
+        <strong>${esc(u.name)}</strong> <span style="font-size:11px;color:#888">${esc(u.email)}</span>
+        <span style="font-size:10px;background:#e0e0e0;padding:2px 6px;border-radius:6px;margin-left:6px">${roleLbl[u.role]||u.role}</span>
+        ${u.tenantName ? `<span style="font-size:11px;color:#666"> · ${esc(u.tenantName)}</span>` : ""}
+        ${!u.active ? '<span style="color:#e53935;font-size:11px">(inativo)</span>' : ""}
+      </div>
+      <div style="display:flex;gap:6px">
+        ${u.active
+          ? `<button onclick="staffUserDeactivate('${u.id}')" style="padding:4px 10px;font-size:11px;background:#f5f5f5;border:1px solid #ddd;border-radius:6px;cursor:pointer">Desativar</button>`
+          : `<button onclick="staffUserActivate('${u.id}')" style="padding:4px 10px;font-size:11px;background:#27ae60;color:#fff;border:none;border-radius:6px;cursor:pointer">Ativar</button>`}
+        <button onclick="staffUserResetPwd('${u.id}')" style="padding:4px 10px;font-size:11px;background:#2980b9;color:#fff;border:none;border-radius:6px;cursor:pointer">Reset senha</button>
+      </div>
+    </div>`).join("");
+}
+
+async function openNewStaffUserModal() {
+  staffUserEditId = null;
+  document.getElementById("modalStaffUserTitle").textContent = "Novo usuário";
+  document.getElementById("staffUserEmail").value = "";
+  document.getElementById("staffUserEmail").disabled = false;
+  document.getElementById("staffUserPassword").value = "";
+  document.getElementById("staffUserPasswordWrap").style.display = "block";
+  document.getElementById("staffUserName").value = "";
+  document.getElementById("staffUserRole").value = "attendant";
+  const tenants = await api("/tenants") || [];
+  const sel = document.getElementById("staffUserTenant");
+  sel.innerHTML = '<option value="">— Selecione —</option>' + tenants.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  document.getElementById("modalStaffUser").style.display = "flex";
+}
+
+function closeStaffUserModal() {
+  document.getElementById("modalStaffUser").style.display = "none";
+}
+
+async function saveStaffUser() {
+  const email = document.getElementById("staffUserEmail").value.trim();
+  const password = document.getElementById("staffUserPassword").value;
+  const name = document.getElementById("staffUserName").value.trim();
+  const role = document.getElementById("staffUserRole").value;
+  const tenantId = document.getElementById("staffUserTenant").value || null;
+  if (!email || !name) { alert("Preencha e-mail e nome."); return; }
+  if (!staffUserEditId && !password) { alert("Informe uma senha para novo usuário."); return; }
+  const btn = document.getElementById("btnStaffUserSave");
+  btn.disabled = true;
+  try {
+    const r = await api("/staff-users", { method: "POST", body: JSON.stringify({ email, password, name, role, tenantId }) });
+    if (r) { closeStaffUserModal(); loadStaffUsers(); }
+    else alert("Erro ao criar usuário.");
+  } catch (e) { alert("Erro: " + (e.message||"Tente novamente.")); }
+  btn.disabled = false;
+}
+
+async function staffUserActivate(id) {
+  const r = await api("/staff-users/"+id+"/activate", { method: "POST", body: "{}" });
+  if (r?.ok) loadStaffUsers();
+}
+
+async function staffUserDeactivate(id) {
+  if (!confirm("Desativar este usuário? Ele perderá o acesso ao painel.")) return;
+  const r = await api("/staff-users/"+id+"/deactivate", { method: "POST", body: "{}" });
+  if (r?.ok) loadStaffUsers();
+}
+
+async function staffUserResetPwd(id) {
+  const pwd = prompt("Nova senha (mín. 6 caracteres):");
+  if (!pwd || pwd.length < 6) { alert("Senha deve ter pelo menos 6 caracteres."); return; }
+  const r = await api("/staff-users/"+id+"/reset-password", { method: "POST", body: JSON.stringify({ newPassword: pwd }) });
+  if (r?.ok) alert("Senha alterada.");
+  else alert("Erro: " + (r?.error || "Tente novamente."));
 }
 
 function openSettings() { openAdmin(); adminTab("cfg"); }

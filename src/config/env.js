@@ -50,4 +50,16 @@ module.exports = {
   CLOSED_AS_LEAD: process.env.CLOSED_AS_LEAD === "true",
   // Híbrido: minutos de inatividade para devolver ao robô (0 = desativado)
   CONVERSATION_HANDOFF_TIMEOUT_MIN: toNumber(process.env.CONVERSATION_HANDOFF_TIMEOUT_MIN, 0),
+  // ── Auth corporativa (Supabase) ──
+  SUPABASE_URL: process.env.SUPABASE_URL || "",
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || "",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+  API_URL: (process.env.API_URL || process.env.APP_URL || "https://pappiatendente.com.br").replace(/\/$/, ""),
+  CORS_ORIGIN: process.env.CORS_ORIGIN || process.env.APP_URL || "",
+  // true = painel exige sessão Supabase; false = aceita API key como fallback
+  USE_STAFF_AUTH: process.env.USE_STAFF_AUTH !== "false",
+  // aceita API key quando sessão inválida (integrações). Se Supabase não configurado, fallback ativo.
+  ALLOW_API_KEY_FALLBACK:
+    process.env.ALLOW_API_KEY_FALLBACK === "true" ||
+    (!process.env.SUPABASE_URL && process.env.ALLOW_API_KEY_FALLBACK !== "false"),
 };

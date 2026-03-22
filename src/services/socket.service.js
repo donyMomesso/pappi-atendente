@@ -46,8 +46,13 @@ function emitBaileysDisconnected(instanceId, reason) {
   _io.emit("baileys_disconnected", { instanceId, reason });
 }
 
+function emitDelayAlert(tenantId, payload) {
+  if (!_io) return;
+  _io.emit("delay_alert", { tenantId, ...payload });
+}
+
 function getIO() {
   return _io;
 }
 
-module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, emitBaileysDisconnected, getIO };
+module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, emitBaileysDisconnected, emitDelayAlert, getIO };

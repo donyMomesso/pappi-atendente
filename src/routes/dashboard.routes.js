@@ -100,12 +100,19 @@ router.get("/stats", authDash, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [ordersToday, handoffActive, cwFailed] = await Promise.all([
+    const [ordersToday, handoffActive, cwFailed, delayAlerts] = await Promise.all([
       prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }),
       prisma.customer.count({ where: { tenantId, handoff: true } }),
       prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
+      prisma.order.count({
+        where: {
+          tenantId,
+          deliveryRiskLevel: { not: null },
+          status: { notIn: ["cancelled", "delivered", "lead"] },
+        },
+      }),
     ]);
-    res.json({ ordersToday, handoffActive, cwFailed });
+    res.json({ ordersToday, handoffActive, cwFailed, delayAlerts });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -323,6 +330,141 @@ router.post("/orders/retry", authAdmin, async (req, res) => {
     });
 
     res.json({ ok: true, cwOrderId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/delay-alerts — pedidos em monitoramento de atraso ─
+router.get("/delay-alerts", authDash, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const orders = await prisma.order.findMany({
+      where: {
+        tenantId,
+        cwOrderId: { not: null },
+        deliveryRiskLevel: { not: null },
+        status: { notIn: ["cancelled", "delivered", "lead"] },
+      },
+      orderBy: { delayAlertSentAt: "desc" },
+      take: 50,
+      include: { customer: { select: { name: true, phone: true, id: true } } },
+    });
+    res.json(
+      orders.map((o) => ({
+        id: o.id,
+        orderRef: o.id.slice(-6).toUpperCase(),
+        customerId: o.customerId,
+        customerName: o.customer?.name,
+        customerPhone: o.customer?.phone,
+        total: o.total,
+        status: o.status,
+        cardapiowebStatus: o.cardapiowebStatus,
+        timeInCurrentStatusMinutes: o.timeInCurrentStatusMinutes,
+        estimatedRemainingMin: o.estimatedRemainingMin,
+        estimatedRemainingMax: o.estimatedRemainingMax,
+        deliveryRiskLevel: o.deliveryRiskLevel,
+        watchedByAttendant: o.watchedByAttendant,
+        weatherDelayFactor: o.weatherDelayFactor,
+        delayAlertSentAt: o.delayAlertSentAt,
+        secondDelayAlertSentAt: o.secondDelayAlertSentAt,
+        thirdDelayAlertSentAt: o.thirdDelayAlertSentAt,
+        couponCode: o.couponCode,
+        couponSentAt: o.couponSentAt,
+        createdAt: o.createdAt,
+      })),
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/orders/:id/watch — marcar acompanhamento por atendente ─
+router.post("/orders/:id/watch", authDash, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const { watchedBy } = req.body;
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+
+    const order = await prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { watchedByAttendant: watchedBy || req.attendant?.name || "atendente" },
+    });
+    res.json({ ok: true, watchedBy: watchedBy || req.attendant?.name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/orders/:id/compensate — gerar cupom e enviar ao cliente ─
+router.post("/orders/:id/compensate", authDash, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const { type, reason } = req.body;
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+      include: { customer: true },
+    });
+    if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+
+    const { generateCompensationCoupon, markCouponSent } = require("../services/coupon.service");
+    const { getClients } = require("../services/tenant.service");
+    const chatMemory = require("../services/chat-memory.service");
+
+    const result = await generateCompensationCoupon({
+      orderId,
+      type: type || "borda_gratis",
+      reason: reason || "atraso",
+    });
+    if (!result) return res.status(400).json({ error: "Não foi possível gerar cupom" });
+
+    const customerName = order.customer?.name || "Cliente";
+    const msg = `${customerName}, olha o que eu consegui para você: uma borda grátis no seu próximo pedido. É só usar o cupom *${result.code}* aqui com a gente que a borda sai grátis. Foi uma forma que consegui para te compensar pela demora de hoje.`;
+
+    if (order.customer?.phone) {
+      const { wa } = await getClients(tenantId);
+      await wa.sendText(order.customer.phone, msg).catch(() => {});
+      await markCouponSent(orderId);
+      if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
+    }
+
+    res.json({ ok: true, code: result.code });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/audit-logs — logs de auditoria (admin) ────────────
+router.get("/audit-logs", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const where = {};
+    if (tenantId && req.staffUser?.tenantId !== tenantId && req.role !== "admin") return res.status(403).json({ error: "forbidden" });
+    if (tenantId) where.tenantId = tenantId;
+
+    const logs = await prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    res.json(logs.map((l) => ({
+      id: l.id,
+      tenantId: l.tenantId,
+      userId: l.userId,
+      action: l.action,
+      resourceType: l.resourceType,
+      resourceId: l.resourceId,
+      metadata: l.metadata ? JSON.parse(l.metadata) : null,
+      ip: l.ip,
+      userAgent: l.userAgent,
+      createdAt: l.createdAt,
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
