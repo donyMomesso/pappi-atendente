@@ -90,45 +90,32 @@ function checkLimits(inst) {
 }
 
 // ── Helpers de JID / telefone ──────────────────────────────────
-function onlyDigits(v) {
-  return String(v || "").replace(/\D/g, "");
-}
-
-function isValidPhone(v) {
-  const n = onlyDigits(v);
-  return n.length >= 10 && n.length <= 15;
-}
-
 function extractPhoneFromMessage(msg) {
   try {
     const key = msg?.key || {};
     const remoteJid = key.remoteJid || "";
 
-    // Em alguns cenários o número real vem nesses campos
-    const directCandidates = [
+    const candidates = [
       key.participantPn,
       key.senderPn,
-      msg?.participantPn,
+      key.participant,
+      msg?.participant,
       msg?.senderPn,
+      msg?.participantPn,
       msg?.pushNamePhone,
+      msg?.messageContextInfo?.participant,
+      msg?.message?.extendedTextMessage?.contextInfo?.participant,
     ];
 
-    for (const c of directCandidates) {
-      const digits = onlyDigits(c);
-      if (isValidPhone(digits)) return digits;
+    for (const c of candidates) {
+      const raw = String(c || "");
+      const digits = raw.split("@")[0].split(":")[0].replace(/\D/g, "");
+      if (digits.length >= 10 && digits.length <= 15) return digits;
     }
 
-    // JID normal
     if (remoteJid.endsWith("@s.whatsapp.net")) {
-      const digits = onlyDigits(remoteJid.split("@")[0].split(":")[0]);
-      if (isValidPhone(digits)) return digits;
-    }
-
-    // Em @lid o remoteJid não é número; tenta participant se existir
-    if (remoteJid.endsWith("@lid")) {
-      const participant = key.participant || msg?.participant || "";
-      const digits = onlyDigits(participant.split("@")[0].split(":")[0]);
-      if (isValidPhone(digits)) return digits;
+      const digits = remoteJid.split("@")[0].split(":")[0].replace(/\D/g, "");
+      if (digits.length >= 10 && digits.length <= 15) return digits;
     }
 
     return null;
@@ -327,9 +314,12 @@ async function start(instanceId = "default") {
             {
               instanceId,
               jid,
-              participant: msg?.key?.participant,
-              senderPn: msg?.key?.senderPn,
-              participantPn: msg?.key?.participantPn,
+              key: msg?.key,
+              pushName: msg?.pushName,
+              verifiedBizName: msg?.verifiedBizName,
+              messageKeys: msg?.message ? Object.keys(msg.message) : [],
+              messageStubType: msg?.messageStubType,
+              messageStubParameters: msg?.messageStubParameters,
             },
             "Não foi possível resolver o telefone da mensagem",
           );
