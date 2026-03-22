@@ -173,9 +173,18 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 }
 
 async function processStatus({ status }) {
-  const { id, status: s, recipient_id } = status;
+  const { id, status: s } = status;
   if (s === "failed") console.error(`Mensagem ${id} falhou:`, status.errors);
-  await chatMemory.updateStatus(recipient_id, id, s).catch(() => {});
+
+  const prisma = require("../lib/db");
+  const row = await prisma.message.findFirst({
+    where: { waMessageId: id },
+    select: { customerId: true },
+  }).catch(() => null);
+
+  if (row?.customerId) {
+    await chatMemory.updateStatus(row.customerId, id, s).catch(() => {});
+  }
 }
 
 // ── extractContent — com transcrição de áudio ────────────────

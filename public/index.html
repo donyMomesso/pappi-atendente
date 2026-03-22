@@ -1034,7 +1034,7 @@
 </div>
 
 <script>
-let TENANT = "tenant-pappi-001";
+let TENANT = localStorage.getItem("tenantId") || new URLSearchParams(location.search).get("tenant") || "";
 let API_KEY = "";
 let API_BASE = ""; // "" = same origin; ou "https://api.pappiatendente.com.br" em split deploy
 let allConvs = [];
@@ -1269,7 +1269,8 @@ else window.addEventListener('load', () => { setTimeout(initGoogleSignIn, 500); 
 async function handleGoogleLogin(response) {
   const errEl = document.getElementById("loginErr");
   errEl.style.display = "none";
-  const res = await fetch(`/dash/auth/google?tenant=${TENANT}`, {
+  const tenantQs = TENANT ? `?tenant=${encodeURIComponent(TENANT)}` : "";
+  const res = await fetch(`/dash/auth/google${tenantQs}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ credential: response.credential }),
@@ -1283,6 +1284,10 @@ async function handleGoogleLogin(response) {
   API_KEY = data.token;
   ATTENDANT_NAME = data.name;
   USER_ROLE = data.role;
+  if (data.tenantId) {
+    TENANT = data.tenantId;
+    localStorage.setItem("tenantId", TENANT);
+  }
   localStorage.setItem("pappi_key", data.token);
   localStorage.setItem("pappi_name", data.name);
   localStorage.setItem("pappi_role", data.role);
@@ -1332,7 +1337,10 @@ async function doStaffLogin(e) {
     }
     ATTENDANT_NAME = meData.name;
     USER_ROLE = meData.role;
-    if (meData.tenantId) TENANT = meData.tenantId;
+    if (meData.tenantId) {
+      TENANT = meData.tenantId;
+      localStorage.setItem("tenantId", TENANT);
+    }
     API_KEY = ""; // não usar mais API key
     enterApp();
   } catch (err) {
@@ -1396,6 +1404,7 @@ async function doLogin() {
 }
 
 	function enterApp() {
+  if (TENANT) localStorage.setItem("tenantId", TENANT);
 	  document.getElementById("login").style.display = "none";
 	  document.getElementById("appWrap").style.display = "flex";
 	  navTo("chat");
@@ -1450,6 +1459,7 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 	  localStorage.removeItem("pappi_key");
 	  localStorage.removeItem("pappi_name");
 	  localStorage.removeItem("pappi_role");
+  localStorage.removeItem("tenantId");
 	  localStorage.removeItem("pappi_staff_session");
 	  location.reload();
 	}
@@ -1484,7 +1494,10 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
             const me = await meRes.json();
             ATTENDANT_NAME = me.name;
             USER_ROLE = me.role;
-            if (me.tenantId) TENANT = me.tenantId;
+            if (me.tenantId) {
+              TENANT = me.tenantId;
+              localStorage.setItem("tenantId", TENANT);
+            }
             enterApp();
             SUPABASE_CLIENT.auth.onAuthStateChange((_e, s) => {
               if (!s?.access_token) { SESSION_ACCESS_TOKEN = null; location.reload(); }
@@ -1516,6 +1529,7 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
       localStorage.removeItem("pappi_key");
       localStorage.removeItem("pappi_name");
       localStorage.removeItem("pappi_role");
+  localStorage.removeItem("tenantId");
       location.reload();
     }
   } catch(_) {}
@@ -1543,7 +1557,8 @@ document.getElementById("loginName").addEventListener("keydown", e => { if(e.key
 async function api(path, opts={}) {
   const base = API_BASE || "";
   const sep = path.includes("?") ? "&" : "?";
-  const url = `${base}/dash${path}${sep}tenant=${TENANT}`;
+  const tenantParam = TENANT ? `${sep}tenant=${encodeURIComponent(TENANT)}` : "";
+  const url = `${base}/dash${path}${tenantParam}`;
   const headers = { "Content-Type": "application/json" };
   if (SESSION_ACCESS_TOKEN) headers["Authorization"] = "Bearer " + SESSION_ACCESS_TOKEN;
   else if (API_KEY) headers["x-api-key"] = API_KEY;
