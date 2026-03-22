@@ -96,6 +96,21 @@ Se enviar, o fluxo **Baileys → cliente** está funcionando.
 
 ---
 
+## Sessão substituída (440) em loop
+
+Quando aparece `Sessão substituída (440) — reconectando em 90s...` repetidamente, **dois processos** estão usando a mesma conta WhatsApp:
+
+| Causa | Solução |
+|-------|---------|
+| Local + Produção rodando ao mesmo tempo | Pare o `npm run dev` local quando a produção estiver ativa |
+| Dois deploys simultâneos no Render | Normal durante deploy; estabiliza depois |
+| WhatsApp Web ou outro app conectado | Desconecte em Aparelhos conectados no WhatsApp |
+| Mesmo banco (auth) usado em dev e prod | Use banco separado em dev ou não rode Baileys localmente |
+
+**Regra:** Apenas **um** processo pode usar o Baileys por número de WhatsApp.
+
+---
+
 ## Leitura do resultado
 
 | Sintoma | Causa provável |
@@ -109,7 +124,7 @@ Se enviar, o fluxo **Baileys → cliente** está funcionando.
 
 ## URLs base
 
-- **Local:** `http://localhost:10001`
+- **Local:** `http://localhost:10099` (ou PORT do .env)
 - **Produção:** `https://pappiatendente.com.br`
 
 Se o painel estiver em domínio diferente (ex: app.pappiatendente.com.br), use a URL base correspondente nos `fetch`.
