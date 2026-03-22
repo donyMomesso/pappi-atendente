@@ -1,19 +1,16 @@
 // src/middleware/auth.middleware.js
-// Autenticação: sessão Supabase (staff) OU API key (integrações técnicas).
-// Painel usa sessão; API key só para integrações quando ALLOW_API_KEY_FALLBACK.
+// Autenticação por API key (query, headers). Sessão Supabase opcional.
 
-const ENV = require("../config/env");
 const prisma = require("../lib/db");
+const ENV = require("../config/env");
 const authService = require("../services/auth.service");
 
-/** Extrai Bearer token do header (nunca de query string para humano) */
 function getBearerToken(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) return null;
   return auth.slice(7).trim();
 }
 
-/** Carrega staff user na req (após validação) */
 function attachStaffToReq(req, staff) {
   if (!staff) return;
   req.user = { id: staff.authUserId, email: staff.email };
@@ -24,7 +21,6 @@ function attachStaffToReq(req, staff) {
   req.attendant = { name: staff.name, key: staff.id, role: staff.role };
 }
 
-/** Autenticação por sessão Supabase (Bearer token) — usa auth.service */
 async function authBySession(req) {
   const token = getBearerToken(req);
   if (!token) return false;
@@ -41,7 +37,6 @@ async function authBySession(req) {
   return true;
 }
 
-/** Fallback: auth direta quando auth.service não configurado (Supabase ausente) */
 async function authBySessionFallback(req) {
   if (authService.isAuthConfigured()) return false;
   const supabaseAuth = require("../services/supabase-auth.service");
@@ -58,13 +53,12 @@ async function authBySessionFallback(req) {
   return true;
 }
 
-/** Autenticação por API key (fallback para integrações) */
 async function authByApiKey(req) {
   const key =
+    req.query.key ||
     req.headers["x-api-key"] ||
     req.headers["x-attendant-key"] ||
-    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim() ||
-    req.query.key;
+    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
   const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
 
   if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) {
@@ -73,39 +67,40 @@ async function authByApiKey(req) {
     req.staffUser = { role: "admin", tenantId: req.tenantId, name: "API Admin" };
     req.tenantScope = req.tenantId;
     req.attendant = { name: "API Admin", role: "admin" };
+    req.user = { role: "admin", name: "Admin" };
     return true;
   }
   if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) {
-    req.tenantId = tenantId || null;
     req.role = "attendant";
-    req.staffUser = { role: "attendant", tenantId: req.tenantId, name: "API Attendant" };
+    req.tenantId = tenantId || null;
+    req.staffUser = { role: "attendant", tenantId: req.tenantId, name: "API Atendente" };
     req.tenantScope = req.tenantId;
-    req.attendant = { name: "API Attendant", role: "attendant" };
+    req.attendant = { name: "API Atendente", role: "attendant" };
+    req.user = { role: "attendant", name: "Atendente" };
     return true;
   }
-  if (tenantId && key) {
-    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
-    if (cfg) {
-      const attendants = JSON.parse(cfg.value);
-      const att = attendants.find((a) => a.key === key);
-      if (att) {
-        req.tenantId = tenantId;
-        req.role = att.role || "attendant";
-        req.staffUser = { role: req.role, tenantId, name: att.name };
-        req.tenantScope = tenantId;
-        req.attendant = att;
-        return true;
-      }
+  const tid = tenantId || "tenant-pappi-001";
+  const cfg = await prisma.config.findUnique({ where: { key: `${tid}:attendants` } });
+  if (cfg) {
+    const attendants = JSON.parse(cfg.value || "[]");
+    const att = attendants.find((a) => a.key === key);
+    if (att) {
+      req.tenantId = tid;
+      req.role = att.role || "attendant";
+      req.staffUser = { role: req.role, tenantId: tid, name: att.name };
+      req.tenantScope = tid;
+      req.attendant = att;
+      req.user = { role: req.role, name: att.name };
+      return true;
     }
   }
   return false;
 }
 
-/** Painel: exige sessão Supabase. Fallback API key só se ALLOW_API_KEY_FALLBACK. */
 async function requireStaffAuth(req, res, next) {
   if (await authBySession(req)) return next();
   if (await authBySessionFallback(req)) return next();
-  if (ENV.ALLOW_API_KEY_FALLBACK && (await authByApiKey(req))) return next();
+  if (await authByApiKey(req)) return next();
   const denied = req._authDenied;
   return res.status(401).json({
     error: denied?.reason || "unauthorized",
@@ -114,18 +109,16 @@ async function requireStaffAuth(req, res, next) {
   });
 }
 
-/** Dash: acesso a atendimento (attendant, manager, admin) */
 async function authDash(req, res, next) {
   return requireStaffAuth(req, res, next);
 }
 
-/** Admin: apenas role admin */
 async function authAdmin(req, res, next) {
   if (await authBySession(req) || await authBySessionFallback(req)) {
     if (req.role === "admin") return next();
     return res.status(403).json({ error: "forbidden", message: "Acesso restrito a administradores." });
   }
-  if (ENV.ALLOW_API_KEY_FALLBACK && (await authByApiKey(req))) {
+  if (await authByApiKey(req)) {
     if (req.role === "admin") return next();
     return res.status(403).json({ error: "forbidden" });
   }
@@ -136,14 +129,15 @@ async function authAdmin(req, res, next) {
   });
 }
 
-/** API key pura (integrações técnicas) - sem staff */
 async function requireAdminKey(req, res, next) {
-  const raw = req.headers["x-api-key"] || req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
+  const raw =
+    req.query.key ||
+    req.headers["x-api-key"] ||
+    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
   if (ENV.ADMIN_API_KEY && raw === ENV.ADMIN_API_KEY) return next();
   return res.status(401).json({ error: "unauthorized" });
 }
 
-/** API key attendant (integrações) */
 async function requireAttendantKey(req, res, next) {
   return authByApiKey(req) ? next() : res.status(401).json({ error: "unauthorized" });
 }
