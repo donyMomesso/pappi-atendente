@@ -288,17 +288,26 @@ async function start(instanceId = "default") {
                 const botMayRespond = await convState.shouldBotRespond(customer);
                 if (!botMayRespond) {
                   const state = await convState.getState(customer);
-                  log.info({ instanceId, phone, state }, "Bot silencioso (handoff/estado)");
-                  continue;
+                  // Auto-libera se estava aguardando humano mas não há atendente ativo
+                  // (evita que cliente fique preso em handoff para sempre no canal Baileys)
+                  if (state === "aguardando_humano" && !customer.claimedBy) {
+                    log.info({ instanceId, phone }, "Auto-liberando handoff sem atendente — devolvendo ao bot");
+                    await convState.setState(customer.id, "bot_ativo");
+                    customer.handoff = false;
+                  } else {
+                    log.info({ instanceId, phone, state }, "Bot silencioso (handoff/estado)");
+                    continue;
+                  }
                 }
                 const wa = {
+                  // saveHistory=false: bot handler já salva via chatMemory.push — evita dupla gravação
                   sendText: async (to, msg) => {
-                    const ok = await sendText(to, msg, instanceId, true);
+                    const ok = await sendText(to, msg, instanceId, true, false);
                     if (!ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
                     return ok;
                   },
                   sendButtons: (to, body, buttons) =>
-                    sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true),
+                    sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true, false),
                   sendImage: () => {},
                   sendDocument: () => {},
                 };
@@ -411,7 +420,9 @@ async function initAll() {
 }
 
 // ── Envio ──────────────────────────────────────────────────────
-async function sendText(to, text, instanceId = "default", skipNotifyCheck = false) {
+// saveHistory=true: salva no chatMemory (usado por notificações/broadcast diretos)
+// saveHistory=false: não salva (bot handler já chama chatMemory.push internamente)
+async function sendText(to, text, instanceId = "default", skipNotifyCheck = false, saveHistory = true) {
   const inst = INSTANCES.get(instanceId);
   if (!inst || !inst.socket || inst.status !== "connected") return false;
 
@@ -432,16 +443,19 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
     inst.counters.hour++;
     inst.counters.day++;
 
-    // CORREÇÃO: detecta tenantId corretamente antes de salvar no histórico
-    try {
-      const botHandler = require("../routes/bot.handler");
-      const cleanPhone = to.split("@")[0];
-      const tenantId = await detectTenantByPhone(cleanPhone);
-      if (tenantId) {
-        await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant");
+    // Salva no histórico apenas para envios diretos (notify, broadcast, dashboard)
+    // Chamadas vindas do bot handler passam saveHistory=false pois já salvam via chatMemory.push
+    if (saveHistory) {
+      try {
+        const botHandler = require("../routes/bot.handler");
+        const cleanPhone = to.split("@")[0];
+        const tenantId = await detectTenantByPhone(cleanPhone);
+        if (tenantId) {
+          await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant");
+        }
+      } catch (err) {
+        console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
       }
-    } catch (err) {
-      console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
     }
 
     return true;

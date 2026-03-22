@@ -2995,12 +2995,23 @@ async function gcConnect() {
 	async function waIntAddNew() {
 	  const id = prompt("Dê um nome ou ID para este WhatsApp (ex: Celular01):");
 	  if (!id) return;
-	  const res = await api("/baileys/instances", {
-	    method: "POST",
-	    body: JSON.stringify({ id })
-	  });
-	  if (res?.ok) waIntRefresh();
-	  else alert("Erro ao adicionar: " + (res?.error || "Tente outro ID"));
+	  try {
+	    const r = await fetch(`/dash/baileys/instances?tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`, {
+	      method: "POST",
+	      headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+	      body: JSON.stringify({ id })
+	    });
+	    const res = await r.json().catch(() => ({}));
+	    if (r.ok && res?.ok) { waIntRefresh(); return; }
+	    let msg = "Verifique sua conexão e tente novamente.";
+	    if (r.status === 401) msg = "Sem permissão.";
+	    else if (r.status === 400 && res?.error) msg = res.error;
+	    else if (r.status >= 500 || r.status === 0) msg = "Servidor indisponível. Verifique sua conexão.";
+	    else if (res?.error) msg = res.error;
+	    alert(msg);
+	  } catch (e) {
+	    alert("Sem conexão. Verifique sua internet.");
+	  }
 	}
 
 	async function waIntConnect(id) {

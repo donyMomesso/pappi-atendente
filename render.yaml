@@ -46,3 +46,31 @@ services:
         value: "-47.0616"
       - key: LOG_LEVEL
         value: info
+      - key: APP_URL
+        value: https://pappiatendente.com.br
+      - key: SKIP_HOURS_CHECK
+        value: "false"
+      - key: INSTAGRAM_PAGE_ID
+        sync: false
+      - key: FACEBOOK_PAGE_ID
+        sync: false
+      - key: FACEBOOK_PAGE_TOKEN
+        sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: META_CAPI_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
