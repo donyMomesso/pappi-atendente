@@ -66,7 +66,19 @@ const app = express();
 
 // CORS para app em domínio separado (ou * para aceitar qualquer origem)
 if (ENV.CORS_ORIGIN) {
-  const origins = ENV.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
+  let origins = ENV.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
+  // Inclui automaticamente domínio raiz pappiatendente.com.br (e www) quando houver app.pappiatendente
+  const addRoot = (url) => {
+    try {
+      const u = new URL(url);
+      if (u.hostname.endsWith(".pappiatendente.com.br")) {
+        origins.push("https://pappiatendente.com.br");
+        origins.push("https://www.pappiatendente.com.br");
+      }
+    } catch (_) {}
+  };
+  origins.forEach(addRoot);
+  origins = [...new Set(origins)];
   if (origins.length) {
     const allowAny = origins.includes("*");
     app.use((req, res, next) => {

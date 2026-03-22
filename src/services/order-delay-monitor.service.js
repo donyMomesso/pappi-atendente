@@ -29,16 +29,12 @@ async function processTenant(tenantId) {
   const intervalMin = await getDelayAlertInterval(tenantId);
   const threshold = DELAY_THRESHOLD_MIN * 60 * 1000;
 
-  // Pedidos em em_producao com cwOrderId
+  // Pedidos em em_producao com cwOrderId (usa status — rode `npx prisma generate` para usar cardapiowebStatus)
   const orders = await prisma.order.findMany({
     where: {
       tenantId,
       cwOrderId: { not: null },
-      status: { notIn: ["cancelled", "delivered", "lead"] },
-      OR: [
-        { cardapiowebStatus: { in: CW_PROD_STATUSES } },
-        { cardapiowebStatus: null, status: { in: CW_PROD_STATUSES } },
-      ],
+      status: { in: CW_PROD_STATUSES },
     },
     include: { customer: true },
   });
