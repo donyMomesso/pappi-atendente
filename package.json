@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js",
+    "dev": "npx nodemon --ext js,env --delay 2 --exec node index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
@@ -41,6 +41,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
     "jest": "^30.3.0",
+    "nodemon": "^3.1.14",
     "pino-pretty": "^13.0.0",
     "prettier": "^3.8.1",
     "prisma": "^5.10.0"

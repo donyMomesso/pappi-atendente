@@ -445,26 +445,27 @@ async function start(instanceId = "default") {
     });
 
     sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
-      if (qr) {
-        inst.status = "qr";
-        inst.qrBase64 = await QRCode.toDataURL(qr);
-        console.log(`[Baileys:${instanceId}] QR Code gerado`);
-      }
+      try {
+        if (qr) {
+          inst.status = "qr";
+          inst.qrBase64 = await QRCode.toDataURL(qr);
+          console.log(`[Baileys:${instanceId}] QR Code gerado`);
+        }
 
-      if (connection === "open") {
-        inst.status = "connected";
-        inst.qrBase64 = null;
-        inst.starting = false;
-        inst._reconnectDelay = 8000;
-        const user = sock.user;
-        inst.account = {
-          phone: user?.id?.split(":")[0] || user?.id || "?",
-          name: user?.name || "?",
-        };
-        console.log(`[Baileys:${instanceId}] Conectado como ${inst.account.name} (${inst.account.phone})`);
-      }
+        if (connection === "open") {
+          inst.status = "connected";
+          inst.qrBase64 = null;
+          inst.starting = false;
+          inst._reconnectDelay = 8000;
+          const user = sock.user;
+          inst.account = {
+            phone: user?.id?.split(":")[0] || user?.id || "?",
+            name: user?.name || "?",
+          };
+          console.log(`[Baileys:${instanceId}] Conectado como ${inst.account.name} (${inst.account.phone})`);
+        }
 
-      if (connection === "close") {
+        if (connection === "close") {
         const code = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         const replaced = code === DisconnectReason.connectionReplaced;
@@ -505,6 +506,9 @@ async function start(instanceId = "default") {
           console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
           setTimeout(() => start(instanceId), 8000);
         }
+        }
+      } catch (err) {
+        log.error({ err, instanceId, connection }, "Erro em connection.update");
       }
     });
   } catch (err) {

@@ -15,8 +15,10 @@ const ENV = require("../config/env");
 
 const router = express.Router();
 
+const DEFAULT_TENANT = "tenant-pappi-001";
+
 function resolveTenant(req) {
-  return req.query.tenant || req.body?.tenantId || req.staffUser?.tenantId || req.tenantId;
+  return req.query.tenant || req.body?.tenantId || req.staffUser?.tenantId || req.tenantId || DEFAULT_TENANT;
 }
 
 // Normaliza departamento: string -> { name }, objeto -> { name, transferPhone? }
@@ -58,12 +60,10 @@ router.get("/auth", async (req, res) => {
     const key = req.query.key || req.headers["x-api-key"] || req.headers["x-attendant-key"];
     if (!key) return res.status(401).json({ error: "unauthorized" });
 
-    const tenantIdFromQuery = req.query.tenant;
-    const defaultTenant = "tenant-pappi-001";
     if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY)
-      return res.json({ role: "admin", name: "Admin", tenantId: tenantIdFromQuery || defaultTenant });
+      return res.json({ role: "admin", name: "Admin", tenantId: resolveTenant(req) });
     if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY)
-      return res.json({ role: "attendant", name: "Atendente", tenantId: tenantIdFromQuery || defaultTenant });
+      return res.json({ role: "attendant", name: "Atendente", tenantId: resolveTenant(req) });
 
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
@@ -89,8 +89,7 @@ router.post("/auth/google", async (req, res) => {
     if (!tokenRes.ok || tokenData.error) return res.status(401).json({ error: "Token Google inválido" });
 
     const email = (tokenData.email || "").toLowerCase();
-    let tenantId = resolveTenant(req);
-    if (!tenantId) tenantId = "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } });
     const users = cfg ? JSON.parse(cfg.value) : [];
     const user = users.find((u) => (u.email || "").toLowerCase() === email);
