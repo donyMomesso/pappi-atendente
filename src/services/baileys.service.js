@@ -205,13 +205,12 @@ async function start(instanceId = "default") {
         if (!msg.message || msg.key.fromMe) continue;
         const jid = msg.key.remoteJid;
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
-        if (jid.endsWith("@lid")) {
-          log.warn({ instanceId, jid }, "Mensagem ignorada: JID @lid (privacidade WhatsApp)");
-          continue;
-        }
-
         // Extrai o telefone: remove sufixo :0 do multi-device (ex: 5511999999999:0 -> 5511999999999)
         const phone = jid.split("@")[0].split(":")[0];
+        if (jid.endsWith("@lid")) {
+          log.warn({ instanceId, jid }, "JID @lid recebido — tenta processar");
+          if (!phone) continue;
+        }
         let text =
           msg.message?.conversation ||
           msg.message?.extendedTextMessage?.text ||
@@ -414,9 +413,23 @@ async function start(instanceId = "default") {
 }
 
 async function initAll() {
-  const ids = await listInstances();
-  if (!ids.includes("default")) ids.push("default");
-  for (const id of ids) await start(id);
+  const authIds = await listInstances();
+
+  const cfgs = await prisma.config.findMany({
+    where: { key: { startsWith: "baileys:instance:" } },
+    select: { key: true },
+  });
+  const cfgIds = cfgs.map((c) => c.key.replace("baileys:instance:", ""));
+
+  const ids = [...new Set([...authIds, ...cfgIds, "default"])];
+
+  for (const id of ids) {
+    try {
+      await start(id);
+    } catch (err) {
+      console.error("[Baileys:initAll]", id, err.message);
+    }
+  }
 }
 
 // ── Envio ──────────────────────────────────────────────────────

@@ -15,6 +15,10 @@ const ENV = require("../config/env");
 
 const router = express.Router();
 
+function resolveTenant(req) {
+  return req.query.tenant || req.body?.tenantId || req.staffUser?.tenantId;
+}
+
 // Normaliza departamento: string -> { name }, objeto -> { name, transferPhone? }
 function normalizeDepartment(d) {
   if (typeof d === "string") return { name: d, transferPhone: null };
@@ -58,7 +62,8 @@ router.get("/auth", async (req, res) => {
     if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY)
       return res.json({ role: "attendant", name: "Atendente" });
 
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
     if (cfg) {
       const att = JSON.parse(cfg.value).find((a) => a.key === key);
@@ -81,7 +86,8 @@ router.post("/auth/google", async (req, res) => {
     if (!tokenRes.ok || tokenData.error) return res.status(401).json({ error: "Token Google inválido" });
 
     const email = (tokenData.email || "").toLowerCase();
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } });
     const users = cfg ? JSON.parse(cfg.value) : [];
     const user = users.find((u) => (u.email || "").toLowerCase() === email);
@@ -96,7 +102,8 @@ router.post("/auth/google", async (req, res) => {
 // ── GET /dash/stats ────────────────────────────────────────────
 router.get("/stats", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -122,7 +129,8 @@ router.get("/stats", authDash, async (req, res) => {
 // Lista conversas: quem tem mensagem nas últimas 24h OU lastInteraction OU handoff ativo
 router.get("/conversations", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     // IDs de clientes com mensagens nas últimas 24h (histórico real, não só lastInteraction)
@@ -169,7 +177,8 @@ router.get("/conversations", authDash, async (req, res) => {
 // ── GET /dash/queue ────────────────────────────────────────────
 router.get("/queue", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const customers = await prisma.customer.findMany({
       where: { tenantId, handoff: true },
       orderBy: { queuedAt: "asc" },
@@ -197,7 +206,8 @@ router.get("/queue", authDash, async (req, res) => {
 // ── PUT /dash/handoff ──────────────────────────────────────────
 router.put("/handoff", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     let { customerId, phone, enabled, attendant } = req.body;
     if (!customerId && phone) {
       const { findByPhone } = require("../services/customer.service");
@@ -277,7 +287,8 @@ router.post("/queue/close", authDash, async (req, res) => {
 // ── GET /dash/orders/failed — pedidos que falharam no CW ──────
 router.get("/orders/failed", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const orders = await prisma.order.findMany({
       where: { tenantId, status: { in: ["cw_failed", "waiting_confirmation"] }, cwOrderId: null },
       orderBy: { createdAt: "desc" },
@@ -338,7 +349,8 @@ router.post("/orders/retry", authAdmin, async (req, res) => {
 // ── GET /dash/delay-alerts — pedidos em monitoramento de atraso ─
 router.get("/delay-alerts", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const orders = await prisma.order.findMany({
       where: {
         tenantId,
@@ -384,7 +396,8 @@ router.post("/orders/:id/watch", authDash, async (req, res) => {
   try {
     const orderId = req.params.id;
     const { watchedBy } = req.body;
-    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
 
     const order = await prisma.order.findFirst({ where: { id: orderId, tenantId } });
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
@@ -404,7 +417,8 @@ router.post("/orders/:id/compensate", authDash, async (req, res) => {
   try {
     const orderId = req.params.id;
     const { type, reason } = req.body;
-    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
 
     const order = await prisma.order.findFirst({
       where: { id: orderId, tenantId },
@@ -473,7 +487,8 @@ router.get("/audit-logs", authAdmin, async (req, res) => {
 // ── GET /dash/attendants ────────────────────────────────────────
 router.get("/attendants", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
     const list = cfg ? JSON.parse(cfg.value) : [];
     res.json(list.map((a) => ({ name: a.name, role: a.role || "attendant" })));
@@ -485,7 +500,8 @@ router.get("/attendants", authDash, async (req, res) => {
 // ── GET /dash/departments ────────────────────────────────────────
 router.get("/departments", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:departments` } });
     const raw = cfg ? JSON.parse(cfg.value) : [];
     const list = Array.isArray(raw) ? raw : [];
@@ -498,8 +514,9 @@ router.get("/departments", authDash, async (req, res) => {
 // ── POST /dash/transfer ─────────────────────────────────────────
 router.post("/transfer", authDash, async (req, res) => {
   try {
-    const { customerId, toAttendant, department, comment, tenantId: bodyTenant } = req.body;
-    const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
+    const { customerId, toAttendant, department, comment } = req.body;
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
 
     await setHandoff(customerId, true);
@@ -663,7 +680,8 @@ router.post("/order", authDash, async (req, res) => {
       trocoPara,
     } = req.body;
 
-    const tid = req.query.tenant || tenantId || "tenant-pappi-001";
+    const tid = resolveTenant(req) || tenantId;
+    if (!tid) return res.status(400).json({ error: "tenant obrigatório" });
     if (!customerId || !items?.length) {
       return res.status(200).json({ ok: false, error: "Cliente e itens são obrigatórios" });
     }
@@ -828,7 +846,8 @@ router.post("/order", authDash, async (req, res) => {
 // ── GET /dash/catalog ──────────────────────────────────────────
 router.get("/catalog", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const { cw } = await getClients(tenantId);
     const [rawCatalog, payments] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods().catch(() => [])]);
     const catalog = rawCatalog?.catalog || rawCatalog;
@@ -841,8 +860,9 @@ router.get("/catalog", authDash, async (req, res) => {
 // ── POST /dash/send ────────────────────────────────────────────
 router.post("/send", authDash, async (req, res) => {
   try {
-    const { phone, text, customerId, tenantId: bodyTenant } = req.body;
-    const tenantId = req.query.tenant || bodyTenant || "tenant-pappi-001";
+    const { phone, text, customerId } = req.body;
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
 
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
@@ -911,7 +931,8 @@ router.get("/customer/:id/messages", authDash, async (req, res) => {
 router.get("/customer/:id/orders", authDash, async (req, res) => {
   try {
     const customerId = req.params.id;
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
       select: { phone: true },
@@ -1000,7 +1021,8 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
 // ── GET /dash/orders/kanban ────────────────────────────────────
 router.get("/orders/kanban", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -1049,7 +1071,8 @@ router.get("/orders/kanban", authDash, async (req, res) => {
 // ── GET /dash/customers ──────────────────────────────────────
 router.get("/customers", authDash, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const customers = await prisma.customer.findMany({
       where: { tenantId },
       orderBy: { lastInteraction: "desc" },
@@ -1064,7 +1087,8 @@ router.get("/customers", authDash, async (req, res) => {
 // ── GET /dash/settings ────────────────────────────────────────
 router.get("/settings", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
     const [attendantsCfg, googleCfg, departmentsCfg, sacCfg] = await Promise.all([
@@ -1097,7 +1121,8 @@ router.get("/settings", authAdmin, async (req, res) => {
 // ── PATCH /dash/settings ──────────────────────────────────────
 router.patch("/settings", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const { name, city, attendants, googleUsers, departments, sacPhone } = req.body;
 
     const data = {};
@@ -1150,7 +1175,8 @@ router.patch("/settings", authAdmin, async (req, res) => {
 // ── GET /dash/stats/report ────────────────────────────────────
 router.get("/stats/report", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const days = Math.min(parseInt(req.query.days || "7"), 90);
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -1211,7 +1237,8 @@ router.get("/google-contacts/search", authDash, async (req, res) => {
 router.get("/customers/search", authDash, async (req, res) => {
   try {
     const q = (req.query.q || "").trim();
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     if (!q || q.length < 2) return res.json([]);
     const digits = q.replace(/\D/g, "");
     const orCond = [];
@@ -1246,7 +1273,8 @@ router.get("/google-contacts/callback", async (req, res) => {
 
 router.get("/retention/campaigns", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     res.json(await prisma.retentionCampaign.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" } }));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1254,7 +1282,8 @@ router.get("/retention/campaigns", authAdmin, async (req, res) => {
 });
 router.post("/retention/campaigns", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const { name, message, delayHours = 20, monthlyLimit = 100, aiFilter = true } = req.body;
     if (!name || !message) return res.status(400).json({ error: "name e message obrigatórios" });
     res.json(
@@ -1298,7 +1327,9 @@ router.post("/retention/run", authAdmin, async (_req, res) => {
 });
 router.get("/retention/stats", authAdmin, async (req, res) => {
   try {
-    res.json(await retention.getMonthlyStats(req.query.tenant || "tenant-pappi-001"));
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    res.json(await retention.getMonthlyStats(tenantId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1321,7 +1352,8 @@ router.post("/wa-internal/disconnect", authAdmin, (req, res) => {
 // GET /dash/broadcast/contacts — Contatos para transmissão com filtros (admin only)
 router.get("/broadcast/contacts", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const period = req.query.period || "all"; // this_week | this_month | 3_months | over_3_months | all
     const janela24h = req.query.janela24h === "true" || req.query.janela24h === "1";
     const limit = Math.min(500, Math.max(25, parseInt(req.query.limit, 10) || 50));
@@ -1441,7 +1473,8 @@ router.get("/contact/wa-profile", authDash, async (req, res) => {
 
 router.get("/debug", authAdmin, async (req, res) => {
   try {
-    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const [tenant, recentCustomers] = await Promise.all([
       prisma.tenant.findUnique({ where: { id: tenantId } }),
       prisma.customer.findMany({
@@ -1463,7 +1496,9 @@ router.get("/debug", authAdmin, async (req, res) => {
 
 router.get("/whatsapp/templates", authDash, async (req, res) => {
   try {
-    const { wa } = await getClients(req.query.tenant || "tenant-pappi-001");
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    const { wa } = await getClients(tenantId);
     res.json(await wa.getTemplates());
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1472,7 +1507,9 @@ router.get("/whatsapp/templates", authDash, async (req, res) => {
 
 router.post("/whatsapp/send-template", authDash, async (req, res) => {
   try {
-    const { phone, templateName, languageCode, components, tenantId = "tenant-pappi-001" } = req.body;
+    const { phone, templateName, languageCode, components } = req.body;
+    const tenantId = resolveTenant(req) || req.body.tenantId;
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     if (!phone || !templateName) return res.status(400).json({ error: "phone e templateName obrigatórios" });
     const { wa } = await getClients(tenantId);
     res.json({

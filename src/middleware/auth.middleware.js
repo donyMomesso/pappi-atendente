@@ -75,7 +75,7 @@ async function authByApiKey(req) {
     return true;
   }
   if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) {
-    req.tenantId = tenantId || "tenant-pappi-001";
+    req.tenantId = tenantId || null;
     req.role = "attendant";
     req.staffUser = { role: "attendant", tenantId: req.tenantId, name: "API Attendant" };
     req.tenantScope = req.tenantId;
