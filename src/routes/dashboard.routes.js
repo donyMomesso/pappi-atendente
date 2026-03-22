@@ -93,7 +93,12 @@ router.post("/auth/google", async (req, res) => {
     const user = users.find((u) => (u.email || "").toLowerCase() === email);
     if (!user) return res.status(403).json({ error: "Email não autorizado" });
 
-    return res.json({ name: user.name, role: user.role || "attendant", token: user.key || ENV.ATTENDANT_API_KEY });
+    return res.json({
+      name: user.name,
+      role: user.role || "attendant",
+      token: user.key || ENV.ATTENDANT_API_KEY,
+      tenantId,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

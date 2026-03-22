@@ -1386,7 +1386,7 @@ async function doLogin() {
   API_KEY = key;
   ATTENDANT_NAME = name;
 
-  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}`);
+  const authRes = await fetch(`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
   if (!authRes.ok) { document.getElementById("loginErrKey").style.display = "block"; API_KEY = ""; return; }
   const { role } = await authRes.json();
   USER_ROLE = role;
@@ -1524,7 +1524,7 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 
   enterApp();
   try {
-    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}`);
+    const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
     if (r.status === 401) {
       localStorage.removeItem("pappi_key");
       localStorage.removeItem("pappi_name");
