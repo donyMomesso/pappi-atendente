@@ -390,6 +390,9 @@
       <div style="margin-top:12px;text-align:center">
         <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showForgotPassword(event)">Esqueci minha senha</a>
       </div>
+      <div id="loginStaffToLegacy" style="margin-top:16px;text-align:center;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)">
+        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showLegacyMode(event)">Entrar com Google ou chave</a>
+      </div>
     </div>
 
     <!-- Esqueci senha -->
@@ -419,6 +422,9 @@
         </form>
         <div id="loginErrKey" class="login-err" style="display:none">Chave inválida ou nome em branco.</div>
         <a href="#" style="font-size:11px;color:#bbb;text-decoration:none;margin-top:12px;display:inline-block" onclick="showGoogleMode(event)">← Voltar</a>
+      </div>
+      <div id="loginLegacyToStaff" style="margin-top:16px;text-align:center;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);display:none">
+        <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showStaffMode(event)">Entrar com e-mail e senha</a>
       </div>
     </div>
   </div>
@@ -1297,6 +1303,8 @@ async function handleGoogleLogin(response) {
 function showKeyMode(e)    { e.preventDefault(); document.getElementById("loginGoogle").style.display="none"; document.getElementById("loginKey").style.display="block"; }
 function showGoogleMode(e) { e.preventDefault(); document.getElementById("loginKey").style.display="none"; document.getElementById("loginGoogle").style.display="block"; }
 function showStaffLogin(e) { if(e) e.preventDefault(); document.getElementById("loginForgot").style.display="none"; document.getElementById("loginStaff").style.display="block"; }
+function showLegacyMode(e) { e?.preventDefault(); document.getElementById("loginStaff").style.display="none"; document.getElementById("loginLegacy").style.display="block"; }
+function showStaffMode(e)  { e?.preventDefault(); document.getElementById("loginLegacy").style.display="none"; document.getElementById("loginStaff").style.display="block"; }
 function showForgotPassword(e) { e.preventDefault(); document.getElementById("loginStaff").style.display="none"; document.getElementById("loginForgot").style.display="block"; document.getElementById("loginErrForgot").style.display="none"; }
 
 async function doStaffLogin(e) {
@@ -1503,6 +1511,8 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
     if (USE_STAFF_AUTH) {
       document.getElementById("loginLegacy").style.display = "none";
       document.getElementById("loginStaff").style.display = "block";
+      const legacyToStaff = document.getElementById("loginLegacyToStaff");
+      if (legacyToStaff) legacyToStaff.style.display = "block";
       SUPABASE_CLIENT = (typeof window.supabase === "function" ? window.supabase(cfg.supabaseUrl, cfg.supabaseAnonKey) : null);
       if (SUPABASE_CLIENT) {
         const { data: { session } } = await SUPABASE_CLIENT.auth.getSession();
