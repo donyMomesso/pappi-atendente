@@ -63,7 +63,8 @@ async function authByApiKey(req) {
   const key =
     req.headers["x-api-key"] ||
     req.headers["x-attendant-key"] ||
-    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
+    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim() ||
+    req.query.key;
   const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
 
   if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) {

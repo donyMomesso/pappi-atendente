@@ -767,7 +767,7 @@
     <div class="modal" style="max-width:420px">
       <div class="modal-head"><h3 id="modalStaffUserTitle">Novo usuário</h3><button onclick="closeStaffUserModal()">×</button></div>
       <form class="modal-body" style="padding:20px" onsubmit="saveStaffUser(); return false">
-        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail</label><input id="staffUserEmail" type="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="email@empresa.com"/></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail</label><input id="staffUserEmail" type="email" autocomplete="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="email@empresa.com"/></div>
         <div style="margin-bottom:12px" id="staffUserPasswordWrap"><label style="font-size:12px;color:#666">Senha</label><input id="staffUserPassword" type="password" autocomplete="new-password" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Mín. 6 caracteres"/></div>
         <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Nome</label><input id="staffUserName" type="text" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Nome completo"/></div>
         <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Perfil</label><select id="staffUserRole" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"><option value="attendant">Atendente</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>

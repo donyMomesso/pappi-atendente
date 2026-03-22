@@ -1,5 +1,8 @@
 # Variáveis de ambiente para o Render
 
+## Para login por chave + QR do Baileys
+Defina `ALLOW_API_KEY_FALLBACK=true` para aceitar API key no painel (e na URL do QR).
+
 ## ⚠️ OBRIGATÓRIO: Connection Pooling
 
 O Render **não consegue** conectar em `db.xxx.supabase.co:5432` (conexão direta).
