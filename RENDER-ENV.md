@@ -8,6 +8,19 @@ O `render.yaml` já define `WEB_CONCURRENCY=1`. **Não altere** — mantém 1 ú
 
 ---
 
+## CORS (evitar 403 Forbidden fora da rede)
+
+Se o painel retornar **403 Forbidden** ao acessar de outra rede:
+
+Defina **CORS_ORIGIN** com a URL do painel, ex:
+```
+CORS_ORIGIN=https://pappiatendente.com.br,https://app.pappiatendente.com.br
+```
+
+O app aceita automaticamente qualquer subdomínio `*.pappiatendente.com.br`.
+
+---
+
 ## Para login por chave + QR do Baileys
 Defina `ALLOW_API_KEY_FALLBACK=true` para aceitar API key no painel (e na URL do QR).
 

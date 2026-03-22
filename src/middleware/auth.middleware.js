@@ -5,6 +5,15 @@ const prisma = require("../lib/db");
 const ENV = require("../config/env");
 const authService = require("../services/auth.service");
 
+/** Retorna true se a requisição traz API key explícita (query ou header de integração). */
+function hasExplicitApiKey(req) {
+  return !!(
+    req.query?.key ||
+    req.headers["x-api-key"] ||
+    req.headers["x-attendant-key"]
+  );
+}
+
 function getBearerToken(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) return null;
@@ -98,6 +107,9 @@ async function authByApiKey(req) {
 }
 
 async function requireStaffAuth(req, res, next) {
+  if (hasExplicitApiKey(req)) {
+    if (await authByApiKey(req)) return next();
+  }
   if (await authBySession(req)) return next();
   if (await authBySessionFallback(req)) return next();
   if (await authByApiKey(req)) return next();
@@ -114,6 +126,12 @@ async function authDash(req, res, next) {
 }
 
 async function authAdmin(req, res, next) {
+  if (hasExplicitApiKey(req)) {
+    if (await authByApiKey(req)) {
+      if (req.role === "admin") return next();
+      return res.status(403).json({ error: "forbidden" });
+    }
+  }
   if (await authBySession(req) || await authBySessionFallback(req)) {
     if (req.role === "admin") return next();
     return res.status(403).json({ error: "forbidden", message: "Acesso restrito a administradores." });

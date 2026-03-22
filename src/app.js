@@ -67,34 +67,38 @@ const app = express();
 // CORS para app em domínio separado (ou * para aceitar qualquer origem)
 if (ENV.CORS_ORIGIN) {
   let origins = ENV.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
-  // Inclui automaticamente domínio raiz pappiatendente.com.br (e www) quando houver app.pappiatendente
   const addRoot = (url) => {
     try {
       const u = new URL(url);
       if (u.hostname.endsWith(".pappiatendente.com.br")) {
         origins.push("https://pappiatendente.com.br");
         origins.push("https://www.pappiatendente.com.br");
+        origins.push("https://app.pappiatendente.com.br");
       }
     } catch (_) {}
   };
   origins.forEach(addRoot);
   origins = [...new Set(origins)];
-  if (origins.length) {
-    const allowAny = origins.includes("*");
-    app.use((req, res, next) => {
-      const origin = req.headers.origin;
-      if (allowAny && origin) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-      } else if (origin && origins.some((o) => o !== "*" && origin === o)) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-      }
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-attendant-key, x-tenant-id");
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      if (req.method === "OPTIONS") return res.sendStatus(204);
-      next();
-    });
-  }
+  const allowAny = origins.includes("*");
+  const hasPappiDomain = origins.some((o) => o && o.includes("pappiatendente.com.br"));
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    let allowOrigin = false;
+    if (allowAny && origin) {
+      allowOrigin = true;
+    } else if (origin) {
+      if (origins.some((o) => o !== "*" && origin === o)) allowOrigin = true;
+      // Aceita qualquer subdomínio *.pappiatendente.com.br (acesso fora da rede)
+      else if (hasPappiDomain && /^https:\/\/([a-z0-9-]+\.)?pappiatendente\.com\.br$/i.test(origin))
+        allowOrigin = true;
+    }
+    if (allowOrigin && origin) res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-attendant-key, x-tenant-id");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+    next();
+  });
 }
 
 app.use(express.json({ limit: "10mb" }));
