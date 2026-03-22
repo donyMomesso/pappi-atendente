@@ -23,7 +23,9 @@ async function getBaileysVersion() {
   const { version } = await fetchLatestBaileysVersion();
   _cachedVersion = version;
   // Invalida o cache após 1h para não usar versão muito antiga
-  setTimeout(() => { _cachedVersion = null; }, 3_600_000);
+  setTimeout(() => {
+    _cachedVersion = null;
+  }, 3_600_000);
   return version;
 }
 
@@ -85,6 +87,105 @@ function checkLimits(inst) {
     return false;
   }
   return true;
+}
+
+// ── Helpers de JID / telefone ──────────────────────────────────
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
+}
+
+function isValidPhone(v) {
+  const n = onlyDigits(v);
+  return n.length >= 10 && n.length <= 15;
+}
+
+function extractPhoneFromMessage(msg) {
+  try {
+    const key = msg?.key || {};
+    const remoteJid = key.remoteJid || "";
+
+    // Em alguns cenários o número real vem nesses campos
+    const directCandidates = [
+      key.participantPn,
+      key.senderPn,
+      msg?.participantPn,
+      msg?.senderPn,
+      msg?.pushNamePhone,
+    ];
+
+    for (const c of directCandidates) {
+      const digits = onlyDigits(c);
+      if (isValidPhone(digits)) return digits;
+    }
+
+    // JID normal
+    if (remoteJid.endsWith("@s.whatsapp.net")) {
+      const digits = onlyDigits(remoteJid.split("@")[0].split(":")[0]);
+      if (isValidPhone(digits)) return digits;
+    }
+
+    // Em @lid o remoteJid não é número; tenta participant se existir
+    if (remoteJid.endsWith("@lid")) {
+      const participant = key.participant || msg?.participant || "";
+      const digits = onlyDigits(participant.split("@")[0].split(":")[0]);
+      if (isValidPhone(digits)) return digits;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function extractIncomingText(msg) {
+  let text =
+    msg?.message?.conversation ||
+    msg?.message?.extendedTextMessage?.text ||
+    msg?.message?.imageMessage?.caption ||
+    msg?.message?.videoMessage?.caption ||
+    msg?.message?.documentMessage?.caption ||
+    null;
+
+  if (!text) {
+    const btnResp = msg?.message?.buttonsResponseMessage;
+    if (btnResp) {
+      const id = btnResp.selectedButtonId;
+      const flowIds = [
+        "delivery",
+        "takeout",
+        "confirm_addr",
+        "change_addr",
+        "CONFIRMAR",
+        "CANCELAR",
+        "AVISE_ABERTURA",
+        "HELP_HUMAN",
+        "HELP_BOT",
+        "FULFILLMENT_RETIRADA",
+      ];
+      text = flowIds.includes(id) ? id : btnResp.selectedDisplayText || id || "";
+    }
+  }
+
+  if (!text) {
+    const listResp = msg?.message?.listResponseMessage;
+    if (listResp) {
+      text =
+        listResp.singleSelectReply?.selectedRowId ||
+        listResp.title ||
+        listResp.description ||
+        "";
+    }
+  }
+
+  // Botões enviados como texto: mapeia respostas comuns para ids
+  if (text) {
+    const t = text.toLowerCase().replace(/✅|✏️|❌/g, "").trim();
+    if (t === "corrigir") text = "change_addr";
+    else if (t === "cancelar") text = "CANCELAR";
+    else if (t === "confirmar" || t === "confirma") text = "confirm_addr";
+  }
+
+  return text || null;
 }
 
 // ── Detecta tenantId a partir do número do remetente ──────────
@@ -186,9 +287,7 @@ async function start(instanceId = "default") {
       qrTimeout: 60000,
       connectTimeoutMs: 30000,
       keepAliveIntervalMs: 15000,
-      // Reduz conflito com celular: não marca "online" ao conectar (evita 440)
       markOnlineOnConnect: false,
-      // Evita carga pesada na conexão que pode favorecer desconexões
       syncFullHistory: false,
     });
 
@@ -201,50 +300,49 @@ async function start(instanceId = "default") {
     // Captura mensagens recebidas
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
-      for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
-        const jid = msg.key.remoteJid;
-        if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
-        // Extrai o telefone: remove sufixo :0 do multi-device (ex: 5511999999999:0 -> 5511999999999)
-        const phone = jid.split("@")[0].split(":")[0];
-        if (jid.endsWith("@lid")) {
-          log.warn({ instanceId, jid }, "JID @lid recebido — tenta processar");
-          if (!phone) continue;
-        }
-        let text =
-          msg.message?.conversation ||
-          msg.message?.extendedTextMessage?.text ||
-          msg.message?.imageMessage?.caption ||
-          null;
-        if (!text) {
-          const btnResp = msg.message?.buttonsResponseMessage;
-          if (btnResp) {
-            const id = btnResp.selectedButtonId;
-            const flowIds = [
-              "delivery",
-              "takeout",
-              "confirm_addr",
-              "change_addr",
-              "CONFIRMAR",
-              "CANCELAR",
-              "AVISE_ABERTURA",
-            ];
-            text = flowIds.includes(id) ? id : btnResp.selectedDisplayText || id || "";
-          }
-        }
-        // Botões enviados como texto: mapeia respostas comuns para ids (Corrigir, Cancelar)
-        if (text) {
-          const t = text
-            .toLowerCase()
-            .replace(/✅|✏️|❌/g, "")
-            .trim();
-          if (t === "corrigir") text = "change_addr";
-          else if (t === "cancelar") text = "CANCELAR";
-          else if (t === "confirmar" || t === "confirma") text = "confirm_addr"; // address ou order — handler trata
-        }
-        if (!text) continue;
 
-        log.info({ instanceId, phone, text: text.slice(0, 50) }, "MSG recebida");
+      for (const msg of messages) {
+        const jid = msg?.key?.remoteJid;
+
+        if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
+        if (msg?.key?.fromMe) continue;
+
+        if (!msg?.message) {
+          log.warn(
+            {
+              instanceId,
+              jid,
+              stubType: msg?.messageStubType,
+              stubParams: msg?.messageStubParameters,
+            },
+            "Mensagem recebida sem payload em msg.message",
+          );
+          continue;
+        }
+
+        const phone = extractPhoneFromMessage(msg);
+
+        if (!phone) {
+          log.warn(
+            {
+              instanceId,
+              jid,
+              participant: msg?.key?.participant,
+              senderPn: msg?.key?.senderPn,
+              participantPn: msg?.key?.participantPn,
+            },
+            "Não foi possível resolver o telefone da mensagem",
+          );
+          continue;
+        }
+
+        const text = extractIncomingText(msg);
+        if (!text) {
+          log.warn({ instanceId, phone, jid }, "Mensagem sem texto reconhecível");
+          continue;
+        }
+
+        log.info({ instanceId, jid, phone, text: text.slice(0, 80) }, "MSG recebida");
 
         try {
           // Lido + digitando (Baileys) — cliente vê ✓✓ e "digitando..."
@@ -256,7 +354,7 @@ async function start(instanceId = "default") {
           try {
             const tenantId = await detectTenantByPhone(phone, instanceId);
             if (!tenantId) {
-              log.warn({ instanceId, phone }, "Tenant não encontrado — msg ignorada");
+              log.warn({ instanceId, phone, jid }, "Tenant não encontrado — msg ignorada");
               continue;
             }
 
@@ -270,9 +368,16 @@ async function start(instanceId = "default") {
             // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
             const pushName = msg.pushName || msg.verifiedBizName || null;
             const customer = await findOrCreate(tenantId, phone, pushName);
+
             if (pushName && !customer.name) {
-              await prisma.customer.update({ where: { id: customer.id }, data: { name: pushName } }).catch(() => {});
+              await prisma.customer
+                .update({
+                  where: { id: customer.id },
+                  data: { name: pushName },
+                })
+                .catch(() => {});
             }
+
             await touchInteraction(customer.id);
             await setReplyChannel(customer.id, `baileys:${instanceId}`);
 
@@ -285,10 +390,11 @@ async function start(instanceId = "default") {
                 const convState = require("./conversation-state.service");
                 await convState.resetIfEncerrado(customer);
                 const botMayRespond = await convState.shouldBotRespond(customer);
+
                 if (!botMayRespond) {
                   const state = await convState.getState(customer);
+
                   // Auto-libera se estava aguardando humano mas não há atendente ativo
-                  // (evita que cliente fique preso em handoff para sempre no canal Baileys)
                   if (state === "aguardando_humano" && !customer.claimedBy) {
                     log.info({ instanceId, phone }, "Auto-liberando handoff sem atendente — devolvendo ao bot");
                     await convState.setState(customer.id, "bot_ativo");
@@ -298,18 +404,26 @@ async function start(instanceId = "default") {
                     continue;
                   }
                 }
+
                 const wa = {
                   // saveHistory=false: bot handler já salva via chatMemory.push — evita dupla gravação
-                  sendText: async (to, msg) => {
-                    const ok = await sendText(to, msg, instanceId, true, false);
+                  sendText: async (to, msgText) => {
+                    const ok = await sendText(to, msgText, instanceId, true, false);
                     if (!ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
                     return ok;
                   },
                   sendButtons: (to, body, buttons) =>
-                    sendText(to, body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""), instanceId, true, false),
+                    sendText(
+                      to,
+                      body + "\n\n" + (buttons?.map((b) => b.title).join(" | ") || ""),
+                      instanceId,
+                      true,
+                      false,
+                    ),
                   sendImage: () => {},
                   sendDocument: () => {},
                 };
+
                 log.debug({ instanceId, phone }, "Chamando bot.handle");
                 await botHandler.handle({ tenant, wa, customer, text, phone: customer.phone });
                 require("./socket.service").emitConvUpdate(customer.id);
@@ -351,7 +465,7 @@ async function start(instanceId = "default") {
         inst.status = "connected";
         inst.qrBase64 = null;
         inst.starting = false;
-        inst._reconnectDelay = 8000; // reset para próximos disconnects
+        inst._reconnectDelay = 8000;
         const user = sock.user;
         inst.account = {
           phone: user?.id?.split(":")[0] || user?.id || "?",
@@ -363,7 +477,7 @@ async function start(instanceId = "default") {
       if (connection === "close") {
         const code = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
-        const replaced = code === DisconnectReason.connectionReplaced; // 440
+        const replaced = code === DisconnectReason.connectionReplaced;
         inst.status = "disconnected";
         inst.socket = null;
         inst.starting = false;
@@ -390,8 +504,6 @@ async function start(instanceId = "default") {
           inst.qrBase64 = null;
           inst._reconnectDelay = 8000;
         } else if (replaced) {
-          // Outra sessão substituiu (440): delay maior evita loop (sessão antiga pode não ter fechado)
-          // Começa em 45s e dobra a cada 440 consecutivo (máx 120s)
           const prev = inst._reconnectDelay <= 8000 ? 45000 : inst._reconnectDelay;
           inst._reconnectDelay = Math.min(prev * 2, 120_000);
           console.log(
@@ -456,8 +568,7 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
     inst.counters.hour++;
     inst.counters.day++;
 
-    // Salva no histórico apenas para envios diretos (notify, broadcast, dashboard)
-    // Chamadas vindas do bot handler passam saveHistory=false pois já salvam via chatMemory.push
+    // Salva no histórico apenas para envios diretos
     if (saveHistory) {
       try {
         const botHandler = require("../routes/bot.handler");
@@ -587,6 +698,7 @@ async function broadcastSend(numbers, message, instanceId = "default", delayMs =
     .filter((n) => n.length >= 10);
   const unique = [...new Set(normalized)];
   const results = { sent: 0, failed: 0, errors: [] };
+
   for (const phone of unique) {
     try {
       const ok = await sendText(phone, message, instanceId, true);
@@ -601,6 +713,7 @@ async function broadcastSend(numbers, message, instanceId = "default", delayMs =
     }
     if (delayMs > 0) await delay(delayMs);
   }
+
   return results;
 }
 
