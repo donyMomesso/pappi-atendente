@@ -80,11 +80,11 @@ router.post("/auth/google", async (req, res) => {
     const tokenData = await tokenRes.json();
     if (!tokenRes.ok || tokenData.error) return res.status(401).json({ error: "Token Google inválido" });
 
-    const email = tokenData.email;
+    const email = (tokenData.email || "").toLowerCase();
     const tenantId = req.query.tenant || "tenant-pappi-001";
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } });
     const users = cfg ? JSON.parse(cfg.value) : [];
-    const user = users.find((u) => u.email === email);
+    const user = users.find((u) => (u.email || "").toLowerCase() === email);
     if (!user) return res.status(403).json({ error: "Email não autorizado" });
 
     return res.json({ name: user.name, role: user.role || "attendant", token: user.key || ENV.ATTENDANT_API_KEY });

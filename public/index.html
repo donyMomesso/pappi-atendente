@@ -1156,16 +1156,27 @@ async function saveTransfer() {
 const GOOGLE_CLIENT_ID = "286493900825-vu5mlqqt2fcfk2m2ofsicibls8sa8mgo.apps.googleusercontent.com";
 
 function initGoogleSignIn() {
-  if (!window.google) return;
-  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleLogin });
-  google.accounts.id.renderButton(
-    document.getElementById("g_signin"),
-    { theme: "outline", size: "large", text: "signin_with", locale: "pt-BR", width: 260 }
-  );
+  const el = document.getElementById("g_signin");
+  if (!el) return;
+  if (!window.google?.accounts?.id) {
+    el.innerHTML = '<p style="font-size:12px;color:#888">Carregando login Google...</p>';
+    setTimeout(initGoogleSignIn, 500);
+    return;
+  }
+  try {
+    el.innerHTML = "";
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleLogin });
+    google.accounts.id.renderButton(el, { theme: "outline", size: "large", text: "signin_with", locale: "pt-BR", width: 260 });
+  } catch (e) {
+    el.innerHTML = '<p style="font-size:12px;color:#888">Carregando login Google...</p>';
+    setTimeout(initGoogleSignIn, 1000);
+  }
 }
 
 // Inicializa quando o script GSI carregar
-document.querySelector('script[src*="gsi"]').addEventListener('load', initGoogleSignIn);
+const gsiScript = document.querySelector('script[src*="gsi"]');
+if (gsiScript) gsiScript.addEventListener('load', () => { setTimeout(initGoogleSignIn, 100); });
+else window.addEventListener('load', () => { setTimeout(initGoogleSignIn, 500); });
 
 async function handleGoogleLogin(response) {
   const errEl = document.getElementById("loginErr");
@@ -1177,7 +1188,7 @@ async function handleGoogleLogin(response) {
   });
   const data = await res.json();
   if (!res.ok) {
-    errEl.textContent = data.error || "Acesso negado.";
+    errEl.textContent = data.error === "Email não autorizado" ? "E-mail não autorizado. Peça ao admin para adicionar em Configurações > Usuários." : (data.error || "Acesso negado.");
     errEl.style.display = "block";
     return;
   }
