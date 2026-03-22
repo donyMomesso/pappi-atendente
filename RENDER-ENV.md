@@ -1,5 +1,13 @@
 # Variáveis de ambiente para o Render
 
+## ⚠️ WEB_CONCURRENCY=1 (obrigatório para Baileys)
+
+O Baileys usa uma única sessão WhatsApp por número. Se mais de um processo usar a mesma auth, ocorre loop de **440 (Sessão substituída)**.
+
+O `render.yaml` já define `WEB_CONCURRENCY=1`. **Não altere** — mantém 1 único processo Node.
+
+---
+
 ## Para login por chave + QR do Baileys
 Defina `ALLOW_API_KEY_FALLBACK=true` para aceitar API key no painel (e na URL do QR).
 

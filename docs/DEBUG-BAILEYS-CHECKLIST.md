@@ -102,6 +102,7 @@ Quando aparece `Sessão substituída (440) — reconectando em 90s...` repetidam
 
 | Causa | Solução |
 |-------|---------|
+| **WEB_CONCURRENCY > 1** no Render | Defina `WEB_CONCURRENCY=1` nas variáveis de ambiente (já em `render.yaml`) |
 | Local + Produção rodando ao mesmo tempo | Pare o `npm run dev` local quando a produção estiver ativa |
 | Dois deploys simultâneos no Render | Normal durante deploy; estabiliza depois |
 | WhatsApp Web ou outro app conectado | Desconecte em Aparelhos conectados no WhatsApp |

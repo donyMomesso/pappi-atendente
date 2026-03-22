@@ -41,6 +41,7 @@ function createInstanceData(id) {
     notifyTo: [],
     botEnabled: true,
     _reconnectDelay: 8000,
+    _replaced440Count: 0,
     counters: {
       hour: 0,
       day: 0,
@@ -90,31 +91,43 @@ function checkLimits(inst) {
 }
 
 // ── Helpers de JID / telefone ──────────────────────────────────
+function normalizeToDigits(raw) {
+  if (raw == null || raw === "") return "";
+  const s = String(raw);
+  const part = s.split("@")[0].split(":")[0];
+  return part.replace(/\D/g, "");
+}
+
 function extractPhoneFromMessage(msg) {
   try {
     const key = msg?.key || {};
     const remoteJid = key.remoteJid || "";
+    const m = msg?.message || {};
 
     const candidates = [
       key.participantPn,
       key.senderPn,
+      msg?.participantPn,
+      msg?.senderPn,
       key.participant,
       msg?.participant,
-      msg?.senderPn,
-      msg?.participantPn,
       msg?.pushNamePhone,
       msg?.messageContextInfo?.participant,
-      msg?.message?.extendedTextMessage?.contextInfo?.participant,
+      m?.extendedTextMessage?.contextInfo?.participant,
+      m?.imageMessage?.contextInfo?.participant,
+      m?.videoMessage?.contextInfo?.participant,
+      m?.documentMessage?.contextInfo?.participant,
+      m?.buttonsResponseMessage?.contextInfo?.participant,
+      m?.listResponseMessage?.contextInfo?.participant,
     ];
 
     for (const c of candidates) {
-      const raw = String(c || "");
-      const digits = raw.split("@")[0].split(":")[0].replace(/\D/g, "");
+      const digits = normalizeToDigits(c);
       if (digits.length >= 10 && digits.length <= 15) return digits;
     }
 
     if (remoteJid.endsWith("@s.whatsapp.net")) {
-      const digits = remoteJid.split("@")[0].split(":")[0].replace(/\D/g, "");
+      const digits = normalizeToDigits(remoteJid);
       if (digits.length >= 10 && digits.length <= 15) return digits;
     }
 
@@ -125,18 +138,20 @@ function extractPhoneFromMessage(msg) {
 }
 
 function extractIncomingText(msg) {
+  const m = msg?.message || {};
   let text =
-    msg?.message?.conversation ||
-    msg?.message?.extendedTextMessage?.text ||
-    msg?.message?.imageMessage?.caption ||
-    msg?.message?.videoMessage?.caption ||
-    msg?.message?.documentMessage?.caption ||
+    m?.conversation ||
+    m?.extendedTextMessage?.text ||
+    m?.imageMessage?.caption ||
+    m?.videoMessage?.caption ||
+    m?.documentMessage?.caption ||
     null;
 
   if (!text) {
-    const btnResp = msg?.message?.buttonsResponseMessage;
+    const btnResp = m?.buttonsResponseMessage;
     if (btnResp) {
-      const id = btnResp.selectedButtonId;
+      const id = btnResp.selectedButtonId || "";
+      const display = btnResp.selectedDisplayText || "";
       const flowIds = [
         "delivery",
         "takeout",
@@ -149,12 +164,12 @@ function extractIncomingText(msg) {
         "HELP_BOT",
         "FULFILLMENT_RETIRADA",
       ];
-      text = flowIds.includes(id) ? id : btnResp.selectedDisplayText || id || "";
+      text = flowIds.includes(id) ? id : (display || id || "");
     }
   }
 
   if (!text) {
-    const listResp = msg?.message?.listResponseMessage;
+    const listResp = m?.listResponseMessage;
     if (listResp) {
       text =
         listResp.singleSelectReply?.selectedRowId ||
@@ -164,9 +179,8 @@ function extractIncomingText(msg) {
     }
   }
 
-  // Botões enviados como texto: mapeia respostas comuns para ids
   if (text) {
-    const t = text.toLowerCase().replace(/✅|✏️|❌/g, "").trim();
+    const t = String(text).toLowerCase().replace(/✅|✏️|❌/g, "").trim();
     if (t === "corrigir") text = "change_addr";
     else if (t === "cancelar") text = "CANCELAR";
     else if (t === "confirmar" || t === "confirma") text = "confirm_addr";
@@ -259,6 +273,7 @@ async function start(instanceId = "default") {
   }
 
   if (inst.starting || inst.status === "connected" || inst.status === "qr") return;
+  if (inst.status === "conflict") return;
   inst.starting = true;
 
   try {
@@ -300,8 +315,10 @@ async function start(instanceId = "default") {
             {
               instanceId,
               jid,
-              stubType: msg?.messageStubType,
-              stubParams: msg?.messageStubParameters,
+              key: msg?.key,
+              pushName: msg?.pushName,
+              messageStubType: msg?.messageStubType,
+              messageStubParameters: msg?.messageStubParameters,
             },
             "Mensagem recebida sem payload em msg.message",
           );
@@ -458,6 +475,7 @@ async function start(instanceId = "default") {
           inst.qrBase64 = null;
           inst.starting = false;
           inst._reconnectDelay = 8000;
+          inst._replaced440Count = 0;
           const user = sock.user;
           inst.account = {
             phone: user?.id?.split(":")[0] || user?.id || "?",
@@ -496,13 +514,25 @@ async function start(instanceId = "default") {
           inst.qrBase64 = null;
           inst._reconnectDelay = 8000;
         } else if (replaced) {
-          const prev = inst._reconnectDelay <= 8000 ? 45000 : inst._reconnectDelay;
-          inst._reconnectDelay = Math.min(prev * 2, 120_000);
-          console.log(
-            `[Baileys:${instanceId}] Sessão substituída (440) — reconectando em ${inst._reconnectDelay / 1000}s...`,
-          );
-          setTimeout(() => start(instanceId), inst._reconnectDelay);
+          inst._replaced440Count = (inst._replaced440Count || 0) + 1;
+          if (inst._replaced440Count >= 3) {
+            inst.status = "conflict";
+            console.log(
+              `[Baileys:${instanceId}] Sessão substituída (440) ${inst._replaced440Count}x consecutivas — parando reconexão automática. Outra sessão está ativa.`,
+            );
+            log.warn(
+              { instanceId, replaced440Count: inst._replaced440Count },
+              "Baileys: reconexão 440 desabilitada — sessão em conflito",
+            );
+          } else {
+            const delayMs = inst._replaced440Count === 1 ? 45000 : 90000;
+            console.log(
+              `[Baileys:${instanceId}] Sessão substituída (440) #${inst._replaced440Count} — reconectando em ${delayMs / 1000}s...`,
+            );
+            setTimeout(() => start(instanceId), delayMs);
+          }
         } else {
+          inst._replaced440Count = 0;
           inst._reconnectDelay = 8000;
           console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
           setTimeout(() => start(instanceId), 8000);
@@ -520,6 +550,14 @@ async function start(instanceId = "default") {
 }
 
 async function initAll() {
+  const concurrency = parseInt(process.env.WEB_CONCURRENCY, 10);
+  if (concurrency > 1) {
+    log.warn(
+      { WEB_CONCURRENCY: process.env.WEB_CONCURRENCY },
+      "Baileys: WEB_CONCURRENCY>1 causa 440 (sessão substituída). Defina WEB_CONCURRENCY=1.",
+    );
+  }
+
   const authIds = await listInstances();
 
   const cfgs = await prisma.config.findMany({
@@ -658,6 +696,7 @@ function disconnect(instanceId = "default") {
   if (!inst) return;
   inst.starting = false;
   inst._intentionalDisconnect = true;
+  inst._replaced440Count = 0;
   if (inst.socket) {
     try {
       inst.socket.end();

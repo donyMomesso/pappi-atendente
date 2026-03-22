@@ -12,6 +12,9 @@ services:
         value: production
       - key: PORT
         value: 10000
+      # OBRIGATÓRIO: Baileys exige 1 único processo — múltiplos causam 440 (sessão substituída)
+      - key: WEB_CONCURRENCY
+        value: "1"
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
