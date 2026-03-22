@@ -1,52 +1,60 @@
-# FASE 3 — Autenticação Privada
+# Fase 3 — Autenticação Privada
 
-## O que foi alterado
+## Arquivo
 
-Criação do serviço de autenticação que integra Supabase Auth com StaffUser.
-Login humano passa a ser validado contra a tabela interna; sem signup público.
+`src/services/auth.service.js`
 
-## Arquivos
+## Estratégia
 
-| Ação | Arquivo |
-|------|---------|
-| Criado | `src/services/auth.service.js` |
+- **Login**: o frontend usa Supabase Client (`signInWithPassword`). O backend não recebe senha.
+- **Validação**: o frontend envia o `access_token` (JWT) nas requisições. O backend chama `verifySession(token)`.
+- **Autorização**: `verifySession` valida o JWT no Supabase e busca o usuário em `StaffUser`. Só autoriza se existir e `active=true`.
+- **Sem signup**: não há endpoint de cadastro. Usuários são criados apenas por admins via `admin/users`.
 
-## auth.service.js
+## Funções
 
-### Funções
+### verifySession(accessToken, opts)
 
-| Função | Descrição |
-|--------|-----------|
-| `verifySessionAndAuthorize(accessToken, ctx)` | Valida JWT, carrega StaffUser, checa ativo, atualiza lastLoginAt, registra auditoria |
-| `requestPasswordReset(email, ctx)` | Só permite reset se StaffUser existir e ativo; dispara email e registra |
-| `isAuthConfigured()` | Indica se Supabase está configurado |
+Valida o token e retorna o StaffUser autorizado.
 
-### Regras
+```js
+const auth = require("./services/auth.service");
 
-- **Sem signup público**: criação de usuário é apenas via admin (Supabase Admin API).
-- **Usuário só entra se**:
-  1. Token Supabase válido
-  2. authUserId existe em StaffUser
-  3. StaffUser.active = true
-- **Usuário inativo**: bloqueado; `login_denied` registrado com reason `user_inactive`.
-- **Usuário não em StaffUser**: bloqueado; `login_denied` com reason `user_not_authorized`.
-- **lastLoginAt**: atualizado em login bem-sucedido.
-- **Auditoria**: login_success, login_denied, reset_password_requested, reset_password_denied.
+const result = await auth.verifySession(req.headers.authorization?.replace("Bearer ", ""), {
+  ip: req.ip,
+  userAgent: req.headers["user-agent"],
+});
 
-### Fluxo fechado
+if (result) {
+  req.staffUser = result.staffUser;
+  req.role = result.staffUser.role;
+  req.tenantId = result.staffUser.tenantId;
+} else {
+  return res.status(401).json({ error: "unauthorized" });
+}
+```
 
-1. **Login**: cliente usa Supabase `signInWithPassword` → recebe access_token → envia Bearer na API.
-2. **API**: auth.service.verifySessionAndAuthorize(token) → StaffUser carregado ou null.
-3. **Reset**: cliente chama POST /auth/reset-password → auth.service.requestPasswordReset → Supabase envia email.
+### requestPasswordReset(email, opts)
 
-### Uso do Supabase
+Só envia e-mail de reset se o usuário existir em StaffUser e estiver ativo.
 
-- **Backend**: usa `SUPABASE_SERVICE_ROLE_KEY` para `verifyToken`, `createUser`, `resetPasswordForEmail`.
-- **Frontend**: usa `SUPABASE_ANON_KEY`; signup desativado no Dashboard do Supabase.
-- **Nunca** expor `SERVICE_ROLE_KEY` no frontend.
+```js
+const { ok, message } = await auth.requestPasswordReset(req.body.email, {
+  ip: req.ip,
+  userAgent: req.headers["user-agent"],
+});
+```
 
-## Compatibilidade
+## Fluxo fechado
 
-- Middleware existente continua usando supabase-auth.service e prisma diretamente.
-- auth.service pode ser adotado gradualmente pelo middleware em FASE 4.
-- Rotas de auth podem passar a usar auth.service em vez de lógica inline.
+1. Usuário previamente criado por admin → existe em StaffUser e Supabase Auth.
+2. Login no frontend → Supabase `signInWithPassword` → retorna sessão com `access_token`.
+3. Requisições ao backend → header `Authorization: Bearer <access_token>`.
+4. Backend → `verifySession` → Supabase valida JWT → busca StaffUser → verifica `active` → autoriza ou nega.
+
+## Auditoria
+
+- `login_success` — login autorizado
+- `login_denied` — token inválido, usuário não autorizado ou inativo
+- `reset_password_requested` — e-mail de reset enviado
+- `reset_password_denied` — e-mail não encontrado ou usuário inativo

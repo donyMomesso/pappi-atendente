@@ -12,6 +12,7 @@
     "db:studio": "prisma studio",
     "db:migrate:new": "prisma migrate dev --name",
     "db:seed": "node prisma/seed.js",
+    "create-admin": "node scripts/create-first-admin.js",
     "lint": "eslint . --ext .js --ignore-path .gitignore",
     "lint:fix": "eslint . --ext .js --ignore-path .gitignore --fix",
     "format": "prettier --write \"src/**/*.js\" \"*.js\"",

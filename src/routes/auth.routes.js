@@ -65,11 +65,14 @@ router.post("/reset-password", async (req, res) => {
     if (!email || typeof email !== "string") {
       return res.status(400).json({ error: "E-mail obrigatório." });
     }
-    await authService.requestPasswordReset(email, {
+    const result = await authService.requestPasswordReset(email, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });
-    res.json({ ok: true, message: "Se o e-mail existir, você receberá as instruções para redefinir a senha." });
+    if (!result.ok) {
+      return res.status(400).json({ error: "user_not_authorized", message: result.message });
+    }
+    res.json({ ok: true, message: result.message });
   } catch (err) {
     return res.status(400).json({
       error: err.message.includes("não autorizado") ? "user_not_authorized" : "bad_request",

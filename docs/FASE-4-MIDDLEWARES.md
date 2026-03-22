@@ -16,7 +16,7 @@ Criação de authorization.middleware.js e integração com auth.service.
 
 ### Fluxo
 
-1. **authBySession**: usa auth.service.verifySessionAndAuthorize (Supabase JWT → StaffUser).
+1. **authBySession**: usa auth.service.verifySession (Supabase JWT → StaffUser).
 2. **authBySessionFallback**: quando Supabase não configurado, tenta verificação direta.
 3. **authByApiKey**: integrações técnicas (ADMIN_API_KEY, ATTENDANT_API_KEY).
 4. **requireStaffAuth**: tenta sessão, depois fallback, depois API key (se ALLOW_API_KEY_FALLBACK).

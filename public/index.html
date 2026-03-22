@@ -737,6 +737,23 @@
           <div class="settings-card-head">🔐 Usuários Internos</div>
           <div class="settings-card-body">
             <p style="font-size:13px;color:#555;margin-bottom:12px">Usuários autorizados a acessar o painel (login e-mail/senha).</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+              <select id="staffFilterTenant" onchange="loadStaffUsers()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;min-width:140px">
+                <option value="">Todos os tenants</option>
+              </select>
+              <select id="staffFilterRole" onchange="loadStaffUsers()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;min-width:120px">
+                <option value="">Todas as funções</option>
+                <option value="admin">Admin</option>
+                <option value="manager">Manager</option>
+                <option value="attendant">Atendente</option>
+              </select>
+              <select id="staffFilterActive" onchange="loadStaffUsers()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;min-width:120px">
+                <option value="">Todos</option>
+                <option value="true">Ativos</option>
+                <option value="false">Inativos</option>
+              </select>
+              <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="loadStaffUsers()">🔄 Atualizar</button>
+            </div>
             <div id="staffUsersList" style="margin-bottom:12px"></div>
             <button class="btn-save-settings" style="width:auto" onclick="openNewStaffUserModal()">+ Novo usuário</button>
           </div>
@@ -1300,9 +1317,13 @@ async function doStaffLogin(e) {
     const meRes = await fetch((API_BASE||"")+"/auth/me", { headers: { "Authorization": "Bearer "+SESSION_ACCESS_TOKEN } });
     const meData = await meRes.json();
     if (!meRes.ok) {
-      if (meRes.status === 401 || meData.error === "user_not_authorized") errEl.textContent = "Usuário não autorizado. Entre em contato com o administrador.";
-      else if (meData.message) errEl.textContent = meData.message;
-      else errEl.textContent = "Acesso negado.";
+      if (meRes.status === 401 || meData.error === "user_not_authorized") {
+        errEl.textContent = meData.message || "Usuário não autorizado ou inativo. Entre em contato com o administrador.";
+      } else if (meData.message) {
+        errEl.textContent = meData.message;
+      } else {
+        errEl.textContent = "Acesso negado.";
+      }
       errEl.style.display = "block";
       await SUPABASE_CLIENT.auth.signOut();
       SESSION_ACCESS_TOKEN = null;
@@ -2843,6 +2864,11 @@ async function loadAdminSettings() {
   waIntRefresh();
   if (USE_STAFF_AUTH && USER_ROLE === "admin") {
     document.getElementById("staffUsersCard").style.display = "block";
+    const tf = document.getElementById("staffFilterTenant");
+    if (tf && tf.options.length <= 1) {
+      const tenants = await api("/tenants") || [];
+      tf.innerHTML = '<option value="">Todos os tenants</option>' + tenants.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+    }
     loadStaffUsers();
   } else {
     document.getElementById("staffUsersCard").style.display = "none";
@@ -2850,13 +2876,26 @@ async function loadAdminSettings() {
 }
 
 let staffUserEditId = null;
+let staffUsersCache = [];
 async function loadStaffUsers() {
-  const list = await api("/staff-users");
+  const tenantId = document.getElementById("staffFilterTenant")?.value || "";
+  const role = document.getElementById("staffFilterRole")?.value || "";
+  const active = document.getElementById("staffFilterActive")?.value || "";
+  let path = "/staff-users";
+  const q = [];
+  if (tenantId) q.push("tenantId=" + encodeURIComponent(tenantId));
+  if (role) q.push("role=" + encodeURIComponent(role));
+  if (active) q.push("active=" + encodeURIComponent(active));
+  if (q.length) path += "?" + q.join("&");
+  const list = await api(path);
   const el = document.getElementById("staffUsersList");
+  if (!el) return;
   if (!list || !list.length) {
+    staffUsersCache = [];
     el.innerHTML = '<p style="font-size:12px;color:#999;padding:12px">Nenhum usuário interno cadastrado.</p>';
     return;
   }
+  staffUsersCache = list;
   const roleLbl = { admin: "Admin", manager: "Manager", attendant: "Atendente" };
   el.innerHTML = list.map(u => `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#fafafa;border-radius:8px;margin-bottom:6px;border:1px solid #eee">
@@ -2867,12 +2906,34 @@ async function loadStaffUsers() {
         ${!u.active ? '<span style="color:#e53935;font-size:11px">(inativo)</span>' : ""}
       </div>
       <div style="display:flex;gap:6px">
+        <button onclick="openEditStaffUserModal('${u.id}')" style="padding:4px 10px;font-size:11px;background:#f5f5f5;border:1px solid #ddd;border-radius:6px;cursor:pointer">Editar</button>
         ${u.active
           ? `<button onclick="staffUserDeactivate('${u.id}')" style="padding:4px 10px;font-size:11px;background:#f5f5f5;border:1px solid #ddd;border-radius:6px;cursor:pointer">Desativar</button>`
           : `<button onclick="staffUserActivate('${u.id}')" style="padding:4px 10px;font-size:11px;background:#27ae60;color:#fff;border:none;border-radius:6px;cursor:pointer">Ativar</button>`}
         <button onclick="staffUserResetPwd('${u.id}')" style="padding:4px 10px;font-size:11px;background:#2980b9;color:#fff;border:none;border-radius:6px;cursor:pointer">Reset senha</button>
       </div>
     </div>`).join("");
+}
+
+async function openEditStaffUserModal(id) {
+  let u = staffUsersCache.find(x => x.id === id);
+  if (!u) {
+    const list = await api("/staff-users");
+    u = list?.find(x => x.id === id);
+  }
+  if (!u) { alert("Usuário não encontrado."); return; }
+  staffUserEditId = id;
+  document.getElementById("modalStaffUserTitle").textContent = "Editar usuário";
+  document.getElementById("staffUserEmail").value = u.email;
+  document.getElementById("staffUserEmail").disabled = true;
+  document.getElementById("staffUserPasswordWrap").style.display = "none";
+  document.getElementById("staffUserPassword").value = "";
+  document.getElementById("staffUserName").value = u.name || "";
+  document.getElementById("staffUserRole").value = u.role || "attendant";
+  const tenants = await api("/tenants") || [];
+  const sel = document.getElementById("staffUserTenant");
+  sel.innerHTML = '<option value="">— Admin (sem tenant) —</option>' + tenants.map(t => `<option value="${t.id}" ${t.id === u.tenantId ? "selected" : ""}>${esc(t.name)}</option>`).join("");
+  document.getElementById("modalStaffUser").style.display = "flex";
 }
 
 async function openNewStaffUserModal() {
@@ -2892,6 +2953,7 @@ async function openNewStaffUserModal() {
 
 function closeStaffUserModal() {
   document.getElementById("modalStaffUser").style.display = "none";
+  staffUserEditId = null;
 }
 
 async function saveStaffUser() {
@@ -2900,15 +2962,29 @@ async function saveStaffUser() {
   const name = document.getElementById("staffUserName").value.trim();
   const role = document.getElementById("staffUserRole").value;
   const tenantId = document.getElementById("staffUserTenant").value || null;
-  if (!email || !name) { alert("Preencha e-mail e nome."); return; }
-  if (!staffUserEditId && !password) { alert("Informe uma senha para novo usuário."); return; }
+  if (!name) { alert("Preencha o nome."); return; }
+  if (!staffUserEditId) {
+    if (!email) { alert("Preencha o e-mail."); return; }
+    if (!password || password.length < 6) { alert("Informe uma senha de pelo menos 6 caracteres."); return; }
+  }
   const btn = document.getElementById("btnStaffUserSave");
   btn.disabled = true;
   try {
-    const r = await api("/staff-users", { method: "POST", body: JSON.stringify({ email, password, name, role, tenantId }) });
-    if (r) { closeStaffUserModal(); loadStaffUsers(); }
-    else alert("Erro ao criar usuário.");
-  } catch (e) { alert("Erro: " + (e.message||"Tente novamente.")); }
+    let r;
+    if (staffUserEditId) {
+      r = await api("/staff-users/" + staffUserEditId, {
+        method: "PATCH",
+        body: JSON.stringify({ name, role, tenantId: role === "admin" ? null : tenantId }),
+      });
+    } else {
+      r = await api("/staff-users", {
+        method: "POST",
+        body: JSON.stringify({ email, password, name, role, tenantId }),
+      });
+    }
+    if (r) { closeStaffUserModal(); staffUserEditId = null; loadStaffUsers(); }
+    else alert("Erro ao salvar usuário.");
+  } catch (e) { alert("Erro: " + (e.message || "Tente novamente.")); }
   btn.disabled = false;
 }
 

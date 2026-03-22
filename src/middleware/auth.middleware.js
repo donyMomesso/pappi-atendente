@@ -19,6 +19,7 @@ function attachStaffToReq(req, staff) {
   req.user = { id: staff.authUserId, email: staff.email };
   req.staffUser = staff;
   req.tenantScope = staff.tenantId;
+  req.tenantId = staff.tenantId;
   req.role = staff.role;
   req.attendant = { name: staff.name, key: staff.id, role: staff.role };
 }
@@ -27,10 +28,14 @@ function attachStaffToReq(req, staff) {
 async function authBySession(req) {
   const token = getBearerToken(req);
   if (!token) return false;
-  const result = await authService.verifySessionAndAuthorize(token, {
+  const result = await authService.verifySession(token, {
     ip: req.ip,
     userAgent: req.headers["user-agent"],
   });
+  if (result?.denied) {
+    req._authDenied = { reason: result.reason, message: result.message };
+    return false;
+  }
   if (!result?.staffUser) return false;
   attachStaffToReq(req, result.staffUser);
   return true;
@@ -63,15 +68,17 @@ async function authByApiKey(req) {
 
   if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) {
     req.role = "admin";
-    req.staffUser = { role: "admin", tenantId: null, name: "API Admin" };
-    req.tenantScope = tenantId || null;
+    req.tenantId = tenantId || null;
+    req.staffUser = { role: "admin", tenantId: req.tenantId, name: "API Admin" };
+    req.tenantScope = req.tenantId;
     req.attendant = { name: "API Admin", role: "admin" };
     return true;
   }
   if (ENV.ATTENDANT_API_KEY && key === ENV.ATTENDANT_API_KEY) {
+    req.tenantId = tenantId || "tenant-pappi-001";
     req.role = "attendant";
-    req.staffUser = { role: "attendant", tenantId: tenantId || "tenant-pappi-001", name: "API Attendant" };
-    req.tenantScope = tenantId || "tenant-pappi-001";
+    req.staffUser = { role: "attendant", tenantId: req.tenantId, name: "API Attendant" };
+    req.tenantScope = req.tenantId;
     req.attendant = { name: "API Attendant", role: "attendant" };
     return true;
   }
@@ -81,6 +88,7 @@ async function authByApiKey(req) {
       const attendants = JSON.parse(cfg.value);
       const att = attendants.find((a) => a.key === key);
       if (att) {
+        req.tenantId = tenantId;
         req.role = att.role || "attendant";
         req.staffUser = { role: req.role, tenantId, name: att.name };
         req.tenantScope = tenantId;
@@ -97,10 +105,11 @@ async function requireStaffAuth(req, res, next) {
   if (await authBySession(req)) return next();
   if (await authBySessionFallback(req)) return next();
   if (ENV.ALLOW_API_KEY_FALLBACK && (await authByApiKey(req))) return next();
+  const denied = req._authDenied;
   return res.status(401).json({
-    error: "unauthorized",
-    code: "SESSION_REQUIRED",
-    message: "Sessão inválida ou expirada. Faça login novamente.",
+    error: denied?.reason || "unauthorized",
+    code: denied?.reason || "SESSION_REQUIRED",
+    message: denied?.message || "Sessão inválida ou expirada. Faça login novamente.",
   });
 }
 
@@ -138,12 +147,15 @@ async function requireAttendantKey(req, res, next) {
   return authByApiKey(req) ? next() : res.status(401).json({ error: "unauthorized" });
 }
 
+const authz = require("./authorization.middleware");
+
 module.exports = {
   requireStaffAuth,
   authDash,
   authAdmin,
-  requireRole,
-  requireTenantAccess,
+  requireRole: authz.requireRole,
+  requireTenantAccess: authz.requireTenantAccess,
+  requirePermission: authz.requirePermission,
   requireAdminKey,
   requireAttendantKey,
   getBearerToken,

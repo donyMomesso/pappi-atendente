@@ -1,76 +1,58 @@
-# FASE 1 — Modelagem e Banco
+# Fase 1 — Modelagem e Banco
 
 ## O que foi alterado
 
-Criação da base de autorização interna **sem alterar** a autenticação atual do painel.
-O sistema continua funcionando com API key; as novas tabelas ficam disponíveis para as fases seguintes.
+- **prisma/schema.prisma**: Modelos `StaffUser` e `AuditLog` adicionados
+- **prisma/migrations/20250320100000_add_staff_auth/migration.sql**: Migration criada
 
-## Arquivos
+## StaffUser
 
-| Ação | Arquivo |
-|------|---------|
-| Editado | `prisma/schema.prisma` |
-| Criado | `prisma/migrations/20250320100000_add_staff_auth/migration.sql` |
+| Campo       | Tipo      | Descrição                          |
+|------------|-----------|------------------------------------|
+| id         | String    | UUID gerado                        |
+| authUserId | String    | ID do usuário no Supabase Auth     |
+| tenantId   | String?   | Tenant (null para admin global)    |
+| email      | String    | E-mail                             |
+| name       | String    | Nome                               |
+| role       | String    | admin \| manager \| attendant      |
+| active     | Boolean   | Usuário ativo                      |
+| invitedBy  | String?   | Quem convidou                      |
+| lastLoginAt| DateTime? | Último login                       |
+| createdAt  | DateTime  | Criação                            |
+| updatedAt  | DateTime  | Atualização                        |
 
-## Modelo StaffUser
+**Índices:** email, authUserId, tenantId, role, active, (tenantId, active)
 
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| id | String | PK UUID |
-| authUserId | String | UUID do auth.users (Supabase) — unique |
-| tenantId | String? | null = admin global |
-| email | String | E-mail do usuário |
-| name | String | Nome exibido |
-| role | String | admin \| manager \| attendant |
-| active | Boolean | Se false, bloqueia acesso |
-| invitedBy | String? | Quem convidou |
-| lastLoginAt | DateTime? | Último login |
-| createdAt | DateTime | |
-| updatedAt | DateTime | |
+## AuditLog
 
-Campos opcionais (fases futuras): canViewOrders, canSendMessages, canManageCoupons, canManageSettings, canManageUsers.
+| Campo        | Tipo    | Descrição                |
+|-------------|---------|--------------------------|
+| id          | String  | UUID gerado              |
+| tenantId    | String? | Tenant relacionado       |
+| userId      | String? | ID do usuário            |
+| action      | String  | Ação realizada           |
+| resourceType| String? | Tipo do recurso          |
+| resourceId  | String? | ID do recurso            |
+| metadata    | String? | JSON com detalhes        |
+| ip          | String? | IP da requisição         |
+| userAgent   | String? | User-Agent               |
+| createdAt   | DateTime| Data/hora da ação        |
 
-## Modelo AuditLog
-
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| id | String | PK UUID |
-| tenantId | String? | |
-| userId | String? | staff_user.id |
-| action | String | login_success, staff_user_created, etc. |
-| resourceType | String? | staff_user, tenant, etc. |
-| resourceId | String? | |
-| metadata | String? | JSON |
-| ip | String? | |
-| userAgent | String? | |
-| createdAt | DateTime | |
-
-## Índices
-
-- **staff_users**: email, authUserId, tenantId, role, (tenantId, active)
-- **audit_logs**: (tenantId, createdAt), (userId, createdAt), (action, createdAt)
+**Índices:** (tenantId, createdAt), (userId, createdAt), (action, createdAt)
 
 ## Compatibilidade
 
-- **Não altera** tabelas existentes.
-- **Não altera** rotas ou middleware.
-- **Não altera** login atual (API key continua funcionando).
-- Novas tabelas usam `CREATE TABLE IF NOT EXISTS` — seguro rodar mais de uma vez.
+- As novas tabelas são criadas com `CREATE TABLE IF NOT EXISTS`
+- Não altera tabelas existentes
+- Relação `StaffUser` → `Tenant` com `ON DELETE SET NULL`
+- O projeto segue funcionando com a autenticação atual
 
 ## Como aplicar
 
 ```bash
+# Opção 1: Migration manual
 psql "$DATABASE_URL" -f prisma/migrations/20250320100000_add_staff_auth/migration.sql
-```
 
-Ou:
-
-```bash
+# Opção 2: Prisma (se o schema estiver alinhado)
 npx prisma db push
 ```
-
-## Observações
-
-- A tabela `tenants` deve existir (já existe no projeto).
-- O schema `public` deve existir.
-- Em Supabase/PostgreSQL, a migração deve rodar sem conflitos.

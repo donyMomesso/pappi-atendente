@@ -1,80 +1,63 @@
-# FASE 2 — Camada de Serviços
-
-## O que foi alterado
-
-Criação da lógica interna de usuários (StaffUser) e auditoria (AuditLog).
-O painel continua funcionando como antes; os serviços ficam disponíveis para as rotas e middlewares.
+# Fase 2 — Camada de Serviços
 
 ## Arquivos
 
-| Ação | Arquivo |
-|------|---------|
-| Criado | `src/services/staff-user.service.js` |
-| Criado | `src/services/audit-log.service.js` |
-| Editado | `src/services/audit.service.js` (passa a re-exportar audit-log.service) |
+| Arquivo | Descrição |
+|---------|-----------|
+| `src/services/staff-user.service.js` | CRUD e validações de StaffUser |
+| `src/services/audit-log.service.js` | Função central de auditoria |
+| `src/services/audit.service.js` | Re-exporta `audit-log.service` (compatibilidade) |
 
 ## staff-user.service.js
 
 ### Funções
 
-| Função | Descrição |
-|--------|-----------|
-| `validateRole(role)` | Lança se role inválida (admin, manager, attendant) |
-| `validateTenantRequired(role, tenantId)` | Lança se manager/attendant sem tenant |
-| `listStaffUsers(filters)` | Lista com filtros tenantId, role, active |
-| `findByEmail(email)` | Busca por email normalizado |
-| `findByAuthUserId(authUserId)` | Busca por Supabase auth.users.id |
-| `createStaffUser(data, invitedBy)` | Cria com validações |
-| `updateStaffUser(id, data, currentUserId)` | Atualiza campos permitidos |
-| `activateStaffUser(id)` | Ativa |
-| `deactivateStaffUser(id, currentStaffUserId)` | Desativa (impede auto-desativação) |
-| `updateLastLogin(id)` | Atualiza lastLoginAt |
+- **listStaffUsers(filters)** — Lista com filtros `{ tenantId, role, active }`
+- **findByEmail(email)** — Busca por e-mail normalizado
+- **findByAuthUserId(authUserId)** — Busca por ID do Supabase Auth
+- **createStaffUser(data, invitedBy)** — Cria usuário (valida role e tenant)
+- **updateStaffUser(id, data)** — Atualiza campos permitidos
+- **activateStaffUser(id)** — Ativa
+- **deactivateStaffUser(id, currentStaffUserId)** — Desativa (evita auto-desativação)
+- **updateLastLogin(id)** — Atualiza `lastLoginAt`
+- **validateRole(role)** — Valida admin | manager | attendant
+- **validateTenantRequired(role, tenantId)** — Manager/attendant exigem tenant
 
-### Exemplo de uso
+### Exemplos
 
 ```js
-const staffUser = require("../services/staff-user.service");
+const staffUser = require("./services/staff-user.service");
 
-// Listar usuários
-const users = await staffUser.listStaffUsers({ tenantId: "tenant-1", active: true });
+// Listar
+const users = await staffUser.listStaffUsers({ tenantId: "tenant-pappi-001", active: true });
 
-// Buscar por authUserId (após login Supabase)
-const u = await staffUser.findByAuthUserId(session.user.id);
-if (!u || !u.active) return res.status(403).json({ error: "Usuário não autorizado" });
+// Buscar
+const u = await staffUser.findByAuthUserId("uuid-do-supabase");
+const u2 = await staffUser.findByEmail("admin@empresa.com");
 
-// Criar (após criar no Supabase Auth)
+// Criar (authUserId vem do Supabase após createUser)
 await staffUser.createStaffUser({
-  authUserId: authUser.id,
-  email: "joao@empresa.com",
-  name: "João Silva",
+  authUserId: "...",
+  email: "novo@empresa.com",
+  name: "Novo Usuário",
   role: "attendant",
   tenantId: "tenant-pappi-001",
-  active: true,
-}, req.staffUser?.name);
+}, "Admin");
+
+// Validar
+staffUser.validateRole("manager");       // ok
+staffUser.validateRole("invalid");       // throws
+staffUser.validateTenantRequired("attendant", null); // throws
 ```
 
 ## audit-log.service.js
 
-### Função
-
-| Função | Descrição |
-|--------|-----------|
-| `logAction(opts)` | Registra ação em AuditLog |
-
-### Parâmetros
-
-- `action` (obrigatório): login_success, staff_user_created, etc.
-- `resourceType`, `resourceId`: opcionais
-- `userId`, `tenantId`: opcionais
-- `metadata`: objeto (serializado como JSON)
-- `ip`, `userAgent`: opcionais
-
-### Exemplo de uso
+### logAction(opts)
 
 ```js
-const auditLog = require("../services/audit-log.service");
+const { logAction } = require("./services/audit-log.service");
 
-await auditLog.logAction({
+await logAction({
   action: "login_success",
   resourceType: "staff_user",
   resourceId: staffUser.id,
@@ -84,16 +67,17 @@ await auditLog.logAction({
   ip: req.ip,
   userAgent: req.headers["user-agent"],
 });
+
+await logAction({
+  action: "login_denied",
+  resourceType: "staff_user",
+  metadata: { email: "tentativa@exemplo.com", reason: "user_not_found" },
+  ip: req.ip,
+});
 ```
 
-## Compatibilidade
+### Ações sugeridas
 
-- **audit.service.js** continua exportando `logAction`; código que usa `require("./audit.service")` não precisa mudar.
-- Novos serviços não alteram rotas nem middlewares existentes.
-- Rotas podem migrar gradualmente para `staff-user.service` e `audit-log.service`.
-
-## Organização
-
-- `staff-user.service.js`: regras de negócio de StaffUser
-- `audit-log.service.js`: registro de auditoria
-- `audit.service.js`: wrapper para compatibilidade
+- `login_success`, `login_denied`
+- `staff_user_created`, `staff_user_updated`, `staff_user_activated`, `staff_user_deactivated`
+- `reset_password_requested`, `staff_user_password_reset`

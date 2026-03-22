@@ -40,6 +40,7 @@ CREATE INDEX IF NOT EXISTS "idx_staff_users_email" ON "public"."staff_users"("em
 CREATE INDEX IF NOT EXISTS "idx_staff_users_auth_user_id" ON "public"."staff_users"("authUserId");
 CREATE INDEX IF NOT EXISTS "idx_staff_users_tenant" ON "public"."staff_users"("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_staff_users_role" ON "public"."staff_users"("role");
+CREATE INDEX IF NOT EXISTS "idx_staff_users_active" ON "public"."staff_users"("active");
 CREATE INDEX IF NOT EXISTS "idx_staff_users_tenant_active" ON "public"."staff_users"("tenantId", "active");
 CREATE INDEX IF NOT EXISTS "idx_audit_logs_tenant_created" ON "public"."audit_logs"("tenantId", "createdAt");
 CREATE INDEX IF NOT EXISTS "idx_audit_logs_user_created" ON "public"."audit_logs"("userId", "createdAt");

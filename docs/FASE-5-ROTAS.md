@@ -50,7 +50,8 @@ Resposta:
 ```json
 { "email": "joao@empresa.com" }
 ```
-Resposta: `{ "ok": true, "message": "..." }`
+Resposta ok: `{ "ok": true, "message": "Se o e-mail existir..." }`
+Resposta negada (400): `{ "error": "user_not_authorized", "message": "E-mail não encontrado ou não autorizado..." }`
 
 ## admin-users.routes.js
 

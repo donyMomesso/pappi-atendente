@@ -56,6 +56,7 @@ model StaffUser {
   @@index([authUserId], map: "idx_staff_users_auth_user_id")
   @@index([tenantId], map: "idx_staff_users_tenant")
   @@index([role], map: "idx_staff_users_role")
+  @@index([active], map: "idx_staff_users_active")
   @@index([tenantId, active], map: "idx_staff_users_tenant_active")
   @@map("staff_users")
   @@schema("public")
