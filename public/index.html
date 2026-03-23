@@ -445,8 +445,8 @@
         <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos"><span>📦</span><span class="sidebar-text">Pedidos</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('atrasos');return false" id="navAtrasos"><span>⏱️</span><span class="sidebar-text">Atrasos</span><span class="sidebar-badge" id="sidebarAtrasosBadge" style="display:none">0</span></a>
         <a class="sidebar-item" href="#" onclick="openContacts();return false"><span>📒</span><span class="sidebar-text">Contatos</span></a>
-        <div class="sidebar-sep"></div>
-        <div class="sidebar-section">Análise</div>
+        <div class="sidebar-sep" id="sidebarAnaliseSep"></div>
+        <div class="sidebar-section" id="sidebarAnaliseSection">Análise</div>
         <a class="sidebar-item" href="#" onclick="navTo('visao');return false" id="navVisao"><span>📊</span><span class="sidebar-text">Visão geral</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('stats');return false" id="navStats"><span>📈</span><span class="sidebar-text">Estatísticas</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('rel');return false" id="navRel"><span>📄</span><span class="sidebar-text">Relatórios</span></a>
@@ -1470,6 +1470,7 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 	    kanbanTimer = setInterval(fetchKanban, 10000);
 	  }
 	  else if (["visao","stats","rel","audit","transmissao","sac","usuarios","config"].includes(view)) {
+	    if (USER_ROLE !== "admin") { navTo("chat"); return; }
 	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
 	    document.getElementById("viewAdmin").style.display = "flex";
 	    adminTab(tabMap[view]);
@@ -1570,17 +1571,31 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 function applyRole() {
   const isAdmin = USER_ROLE === "admin";
   const badge = document.getElementById("h-role-badge");
-  if (badge) { badge.style.display = ""; badge.textContent = isAdmin ? "👑 Admin" : "🎧 Atendente";
+  if (badge) {
+    badge.style.display = "";
+    badge.textContent = isAdmin ? "👑 Admin" : "🎧 Atendente";
     badge.style.background = isAdmin ? "rgba(255,215,0,.3)" : "rgba(255,255,255,.15)";
-    badge.style.color = isAdmin ? "#ffe066" : "#fff"; }
+    badge.style.color = isAdmin ? "#ffe066" : "#fff";
+  }
+
   const hName = document.getElementById("h-user-name");
   if (hName) hName.textContent = ATTENDANT_NAME;
-  ["navTransmissao","navSac","navUsuarios","adminSep","adminLabel"].forEach(id => {
+
+  [
+    "navTransmissao",
+    "navSac",
+    "navUsuarios",
+    "navConfig",
+    "adminSep",
+    "adminLabel",
+    "atBroadcast",
+    "atSac",
+    "atAtend",
+    "atCfg"
+  ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAdmin ? "" : "none";
   });
-  const tb = document.getElementById("atBroadcast");
-  if (tb) tb.style.display = isAdmin ? "" : "none";
 }
 document.getElementById("loginKeyInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
 document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKeyInput").focus(); });
@@ -1595,14 +1610,23 @@ async function api(path, opts={}) {
   if (SESSION_ACCESS_TOKEN) headers["Authorization"] = "Bearer " + SESSION_ACCESS_TOKEN;
   else if (API_KEY) headers["x-api-key"] = API_KEY;
   const r = await fetch(url, { headers, ...opts });
+  let data = null;
+  try { data = await r.json(); } catch {}
+
   if (r.status === 401 && SESSION_ACCESS_TOKEN) {
     SESSION_ACCESS_TOKEN = null;
     if (SUPABASE_CLIENT) await SUPABASE_CLIENT.auth.signOut();
     localStorage.removeItem("pappi_staff_session");
     location.reload();
+    return null;
   }
-  if (!r.ok) return null;
-  return r.json();
+
+  if (!r.ok) {
+    console.error("API error", { path, status: r.status, data });
+    return { error: data?.error || "request_failed", status: r.status, message: data?.message || "" };
+  }
+
+  return data;
 }
 
 // ── STATS ────────────────────────────────────────────────────
@@ -2615,6 +2639,12 @@ document.addEventListener("click", function(e) {
   if (!e.target.closest(".admin-analise-wrap")) closeAnaliseMenu();
 });
 function adminTab(tab) {
+  const adminOnlyTabs = ["dash", "stats", "rel", "audit", "broadcast", "sac", "atend", "cfg"];
+  if (adminOnlyTabs.includes(tab) && USER_ROLE !== "admin") {
+    alert("Acesso restrito a administradores.");
+    return;
+  }
+
   currentAdminTab = tab;
   const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", sac:"Sac", broadcast:"Broadcast", atend:"Atend", cfg:"Cfg" };
   const analiseTabs = ["dash","stats","rel","audit"];
@@ -2635,9 +2665,11 @@ function adminTab(tab) {
 let broadcastContactsCache = [];
 
 async function loadBroadcastPanel() {
+  if (USER_ROLE !== "admin") return;
   const sel = document.getElementById("broadcastInstance");
   if (!sel) return;
   const data = await api("/baileys/instances");
+  if (data?.error === "forbidden") return;
   const list = Array.isArray(data) ? data : [];
   sel.innerHTML = list.map(i => `<option value="${esc(i.id)}" ${i.status==="connected"?"":"disabled"}>${esc(i.id)} ${i.status==="connected"?"✓":"—"}</option>`).join("") || "<option value=\"default\">default</option>";
 }
@@ -2652,7 +2684,7 @@ async function loadBroadcastContacts() {
 
   countEl.textContent = "Carregando...";
   const d = await api(`/broadcast/contacts?period=${period}&janela24h=${janela24h}&limit=${batchSize}&offset=0`);
-  if (!d) { countEl.textContent = "Erro ao carregar"; return; }
+  if (!d || d.error === "forbidden") { countEl.textContent = "Erro ao carregar"; return; }
 
   broadcastContactsCache = d.contacts || [];
   countEl.textContent = `${broadcastContactsCache.length} de ${d.total || 0} contatos`;
@@ -2737,9 +2769,10 @@ async function sendBroadcast() {
 
 // ── ESTATÍSTICAS ──────────────────────────────────────────────
 async function fetchStatsPanel() {
+  if (USER_ROLE !== "admin") return;
   const days = parseInt(document.getElementById("statsPeriod")?.value || "7");
   const data = await api(`/stats/report?days=${days}`);
-  if (!data) return;
+  if (!data || data.error === "forbidden") return;
 
   // Cards
   const cards = [
@@ -2872,8 +2905,9 @@ function copyDebug() {
 }
 
 async function fetchAdminDash() {
+  if (USER_ROLE !== "admin") return;
   const d = await api("/stats");
-  if (!d) return;
+  if (!d || d.error === "forbidden") return;
   const cards = [
     { val: d.ordersToday,     lbl: "Pedidos Hoje" },
     { val: d.ordersTotal,     lbl: "Total Pedidos" },
@@ -2894,8 +2928,9 @@ async function fetchAdminDash() {
 }
 
 async function loadAdminSettings() {
+  if (USER_ROLE !== "admin") return;
   const d = await api("/settings");
-  if (!d) return;
+  if (!d || d.error === "forbidden") return;
   settingsData = d;
   document.getElementById("cfg-name").value = d.name || "";
   document.getElementById("cfg-city").value = d.city || "";
@@ -3054,7 +3089,7 @@ async function staffUserResetPwd(id) {
   else alert("Erro: " + (r?.error || "Tente novamente."));
 }
 
-function openSettings() { openAdmin(); adminTab("cfg"); }
+function openSettings() { if (USER_ROLE !== "admin") { navTo("chat"); return; } openAdmin(); adminTab("cfg"); }
 function closeSettings() { closeAdmin(); }
 
   // ── WHATSAPP INTERNO — funções legacy redirecionadas para o novo sistema ──
@@ -3321,8 +3356,9 @@ async function sendMsgToPhone(phone) {
 
 // ── GOOGLE CONTACTS ───────────────────────────────────────────
 async function gcRefreshStatus() {
+  if (USER_ROLE !== "admin") return;
   const d = await api("/google-contacts/status");
-  if (!d) return;
+  if (!d || d.error === "forbidden") return;
   const statusEl = document.getElementById("gcStatus");
   const btnConn  = document.getElementById("btnGcConnect");
   const btnDisc  = document.getElementById("btnGcDisconnect");
