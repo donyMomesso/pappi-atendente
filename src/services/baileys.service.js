@@ -466,7 +466,7 @@ async function start(instanceId = "default") {
         if (qr) {
           inst.status = "qr";
           inst.qrBase64 = await QRCode.toDataURL(qr);
-          console.log(`[Baileys:${instanceId}] QR Code gerado`);
+          log.info({ instanceId }, "QR Code gerado — escaneie no WhatsApp");
         }
 
         if (connection === "open") {
@@ -480,7 +480,7 @@ async function start(instanceId = "default") {
             phone: user?.id?.split(":")[0] || user?.id || "?",
             name: user?.name || "?",
           };
-          console.log(`[Baileys:${instanceId}] Conectado como ${inst.account.name} (${inst.account.phone})`);
+          log.info({ instanceId, phone: inst.account.phone, name: inst.account.name }, "Baileys conectado com sucesso");
         }
 
         if (connection === "close") {
@@ -508,7 +508,7 @@ async function start(instanceId = "default") {
           inst._intentionalDisconnect = false;
 
           if (loggedOut) {
-            console.log(`[Baileys:${instanceId}] Logout — limpando auth.`);
+            log.info({ instanceId }, "Logout detectado — limpando auth");
             await clearDbAuth(instanceId);
             inst.qrBase64 = null;
             inst._reconnectDelay = 8000;
@@ -516,24 +516,22 @@ async function start(instanceId = "default") {
             inst._replaced440Count = (inst._replaced440Count || 0) + 1;
             if (inst._replaced440Count >= 3) {
               inst.status = "conflict";
-              console.log(
-                `[Baileys:${instanceId}] Sessão substituída (440) ${inst._replaced440Count}x consecutivas — parando reconexão automática. Outra sessão está ativa.`,
-              );
               log.warn(
                 { instanceId, replaced440Count: inst._replaced440Count },
-                "Baileys: reconexão 440 desabilitada — sessão em conflito",
+                "Sessão 440 — parando reconexão. Outra sessão ativa. Recuperação manual necessária.",
               );
             } else {
               const delayMs = inst._replaced440Count === 1 ? 45000 : 90000;
-              console.log(
-                `[Baileys:${instanceId}] Sessão substituída (440) #${inst._replaced440Count} — reconectando em ${delayMs / 1000}s...`,
+              log.info(
+                { instanceId, attempt: inst._replaced440Count, delaySec: delayMs / 1000 },
+                "Sessão 440 — reconectando após delay",
               );
               setTimeout(() => start(instanceId), delayMs);
             }
           } else {
             inst._replaced440Count = 0;
             inst._reconnectDelay = 8000;
-            console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
+            log.info({ instanceId, code }, "Conexão fechada — reconectando em 8s");
             setTimeout(() => start(instanceId), 8000);
           }
         }
@@ -548,11 +546,30 @@ async function start(instanceId = "default") {
   }
 }
 
+// Proteção: evita initAll duplicado em processo
+let _initInProgress = false;
+let _initDone = false;
+
 async function initAll() {
-  const concurrency = parseInt(process.env.WEB_CONCURRENCY, 10);
+  const ENV = require("../config/env");
+  if (!ENV.BAILEYS_ENABLED) {
+    log.info("Baileys desabilitado (BAILEYS_ENABLED=false)");
+    return;
+  }
+  if (_initInProgress) {
+    log.warn("initAll já em andamento — ignorando chamada duplicada");
+    return;
+  }
+  if (_initDone) {
+    log.warn("initAll já executado neste processo — ignorando");
+    return;
+  }
+  _initInProgress = true;
+
+  const concurrency = ENV.WEB_CONCURRENCY || 1;
   if (concurrency > 1) {
     log.warn(
-      { WEB_CONCURRENCY: process.env.WEB_CONCURRENCY },
+      { WEB_CONCURRENCY: concurrency },
       "Baileys: WEB_CONCURRENCY>1 causa 440 (sessão substituída). Defina WEB_CONCURRENCY=1.",
     );
   }
@@ -571,9 +588,12 @@ async function initAll() {
     try {
       await start(id);
     } catch (err) {
-      console.error("[Baileys:initAll]", id, err.message);
+      log.error({ instanceId: id, err }, "[Baileys:initAll] erro ao iniciar instância");
     }
   }
+  _initInProgress = false;
+  _initDone = true;
+  log.info({ instances: ids }, "Baileys initAll concluído");
 }
 
 // ── Envio ──────────────────────────────────────────────────────

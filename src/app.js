@@ -1,9 +1,11 @@
 // src/app.js
-// MELHORIA: inicializa scheduler de retry do CW
+// Express app — rotas, middleware, CORS.
+// Baileys e Jobs são iniciados via startup.js (index.js) ou processos separados (bootstrap/).
 
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
+const helmet = require("helmet");
 const prisma = require("./lib/db");
 
 const webhookRoutes = require("./routes/webhook.routes");
@@ -13,56 +15,19 @@ const adminRoutes = require("./routes/admin.routes");
 const diagRoutes = require("./routes/diag.routes");
 const dashRoutes = require("./routes/dashboard.routes");
 
-// ── Baileys (WhatsApp interno) ────────────────────────────────
-try {
-  const baileys = require("./services/baileys.service");
-  baileys.initAll().catch((e) => console.warn("[Baileys] initAll error:", e.message));
-} catch (e) {
-  console.warn("[Baileys] módulo não disponível:", e.message);
-}
-
-// ── Agendador de retenção/reengajamento ───────────────────────
-try {
-  const retentionSvc = require("./services/retention.service");
-  retentionSvc.startScheduler();
-} catch (e) {
-  console.warn("[Retention] scheduler error:", e.message);
-}
-
-// ── Agendador de retry de pedidos CW ─────────────────────────
-try {
-  const cwRetrySvc = require("./services/cw-retry.service");
-  cwRetrySvc.startScheduler();
-} catch (e) {
-  console.warn("[CW-Retry] scheduler error:", e.message);
-}
-
-// ── Monitor de atraso de pedidos (em_producao > 60 min) ───────
-try {
-  const orderDelayMonitor = require("./services/order-delay-monitor.service");
-  orderDelayMonitor.startScheduler();
-} catch (e) {
-  console.warn("[OrderDelay] scheduler error:", e.message);
-}
-
-// ── Agendador "Me avise quando abrir" — disparo às 18h ────────
-try {
-  const aviseScheduler = require("./services/avise-abertura-scheduler");
-  aviseScheduler.startScheduler();
-} catch (e) {
-  console.warn("[AviseAbertura] scheduler error:", e.message);
-}
-
-// ── Timeout de handoff (devolve ao robô após inatividade) ─────
-try {
-  const handoffTimeout = require("./services/handoff-timeout-scheduler");
-  handoffTimeout.start();
-} catch (e) {
-  console.warn("[HandoffTimeout] scheduler error:", e.message);
-}
-
 const ENV = require("./config/env");
 const app = express();
+
+// Segurança: headers básicos (CSP desativado — app privado com Supabase/Google)
+const isProd = ENV.NODE_ENV === "production";
+if (isProd) {
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
+}
 
 // CORS para app em domínio separado (ou * para aceitar qualquer origem)
 // Em dev, aceita localhost e IPs privados (acesso na rede)
@@ -116,14 +81,14 @@ if (corsOrigins.length > 0) {
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "../public")));
 
-// Saúde
-app.get("/health", async (_req, res) => {
-  const ENV = require("./config/env");
+// Saúde (público para load balancer)
+app.get("/health", async (req, res) => {
+  const env = require("./config/env");
   const status = {
     ok: true,
     version: "3.1.0",
     db: "ok",
-    adminKeyConfigured: !!(ENV.ADMIN_API_KEY && ENV.ADMIN_API_KEY.length > 0),
+    env: env.NODE_ENV,
   };
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -132,6 +97,20 @@ app.get("/health", async (_req, res) => {
     status.ok = false;
   }
   res.status(status.ok ? 200 : 503).json(status);
+});
+
+// Readiness (opcional: token para healthcheck privado)
+app.get("/ready", async (req, res) => {
+  const env = require("./config/env");
+  if (env.HEALTHCHECK_TOKEN && req.query?.token !== env.HEALTHCHECK_TOKEN) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ ok: true, db: "ok" });
+  } catch {
+    return res.status(503).json({ ok: false, db: "error" });
+  }
 });
 
 // Política de privacidade

@@ -62,4 +62,14 @@ module.exports = {
   ALLOW_API_KEY_FALLBACK:
     process.env.ALLOW_API_KEY_FALLBACK === "true" ||
     (!process.env.SUPABASE_URL && process.env.ALLOW_API_KEY_FALLBACK !== "false"),
+  // ── Produção privada ──
+  BAILEYS_ENABLED: process.env.BAILEYS_ENABLED !== "false",
+  BAILEYS_INSTANCE_MODE: process.env.BAILEYS_INSTANCE_MODE || "embedded",
+  WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),
+  LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
+  HEALTHCHECK_TOKEN: process.env.HEALTHCHECK_TOKEN || "",
+  REDIS_URL: process.env.REDIS_URL || "",
+  SENTRY_DSN: process.env.SENTRY_DSN || "",
+  RUN_JOBS: process.env.RUN_JOBS !== "false",
+  RUN_BAILEYS: process.env.RUN_BAILEYS !== "false",
 };

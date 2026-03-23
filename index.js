@@ -1,14 +1,17 @@
 require("dotenv").config();
 
-// Valida variáveis obrigatórias ANTES de qualquer import que precise delas
 const { validateEnv } = require("./src/lib/validate-env");
 validateEnv();
 
+const ENV = require("./src/config/env");
 const http = require("http");
 const app = require("./src/app");
 const socketService = require("./src/services/socket.service");
+const { runStartup } = require("./src/startup");
 
-const PORT = process.env.PORT || 10000;
+const PORT = ENV.PORT || 10000;
+
+runStartup();
 
 const server = http.createServer(app);
 socketService.init(server);
@@ -24,5 +27,5 @@ server.on("error", (err) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🔥 PappiAtendente v3 rodando na porta ${PORT}`);
+  console.log(`🔥 PappiAtendente v3 rodando na porta ${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
 });
