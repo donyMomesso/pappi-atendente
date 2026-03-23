@@ -88,11 +88,28 @@ async function sendInstagram(recipientId, text, tenantId) {
       }),
     });
 
-    const json = await res.json();
-    if (json?.error?.message) {
-      metaTelemetry.recordInstagramError(json.error.message);
+    let body;
+    try {
+      const raw = await res.text();
+      body = raw ? (() => { try { return JSON.parse(raw); } catch { return raw; } })() : null;
+    } catch {
+      body = null;
     }
-    return json;
+
+    if (!res.ok) {
+      const errMsg = typeof body === "object" ? body?.error?.message || JSON.stringify(body) : String(body);
+      metaTelemetry.recordInstagramError(errMsg);
+      log.error(
+        { channel: "instagram", tenantId, recipientId, status: res.status, body },
+        "Instagram: falha HTTP ao enviar"
+      );
+      return { error: true, channel: "instagram", status: res.status, body };
+    }
+
+    if (typeof body === "object" && body?.error?.message) {
+      metaTelemetry.recordInstagramError(body.error.message);
+    }
+    return body;
   } catch (err) {
     log.error({ recipientId, tenantId, err: err.message }, "Instagram: erro ao enviar");
     metaTelemetry.recordInstagramError(err.message);
@@ -121,11 +138,28 @@ async function sendFacebook(recipientId, text, tenantId) {
       }),
     });
 
-    const json = await res.json();
-    if (json?.error?.message) {
-      metaTelemetry.recordFacebookError(json.error.message);
+    let body;
+    try {
+      const raw = await res.text();
+      body = raw ? (() => { try { return JSON.parse(raw); } catch { return raw; } })() : null;
+    } catch {
+      body = null;
     }
-    return json;
+
+    if (!res.ok) {
+      const errMsg = typeof body === "object" ? body?.error?.message || JSON.stringify(body) : String(body);
+      metaTelemetry.recordFacebookError(errMsg);
+      log.error(
+        { channel: "facebook", tenantId, recipientId, status: res.status, body },
+        "Facebook: falha HTTP ao enviar"
+      );
+      return { error: true, channel: "facebook", status: res.status, body };
+    }
+
+    if (typeof body === "object" && body?.error?.message) {
+      metaTelemetry.recordFacebookError(body.error.message);
+    }
+    return body;
   } catch (err) {
     log.error({ recipientId, tenantId, err: err.message }, "Facebook: erro ao enviar");
     metaTelemetry.recordFacebookError(err.message);
