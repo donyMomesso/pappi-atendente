@@ -1,15 +1,23 @@
 // check-wa-status.js
 // Script de diagnóstico do WhatsApp Interno (Baileys)
 // Uso: node check-wa-status.js
+// Considera APP_ENV para chaves baileys:auth:{env}:{instanceId}
 
 require("dotenv").config();
 const prisma = require("./src/lib/db");
+const ENV = require("./src/config/env");
+
+function authKey(instanceId) {
+  const env = ENV.APP_ENV || "local";
+  return `baileys:auth:${env}:${instanceId}`;
+}
 
 async function checkStatus() {
-  console.log("🔍 Iniciando diagnóstico do WhatsApp Interno...\n");
+  const env = ENV.APP_ENV || "local";
+  console.log(`🔍 Diagnóstico WhatsApp Interno (APP_ENV=${env})...\n`);
 
   try {
-    const authRow = await prisma.config.findUnique({ where: { key: "baileys:auth:default" } });
+    const authRow = await prisma.config.findUnique({ where: { key: authKey("default") } });
 
     if (!authRow) {
       console.log("❌ STATUS: Desconectado");
@@ -34,14 +42,15 @@ async function checkStatus() {
       }
     }
 
-    // Instâncias existentes
+    // Instâncias existentes (apenas do ambiente atual)
+    const prefix = `baileys:auth:${env}:`;
     const allInstances = await prisma.config.findMany({
-      where: { key: { startsWith: "baileys:auth:" } },
+      where: { key: { startsWith: prefix } },
       select: { key: true },
     });
-    console.log(`\n📊 Instâncias cadastradas: ${allInstances.length}`);
+    console.log(`\n📊 Instâncias cadastradas (${env}): ${allInstances.length}`);
     for (const i of allInstances) {
-      console.log(`   - ${i.key.replace("baileys:auth:", "")}`);
+      console.log(`   - ${i.key.replace(prefix, "")}`);
     }
 
     // Números de notificação

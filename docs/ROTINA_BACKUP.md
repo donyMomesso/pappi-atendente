@@ -28,7 +28,7 @@ pg_dump -h HOST -U USER -d DBNAME -F c -f backup_$(date +%Y%m%d).dump
 - Tabela `tenants`
 - Tabela `customers`
 - Tabela `orders`
-- Config `baileys:auth:*` (sessões WhatsApp)
+- Config `baileys:auth:{env}:*` (sessões WhatsApp, ex: baileys:auth:prod:default)
 
 ## Teste de restore
 

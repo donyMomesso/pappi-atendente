@@ -1,12 +1,19 @@
 // src/services/baileys-db-auth.js
 // Armazena as credenciais do Baileys no banco (Supabase/Postgres)
 // Suporta múltiplas instâncias (Multi-WhatsApp)
+// Namespace por APP_ENV — prod/staging/dev não compartilham sessão (evita 440)
 
 const prisma = require("../lib/db");
+const ENV = require("../config/env");
 const { initAuthCreds, BufferJSON } = require("@whiskeysockets/baileys");
 
+function authKey(instanceId) {
+  const env = ENV.APP_ENV || "local";
+  return `baileys:auth:${env}:${instanceId}`;
+}
+
 async function useDbAuthState(instanceId = "default") {
-  const DB_KEY = `baileys:auth:${instanceId}`;
+  const DB_KEY = authKey(instanceId);
 
   async function readState() {
     const row = await prisma.config.findUnique({ where: { key: DB_KEY } }).catch(() => null);
@@ -64,15 +71,17 @@ async function useDbAuthState(instanceId = "default") {
 }
 
 async function clearDbAuth(instanceId = "default") {
-  const DB_KEY = `baileys:auth:${instanceId}`;
+  const DB_KEY = authKey(instanceId);
   await prisma.config.deleteMany({ where: { key: DB_KEY } }).catch(() => {});
 }
 
 async function listInstances() {
+  const env = ENV.APP_ENV || "local";
+  const prefix = `baileys:auth:${env}:`;
   const configs = await prisma.config.findMany({
-    where: { key: { startsWith: "baileys:auth:" } },
+    where: { key: { startsWith: prefix } },
   });
-  return configs.map((c) => c.key.replace("baileys:auth:", ""));
+  return configs.map((c) => c.key.replace(prefix, ""));
 }
 
 module.exports = { useDbAuthState, clearDbAuth, listInstances };

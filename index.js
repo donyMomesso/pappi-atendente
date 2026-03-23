@@ -19,6 +19,8 @@ const { runStartup } = require("./src/startup");
 
 const PORT = ENV.PORT || 10000;
 
+// Modo monólito: web + jobs + Baileys no mesmo processo (dev local).
+// Produção: use start:web + start:baileys separados (evita 440).
 console.log("  Iniciando serviços...");
 runStartup();
 

@@ -299,36 +299,26 @@ function isHandoffTrigger(text) {
 
 // ── Instagram / Facebook Messenger ───────────────────────────
 
-async function processSocialMessage({ platform, senderId, senderName, text }) {
-  if (!senderId || !text?.trim()) return;
+async function processSocialMessage({ platform, senderId, recipientId, senderName, text, attachmentType }) {
+  if (!senderId) return;
+
+  const displayText = (text && String(text).trim()) || (attachmentType ? `📎 ${attachmentType}` : "");
+  if (!displayText) return;
+
+  const log = require("../lib/logger").child({ service: "webhook" });
+  const prisma = require("../lib/db");
+
   try {
-    const prisma = require("../lib/db");
-
-    // Busca tenant dinâmicamente em vez de usar ID hardcoded.
-    // Primeiro tenta encontrar pelo customer existente, senão usa o primeiro tenant ativo.
-    const socialId = `${platform}:${senderId}`;
-    let tenantId = null;
-
-    const existingCustomer = await prisma.customer.findFirst({
-      where: { phone: socialId },
-      select: { tenantId: true },
-    });
-
-    if (existingCustomer) {
-      tenantId = existingCustomer.tenantId;
-    } else {
-      const fallbackTenant = await prisma.tenant.findFirst({
-        where: { active: true },
-        select: { id: true },
-        orderBy: { createdAt: "asc" },
-      });
-      tenantId = fallbackTenant?.id;
+    const tenantId = await metaSocial.resolveTenantId({ platform, recipientId, senderId });
+    if (!tenantId) {
+      log.warn({ platform, senderId, recipientId }, "Social: tenant não encontrado — mensagem ignorada");
+      return;
     }
 
-    if (!tenantId) return;
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) return;
 
+    const socialId = `${platform}:${senderId}`;
     let customer = await prisma.customer.findUnique({
       where: { tenantId_phone: { tenantId, phone: socialId } },
     });
@@ -339,20 +329,22 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
     }
 
     await touchInteraction(customer.id);
-    await chatMemory.push(customer.id, "customer", text.trim(), null, null, "text");
+    await chatMemory.push(customer.id, "customer", displayText, null, null, attachmentType || "text");
 
     await convState.resetIfEncerrado(customer);
 
     const botMayRespond = await convState.shouldBotRespond(customer);
     if (!botMayRespond) return;
 
-    if (isHandoffTrigger(text)) {
+    if (isHandoffTrigger(displayText)) {
       await setHandoff(customer.id, true);
       const reply = "Aguarde um momento, vou te transferir para um atendente. 👨‍💼";
-      if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply);
-      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply);
+      if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply, tenantId);
+      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply, tenantId);
       baileys
-        .notify(`🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${text.slice(0, 60)}`)
+        .notify(
+          `🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${displayText.slice(0, 60)}`,
+        )
         .catch(() => {});
       return;
     }
@@ -371,10 +363,10 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
     });
 
     await chatMemory.push(customer.id, "assistant", result.reply, "Pappi", null, "text");
-    if (platform === "instagram") await metaSocial.sendInstagram(senderId, result.reply);
-    if (platform === "facebook") await metaSocial.sendFacebook(senderId, result.reply);
+    if (platform === "instagram") await metaSocial.sendInstagram(senderId, result.reply, tenantId);
+    if (platform === "facebook") await metaSocial.sendFacebook(senderId, result.reply, tenantId);
   } catch (err) {
-    console.error(`[${platform}] Erro:`, err.message);
+    log.error({ platform, senderId, err }, "Social: erro ao processar mensagem");
   }
 }
 

@@ -7,9 +7,16 @@
 
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
+const baileysLock = require("./baileys-lock.service");
 const QRCode = require("qrcode");
 const prisma = require("../lib/db");
+const ENV = require("../config/env");
 const log = require("../lib/logger").child({ service: "baileys" });
+
+function instanceConfigKey(instanceId) {
+  const env = ENV.APP_ENV || "local";
+  return `baileys:instance:${env}:${instanceId}`;
+}
 
 // ── Limites de segurança por instância (bot + notificações) ─────
 const LIMITS = { perHour: 60, perDay: 200, alertAt: 0.7 };
@@ -56,6 +63,7 @@ function createInstanceData(id) {
     _replaced440Count: 0,
     _genericDisconnectCount: 0,
     _lastDisconnectAt: 0,
+    _heartbeatInterval: null,
     counters: {
       hour: 0,
       day: 0,
@@ -219,10 +227,10 @@ async function detectTenantByPhone(phone, instanceId = null) {
 
     if (customer?.tenantId) return customer.tenantId;
 
-    // Número novo: tenta tenant da instância (Config baileys:instance:{id})
+    // Número novo: tenta tenant da instância (Config baileys:instance:{env}:{id})
     if (instanceId) {
       const cfg = await prisma.config.findUnique({
-        where: { key: `baileys:instance:${instanceId}` },
+        where: { key: instanceConfigKey(instanceId) },
       });
       if (cfg?.value) {
         try {
@@ -298,6 +306,26 @@ async function start(instanceId = "default", opts = {}) {
   inst.starting = true;
 
   try {
+    // Lock: evita dois processos assumirem a mesma sessão (440)
+    const lockAcquired = await baileysLock.acquireLock(instanceId);
+    if (!lockAcquired) {
+      inst.starting = false;
+      log.warn(
+        {
+          instanceId,
+          appEnv: ENV.APP_ENV,
+          hostname: ENV.BAILEYS_HOSTNAME || require("os").hostname(),
+          pid: process.pid,
+        },
+        "Boot recusado — outro processo detém o lock da instância",
+      );
+      return;
+    }
+    log.info(
+      { instanceId, appEnv: ENV.APP_ENV, owner: baileysLock.ownerId() },
+      "Lock adquirido — iniciando conexão Baileys",
+    );
+
     // Pequena pausa após desconexão recente — evita 440 por "auto-substituição" em restarts rápidos (ex: Render wake)
     const sinceDisconnect = Date.now() - (inst._lastDisconnectAt || 0);
     if (sinceDisconnect < 5000 && !force) {
@@ -562,7 +590,10 @@ async function start(instanceId = "default", opts = {}) {
         if (qr) {
           inst.status = "qr";
           inst.qrBase64 = await QRCode.toDataURL(qr);
-          log.info({ instanceId }, "QR Code gerado — escaneie no WhatsApp");
+          log.info(
+            { instanceId, appEnv: ENV.APP_ENV, owner: baileysLock.ownerId() },
+            "QR Code gerado — escaneie no WhatsApp",
+          );
         }
 
         if (connection === "open") {
@@ -577,7 +608,23 @@ async function start(instanceId = "default", opts = {}) {
             phone: user?.id?.split(":")[0] || user?.id || "?",
             name: user?.name || "?",
           };
-          log.info({ instanceId, phone: inst.account.phone, name: inst.account.name }, "Baileys conectado com sucesso");
+          log.info(
+            {
+              instanceId,
+              phone: inst.account.phone,
+              name: inst.account.name,
+              appEnv: ENV.APP_ENV,
+              owner: baileysLock.ownerId(),
+            },
+            "Baileys connection open",
+          );
+          // Heartbeat para manter lock vivo
+          if (inst._heartbeatInterval) clearInterval(inst._heartbeatInterval);
+          const ttl = ENV.BAILEYS_LOCK_TTL_MS || 60_000;
+          inst._heartbeatInterval = setInterval(
+            () => baileysLock.heartbeat(instanceId),
+            Math.floor(ttl / 2),
+          );
         }
 
         if (connection === "close") {
@@ -590,6 +637,12 @@ async function start(instanceId = "default", opts = {}) {
           inst.starting = false;
           inst._lastDisconnectAt = Date.now();
 
+          if (inst._heartbeatInterval) {
+            clearInterval(inst._heartbeatInterval);
+            inst._heartbeatInterval = null;
+          }
+          await baileysLock.releaseLock(instanceId);
+
           if (!inst._intentionalDisconnect) {
             const reason = loggedOut
               ? "Logout (401)"
@@ -599,8 +652,15 @@ async function start(instanceId = "default", opts = {}) {
                   ? `Conexão fechada (code ${code})`
                   : "Conexão fechada";
             log.warn(
-              { instanceId, code, errMsg: errMsg.slice(0, 200) },
-              `Baileys desconectado: ${reason}`,
+              {
+                instanceId,
+                code,
+                errMsg: errMsg.slice(0, 200),
+                appEnv: ENV.APP_ENV,
+                hostname: ENV.BAILEYS_HOSTNAME || require("os").hostname(),
+                pid: process.pid,
+              },
+              `Baileys disconnect: ${reason}`,
             );
             try {
               require("./socket.service").emitBaileysDisconnected(instanceId, reason);
@@ -617,18 +677,33 @@ async function start(instanceId = "default", opts = {}) {
             inst._reconnectDelay = 8000;
             inst._genericDisconnectCount = 0;
           } else if (replaced) {
-            // 440 = sessão substituída. Para imediatamente, sem ciclo de retry.
+            // 440 = sessão substituída — outro processo ou QR escaneado em outro lugar
             inst.status = "conflict";
-            inst._replaced440Count = 0;
-            const ENV = require("../config/env");
+            inst._replaced440Count = (inst._replaced440Count || 0) + 1;
+            log.warn(
+              {
+                instanceId,
+                appEnv: ENV.APP_ENV,
+                hostname: ENV.BAILEYS_HOSTNAME || require("os").hostname(),
+                pid: process.pid,
+                owner: baileysLock.ownerId(),
+                replaceCount: inst._replaced440Count,
+                clearAuthOn440: ENV.BAILEYS_CLEAR_AUTH_ON_440,
+              },
+              "440 detected — sessão substituída. Possíveis causas: outro processo, prod+homolog no mesmo banco, WEB_CONCURRENCY>1. Conecte manualmente no painel.",
+            );
             if (ENV.BAILEYS_CLEAR_AUTH_ON_440) {
               await clearDbAuth(instanceId);
-              log.info({ instanceId }, "440 → auth limpo (BAILEYS_CLEAR_AUTH_ON_440). Próximo Conectar exige novo QR.");
+              log.info(
+                { instanceId },
+                "440 → auth limpo (BAILEYS_CLEAR_AUTH_ON_440). Próximo Conectar exige novo QR.",
+              );
+            } else {
+              log.info(
+                { instanceId },
+                "Auth mantido. Use Conectar no painel para retentar. Se 440 persiste: verifique APP_ENV, processos duplicados, ou BAILEYS_CLEAR_AUTH_ON_440=true.",
+              );
             }
-            log.warn(
-              { instanceId },
-              "Sessão 440. Conecte manualmente no painel. Se 440 persiste sem celular ativo: WEB_CONCURRENCY=1, ou BAILEYS_CLEAR_AUTH_ON_440=true.",
-            );
           } else {
             inst._replaced440Count = 0;
             inst._genericDisconnectCount = (inst._genericDisconnectCount || 0) + 1;
@@ -686,11 +761,13 @@ async function initAll() {
 
   const authIds = await listInstances();
 
+  const env = ENV.APP_ENV || "local";
+  const instancePrefix = `baileys:instance:${env}:`;
   const cfgs = await prisma.config.findMany({
-    where: { key: { startsWith: "baileys:instance:" } },
+    where: { key: { startsWith: instancePrefix } },
     select: { key: true },
   });
-  const cfgIds = cfgs.map((c) => c.key.replace("baileys:instance:", ""));
+  const cfgIds = cfgs.map((c) => c.key.replace(instancePrefix, ""));
 
   const ids = [...new Set([...authIds, ...cfgIds, "default"])];
 
@@ -762,7 +839,7 @@ async function notify(text) {
 async function getInstanceTenant(instanceId) {
   try {
     const cfg = await prisma.config.findUnique({
-      where: { key: `baileys:instance:${instanceId}` },
+      where: { key: instanceConfigKey(instanceId) },
     });
     if (cfg?.value) {
       const { tenantId } = JSON.parse(cfg.value);
@@ -773,9 +850,10 @@ async function getInstanceTenant(instanceId) {
 }
 
 async function setInstanceTenant(instanceId, tenantId) {
+  const key = instanceConfigKey(instanceId);
   await prisma.config.upsert({
-    where: { key: `baileys:instance:${instanceId}` },
-    create: { key: `baileys:instance:${instanceId}`, value: JSON.stringify({ tenantId: tenantId || null }) },
+    where: { key },
+    create: { key, value: JSON.stringify({ tenantId: tenantId || null }) },
     update: { value: JSON.stringify({ tenantId: tenantId || null }) },
   });
 }
@@ -820,19 +898,24 @@ function setNotifyNumbers(numbers, instanceId = "default") {
   inst.notifyTo = Array.isArray(numbers) ? numbers : [];
 }
 
-function disconnect(instanceId = "default") {
+async function disconnect(instanceId = "default") {
   const inst = INSTANCES.get(instanceId);
   if (!inst) return;
   inst.starting = false;
   inst._intentionalDisconnect = true;
   inst._replaced440Count = 0;
   inst._genericDisconnectCount = 0;
+  if (inst._heartbeatInterval) {
+    clearInterval(inst._heartbeatInterval);
+    inst._heartbeatInterval = null;
+  }
   if (inst.socket) {
     try {
       inst.socket.end();
     } catch (e) {}
   }
-  clearDbAuth(instanceId).catch(() => {});
+  await baileysLock.releaseLock(instanceId);
+  await clearDbAuth(instanceId).catch(() => {});
   inst.status = "disconnected";
   inst.socket = null;
   inst.qrBase64 = null;

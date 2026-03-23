@@ -40,8 +40,9 @@ O Baileys é o WhatsApp QR (não-oficial) usado para notificações internas e, 
 2. Confirme `WEB_CONCURRENCY=1` no ambiente.
 3. Se necessário, limpe o auth e gere novo QR:
    - Via painel: desconectar instância e reconectar.
-   - Via banco: deletar `Config` onde `key = 'baileys:auth:default'` (ou instanceId usado).
-4. Reinicie o processo Baileys.
+   - Via banco: deletar `Config` onde `key = 'baileys:auth:{APP_ENV}:default'` (ex: `baileys:auth:prod:default`).
+4. Verifique `docs/BAILEYS_440.md` para causas raiz e configuração.
+5. Reinicie o processo Baileys dedicado.
 
 ## Procedimento de restart
 

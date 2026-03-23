@@ -11,9 +11,38 @@ const convState = require("../services/conversation-state.service");
 const googleContacts = require("../services/google-contacts.service");
 const baileys = require("../services/baileys.service");
 const retention = require("../services/retention.service");
+const metaSocial = require("../services/meta-social.service");
 const ENV = require("../config/env");
 
 const router = express.Router();
+
+function parseSocialPhone(phone) {
+  if (!phone || typeof phone !== "string") return null;
+  const s = phone.trim();
+  if (s.startsWith("instagram:")) return { platform: "instagram", recipientId: s.slice(10) };
+  if (s.startsWith("facebook:")) return { platform: "facebook", recipientId: s.slice(9) };
+  return null;
+}
+
+async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
+  const social = parseSocialPhone(phone);
+  if (social) {
+    if (social.platform === "instagram") return metaSocial.sendInstagram(social.recipientId, text, tenantId);
+    if (social.platform === "facebook") return metaSocial.sendFacebook(social.recipientId, text, tenantId);
+  }
+
+  const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+  const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+  const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
+  const useBaileysInstance = replyChannel && replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
+
+  if (useBaileysInstance) {
+    return baileys.sendText(normalizedPhone, text, useBaileysInstance, true);
+  }
+  const { wa } = await getClients(tenantId);
+  const result = await wa.sendText(normalizedPhone, text);
+  return result?.messages?.[0]?.id ? { ok: true } : result;
+}
 
 const DEFAULT_TENANT = "tenant-pappi-001";
 
@@ -32,23 +61,10 @@ async function sendAttendantGreeting(customerId, attendantName, tenantId) {
   const customer = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!customer) return;
 
-  const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-  const normalizedPhone = PhoneNormalizer.normalize(customer.phone) || customer.phone;
+  const tid = tenantId || customer.tenantId;
   const greeting = `Olá, tudo bem? Aqui quem está falando é *${attendantName}*. Em que posso te ajudar?`;
 
-  const replyChannel = await baileys.getReplyChannel(customerId);
-  const useBaileysInstance = replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
-
-  if (useBaileysInstance) {
-    await baileys.sendText(normalizedPhone, greeting, useBaileysInstance, true);
-  } else {
-    try {
-      const { wa } = await getClients(tenantId || customer.tenantId);
-      await wa.sendText(normalizedPhone, greeting);
-    } catch (waErr) {
-      await baileys.sendText(normalizedPhone, greeting, "default", true).catch(() => {});
-    }
-  }
+  await sendOutboundMessage({ tenantId: tid, phone: customer.phone, text: greeting, customerId });
 
   const chatMemory = require("../services/chat-memory.service");
   await chatMemory.push(customerId, "attendant", greeting, attendantName, null, "text", null);
@@ -245,7 +261,10 @@ router.put("/handoff", authDash, async (req, res) => {
     let { customerId, phone, enabled, attendant } = req.body;
     if (!customerId && phone) {
       const { findByPhone } = require("../services/customer.service");
-      const c = await findByPhone(tenantId, phone);
+      let c = await findByPhone(tenantId, phone);
+      if (!c && parseSocialPhone(phone)) {
+        c = await prisma.customer.findUnique({ where: { tenantId_phone: { tenantId, phone } } });
+      }
       if (c) customerId = c.id;
     }
     if (!customerId) return res.status(400).json({ error: "customerId ou phone obrigatório" });
@@ -276,8 +295,9 @@ router.post("/queue/claim", authDash, async (req, res) => {
     const attendantName = attendant || req.attendant?.name || "Atendente";
     await claimFromQueue(customerId, attendantName);
 
+    const tenantId = resolveTenant(req);
     try {
-      await sendAttendantGreeting(customerId, attendantName);
+      await sendAttendantGreeting(customerId, attendantName, tenantId);
     } catch (greetingErr) {
       console.error("[Queue/claim] Erro ao enviar saudação:", greetingErr.message);
     }
@@ -674,8 +694,8 @@ router.post("/baileys/instances/:id/connect", authAdmin, async (req, res) => {
   await baileys.start(req.params.id, { force: true });
   res.json({ ok: true });
 });
-router.post("/baileys/instances/:id/disconnect", authAdmin, (req, res) => {
-  baileys.disconnect(req.params.id);
+router.post("/baileys/instances/:id/disconnect", authAdmin, async (req, res) => {
+  await baileys.disconnect(req.params.id);
   res.json({ ok: true });
 });
 router.patch("/baileys/instances/:id/bot", authAdmin, (req, res) => {
@@ -691,8 +711,8 @@ router.patch("/baileys/instances/:id/tenant", authDash, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.delete("/baileys/instances/:id", authAdmin, (req, res) => {
-  baileys.disconnect(req.params.id);
+router.delete("/baileys/instances/:id", authAdmin, async (req, res) => {
+  await baileys.disconnect(req.params.id);
   res.json({ ok: true });
 });
 
@@ -897,26 +917,11 @@ router.post("/send", authDash, async (req, res) => {
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
 
-    const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-    const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+    const result = await sendOutboundMessage({ tenantId, phone, text, customerId });
+    if (!result || (typeof result === "object" && result.error)) throw new Error("Falha ao enviar mensagem");
 
     let waMessageId = null;
-    const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
-    const useBaileysInstance = replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
-
-    if (useBaileysInstance) {
-      const sent = await baileys.sendText(normalizedPhone, text, useBaileysInstance, true);
-      if (!sent) throw new Error("Falha ao enviar via WhatsApp interno");
-    } else {
-      try {
-        const { wa } = await getClients(tenantId);
-        const result = await wa.sendText(normalizedPhone, text);
-        waMessageId = result?.messages?.[0]?.id;
-      } catch (waErr) {
-        const sent = await baileys.sendText(normalizedPhone, text, "default", true);
-        if (!sent) throw waErr;
-      }
-    }
+    if (result && typeof result === "object" && result.messages?.[0]?.id) waMessageId = result.messages[0].id;
 
     if (customerId) {
       const chatMemory = require("../services/chat-memory.service");
@@ -1376,8 +1381,8 @@ router.post("/wa-internal/connect", authAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.post("/wa-internal/disconnect", authAdmin, (req, res) => {
-  baileys.disconnect(req.body.instanceId || "default");
+router.post("/wa-internal/disconnect", authAdmin, async (req, res) => {
+  await baileys.disconnect(req.body.instanceId || "default");
   res.json({ ok: true });
 });
 

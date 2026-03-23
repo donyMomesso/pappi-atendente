@@ -7,8 +7,21 @@ function toNumber(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// APP_ENV: prod | staging | dev | local — isolamento de sessão Baileys entre ambientes
+function resolveAppEnv() {
+  const v = (process.env.APP_ENV || "").trim().toLowerCase();
+  if (["prod", "production", "staging", "homolog", "dev", "development", "local"].includes(v)) {
+    if (v === "production") return "prod";
+    if (v === "homolog") return "staging";
+    if (v === "development") return "dev";
+    return v;
+  }
+  return process.env.NODE_ENV === "production" ? "prod" : process.env.NODE_ENV === "development" ? "dev" : "local";
+}
+
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
+  APP_ENV: resolveAppEnv(),
   PORT: toNumber(process.env.PORT, 10000),
   APP_URL: (process.env.APP_URL || "https://pappiatendente.com.br").replace(/\/$/, ""),
   WEBHOOK_VERIFY_TOKEN: process.env.WEBHOOK_VERIFY_TOKEN || "",
@@ -69,13 +82,16 @@ module.exports = {
   // ── Produção privada ──
   BAILEYS_ENABLED: process.env.BAILEYS_ENABLED !== "false",
   BAILEYS_INSTANCE_MODE: process.env.BAILEYS_INSTANCE_MODE || "embedded",
-  // true = ao receber 440, limpa auth — próxima conexão exige novo QR (resolve 440 fantasma)
+  // true = ao receber 440, limpa auth — use com critério (ver docs/BAILEYS_440.md)
   BAILEYS_CLEAR_AUTH_ON_440: process.env.BAILEYS_CLEAR_AUTH_ON_440 === "true",
+  BAILEYS_LOCK_TTL_MS: toNumber(process.env.BAILEYS_LOCK_TTL_MS, 60_000),
+  BAILEYS_PROCESS_NAME: process.env.BAILEYS_PROCESS_NAME || "pappi-baileys",
+  BAILEYS_HOSTNAME: process.env.BAILEYS_HOSTNAME || require("os").hostname(),
   WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),
+  RUN_JOBS: process.env.RUN_JOBS !== "false",
+  RUN_BAILEYS: process.env.RUN_BAILEYS !== "false",
   LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   HEALTHCHECK_TOKEN: process.env.HEALTHCHECK_TOKEN || "",
   REDIS_URL: process.env.REDIS_URL || "",
   SENTRY_DSN: process.env.SENTRY_DSN || "",
-  RUN_JOBS: process.env.RUN_JOBS !== "false",
-  RUN_BAILEYS: process.env.RUN_BAILEYS !== "false",
 };

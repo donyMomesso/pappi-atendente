@@ -39,7 +39,7 @@ async function main() {
   const baileys = require("../services/baileys.service");
   await baileys.initAll();
 
-  log.info("Baileys iniciado em processo dedicado");
+  log.info({ appEnv: ENV.APP_ENV, owner: require("../services/baileys-lock.service").ownerId() }, "Baileys iniciado em processo dedicado");
 
   // Mantém o processo vivo
   setInterval(() => {}, 60000);
