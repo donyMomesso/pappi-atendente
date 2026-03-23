@@ -30,6 +30,29 @@ function parseSocialPhone(phone) {
   return null;
 }
 
+function formatCustomerDisplay(customer) {
+  const social = parseSocialPhone(customer.phone);
+  const displayName = customer.name?.trim() || null;
+  if (social) {
+    const shortId = social.recipientId.slice(-6).replace(/^0+/, "") || social.recipientId.slice(-5);
+    const friendlyLabel = social.platform === "instagram" ? `Instagram · ${shortId}` : `Facebook · ${shortId}`;
+    return {
+      isSocial: true,
+      socialPlatform: social.platform,
+      displayName: displayName || friendlyLabel,
+      phoneFormatted: friendlyLabel,
+      phoneSubtitle: customer.phone,
+    };
+  }
+  return {
+    isSocial: false,
+    socialPlatform: null,
+    displayName: displayName || customer.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+    phoneFormatted: customer.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+    phoneSubtitle: null,
+  };
+}
+
 async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
   const txt = typeof text === "string" ? text.trim() : "";
   if (!txt) return null;
@@ -221,9 +244,10 @@ router.get("/conversations", authDash, async (req, res) => {
     const withState = await Promise.all(
       customers.map(async (c) => {
         const state = await convState.getState(c);
+        const fmt = formatCustomerDisplay(c);
         return {
           ...c,
-          phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+          ...fmt,
           lastOrder: c.orders[0] || null,
           conversationState: state,
         };
@@ -251,9 +275,10 @@ router.get("/queue", authDash, async (req, res) => {
       customers.map(async (c) => {
         const state = await convState.getState(c);
         const isUnclaimed = !c.claimedBy;
+        const fmt = formatCustomerDisplay(c);
         return {
           ...c,
-          phoneFormatted: c.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
+          ...fmt,
           lastOrder: c.orders[0] || null,
           conversationState: state,
           isUnclaimed,

@@ -59,6 +59,8 @@
     .conv-item.handoff{background:#fff3e0;border-left:3px solid var(--orange)}
     .avatar{width:40px;height:40px;border-radius:50%;background:var(--brand-grad);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0;position:relative;overflow:hidden}
     .avatar.orange{background:var(--orange)}
+    .avatar.avatar-ig{background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);font-size:11px;font-weight:800}
+    .avatar.avatar-fb{background:#1877f2;font-size:11px;font-weight:800}
     .avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
     .avatar .avatar-letter{position:relative;z-index:0}
     .conv-info{flex:1;min-width:0}
@@ -1780,16 +1782,22 @@ function renderConvs(list) {
       : isHandoff
       ? `<span class="badge-handoff">🙋 Humano</span>`
       : `<span class="badge-bot">🤖 Bot</span>`;
-    const letter = (c.name||c.phoneFormatted||"?")[0].toUpperCase();
+    const label = getSocialAvatarLabel(c);
+    const mainName = getSocialDisplayName(c);
+    const subLine = esc(c.phoneFormatted||c.phone) + (c.lastOrder ? " · "+statusLabel(c.lastOrder.status) : "");
+    const isSocial = c.isSocial || isSocialPhone(c.phone);
+    const plat = getSocialPlatform(c.phone);
+    const avatarImg = isSocial ? "" : `<img data-avatar-cid="${c.id}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>`;
+    const avatarClass = isSocial ? (plat==="facebook" ? "avatar avatar-fb" : "avatar avatar-ig") : "avatar";
     return `
     <div class="conv-item${selectedCustomer?.id===c.id?" active":""}${isHandoff?" handoff":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
-      <div class="avatar${isHandoff?" orange":""}">
-        <img data-avatar-cid="${c.id}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
-        <span class="avatar-letter">${letter}</span>
+      <div class="${avatarClass}${isHandoff?" orange":""}">
+        ${avatarImg}
+        <span class="avatar-letter">${label}</span>
       </div>
       <div class="conv-info">
-        <div class="conv-name">${esc(c.name)}</div>
-        <div class="conv-sub">${esc(c.phoneFormatted)}${c.lastOrder?" · "+statusLabel(c.lastOrder.status):""}</div>
+        <div class="conv-name">${esc(mainName)}</div>
+        <div class="conv-sub">${subLine}</div>
       </div>
       <div class="conv-badge">${badge}</div>
     </div>`;
@@ -1802,9 +1810,11 @@ function renderConvs(list) {
 
 function filterConv() {
   const q = document.getElementById("searchInput").value.toLowerCase();
-  renderConvs(allConvs.filter(c =>
-    (c.name||"").toLowerCase().includes(q) || (c.phoneFormatted||"").includes(q)
-  ));
+  renderConvs(allConvs.filter(c => {
+    const name = getSocialDisplayName(c);
+    const phone = c.phoneFormatted || c.phone || "";
+    return name.toLowerCase().includes(q) || phone.toLowerCase().includes(q);
+  }));
 }
 
 // ── SELECIONA CLIENTE POR ID ──────────────────────────────────
@@ -1905,17 +1915,23 @@ function appendLastOrder(body, order) {
 
 function renderCenter(c) {
   const botOn = !c.handoff;
-  const letter = (c.name||"?")[0].toUpperCase();
+  const mainName = getSocialDisplayName(c);
+  const label = getSocialAvatarLabel(c);
+  const isSocial = c.isSocial || isSocialPhone(c.phone);
+  const plat = getSocialPlatform(c.phone);
+  const avatarClass = isSocial ? (plat==="facebook" ? "avatar avatar-fb" : "avatar avatar-ig") : "avatar";
+  const avatarImg = isSocial ? "" : `<img data-avatar-cid="${c.id}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>`;
+  const subPhone = esc(c.phoneFormatted||c.phone) + " · " + (c.visitCount||0) + " visitas";
   const el = document.getElementById("colCenter");
   el.innerHTML = `
     <div class="chat-header">
-      <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">
-        <img data-avatar-cid="${c.id}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
-        <span class="avatar-letter">${letter}</span>
+      <div class="${avatarClass}" style="width:36px;height:36px;font-size:${isSocial?'11px':'14px'};${!isSocial?'background:rgba(255,255,255,.25)':''}">
+        ${avatarImg}
+        <span class="avatar-letter">${label}</span>
       </div>
       <div style="flex:1;min-width:0">
-        <div class="name">${esc(c.name)}</div>
-        <div class="phone">${esc(c.phoneFormatted)} · ${c.visitCount} visitas</div>
+        <div class="name">${esc(mainName)}</div>
+        <div class="phone">${subPhone}</div>
       </div>
       <!-- Toggle BOT individual por conversa -->
       <div style="display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.2);border-radius:8px;padding:4px 8px;cursor:pointer" onclick="headerToggleBot()" title="${botOn?'Bot ativo — clique para assumir':'Humano ativo — clique para devolver ao bot'}">
@@ -1961,8 +1977,8 @@ function renderRight(c) {
       <div class="panel-header">
         <h2>Cliente</h2>
         <div class="client-info">
-          <div class="cname">${esc(c.name)}</div>
-          <div class="cphone">${esc(c.phoneFormatted)}</div>
+          <div class="cname">${esc(getSocialDisplayName(c))}</div>
+          <div class="cphone">${esc(c.phoneFormatted||c.phone)}${(c.isSocial&&c.phoneSubtitle)?" <span style='font-size:10px;color:#888'>("+esc(c.phoneSubtitle)+")</span>":""}</div>
           ${c.lastAddress?`<div style="font-size:11px;color:#888;margin-top:3px">📍 ${esc(c.lastAddress)}</div>`:""}
         </div>
       </div>
@@ -3819,6 +3835,11 @@ function handoffBar(c) {
 }
 
 function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// ── Social (Instagram/Facebook) helpers ──
+function isSocialPhone(phone) { return !!(phone && typeof phone==="string" && (phone.startsWith("instagram:")||phone.startsWith("facebook:"))); }
+function getSocialPlatform(phone) { if (!phone) return null; if (phone.startsWith("instagram:")) return "instagram"; if (phone.startsWith("facebook:")) return "facebook"; return null; }
+function getSocialDisplayName(c) { if (c.displayName) return c.displayName; if (c.name&&c.name.trim()) return c.name; if (isSocialPhone(c.phone)) { const p=getSocialPlatform(c.phone); const id=(p==="instagram"?c.phone.slice(10):c.phone.slice(9)).trim(); const short=id.slice(-6).replace(/^0+/,"")||id.slice(-5); return p==="instagram"?`Instagram · ${short}`:`Facebook · ${short}`; } return c.phoneFormatted||c.phone||"?"; }
+function getSocialAvatarLabel(c) { if (c.isSocial&&c.socialPlatform) return c.socialPlatform==="instagram"?"IG":"FB"; if (isSocialPhone(c.phone)) return getSocialPlatform(c.phone)==="instagram"?"IG":"FB"; return (c.displayName||c.name||c.phoneFormatted||c.phone||"?")[0].toUpperCase(); }
 function statusLabel(s) {
   return {
     waiting_confirmation:"⏳ Aguardando",confirmed:"✅ Confirmado",
