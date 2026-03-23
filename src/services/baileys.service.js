@@ -164,23 +164,22 @@ function extractIncomingText(msg) {
         "HELP_BOT",
         "FULFILLMENT_RETIRADA",
       ];
-      text = flowIds.includes(id) ? id : (display || id || "");
+      text = flowIds.includes(id) ? id : display || id || "";
     }
   }
 
   if (!text) {
     const listResp = m?.listResponseMessage;
     if (listResp) {
-      text =
-        listResp.singleSelectReply?.selectedRowId ||
-        listResp.title ||
-        listResp.description ||
-        "";
+      text = listResp.singleSelectReply?.selectedRowId || listResp.title || listResp.description || "";
     }
   }
 
   if (text) {
-    const t = String(text).toLowerCase().replace(/✅|✏️|❌/g, "").trim();
+    const t = String(text)
+      .toLowerCase()
+      .replace(/✅|✏️|❌/g, "")
+      .trim();
     if (t === "corrigir") text = "change_addr";
     else if (t === "cancelar") text = "CANCELAR";
     else if (t === "confirmar" || t === "confirma") text = "confirm_addr";
@@ -438,7 +437,8 @@ async function start(instanceId = "default") {
               } catch (e) {
                 log.error({ instanceId, phone, err: e }, "Erro no bot");
                 try {
-                  const fallback = "Desculpe, tive um problema. Tente de novo ou digite *atendente* pra falar com alguém.";
+                  const fallback =
+                    "Desculpe, tive um problema. Tente de novo ou digite *atendente* pra falar com alguém.";
                   await sendText(customer.phone, fallback, instanceId, true);
                   await botHandler.saveBaileysMessage(customer.phone, fallback, tenantId, "assistant");
                 } catch (f) {
@@ -484,58 +484,58 @@ async function start(instanceId = "default") {
         }
 
         if (connection === "close") {
-        const code = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut = code === DisconnectReason.loggedOut;
-        const replaced = code === DisconnectReason.connectionReplaced;
-        inst.status = "disconnected";
-        inst.socket = null;
-        inst.starting = false;
+          const code = lastDisconnect?.error?.output?.statusCode;
+          const loggedOut = code === DisconnectReason.loggedOut;
+          const replaced = code === DisconnectReason.connectionReplaced;
+          inst.status = "disconnected";
+          inst.socket = null;
+          inst.starting = false;
 
-        if (!inst._intentionalDisconnect) {
-          const reason = loggedOut
-            ? "Logout (401)"
-            : replaced
-              ? "Sessão substituída (440)"
-              : code
-                ? `Conexão fechada (code ${code})`
-                : "Conexão fechada";
-          try {
-            require("./socket.service").emitBaileysDisconnected(instanceId, reason);
-          } catch (e) {
-            log.warn({ err: e }, "Falha ao emitir baileys_disconnected");
+          if (!inst._intentionalDisconnect) {
+            const reason = loggedOut
+              ? "Logout (401)"
+              : replaced
+                ? "Sessão substituída (440)"
+                : code
+                  ? `Conexão fechada (code ${code})`
+                  : "Conexão fechada";
+            try {
+              require("./socket.service").emitBaileysDisconnected(instanceId, reason);
+            } catch (e) {
+              log.warn({ err: e }, "Falha ao emitir baileys_disconnected");
+            }
           }
-        }
-        inst._intentionalDisconnect = false;
+          inst._intentionalDisconnect = false;
 
-        if (loggedOut) {
-          console.log(`[Baileys:${instanceId}] Logout — limpando auth.`);
-          await clearDbAuth(instanceId);
-          inst.qrBase64 = null;
-          inst._reconnectDelay = 8000;
-        } else if (replaced) {
-          inst._replaced440Count = (inst._replaced440Count || 0) + 1;
-          if (inst._replaced440Count >= 3) {
-            inst.status = "conflict";
-            console.log(
-              `[Baileys:${instanceId}] Sessão substituída (440) ${inst._replaced440Count}x consecutivas — parando reconexão automática. Outra sessão está ativa.`,
-            );
-            log.warn(
-              { instanceId, replaced440Count: inst._replaced440Count },
-              "Baileys: reconexão 440 desabilitada — sessão em conflito",
-            );
+          if (loggedOut) {
+            console.log(`[Baileys:${instanceId}] Logout — limpando auth.`);
+            await clearDbAuth(instanceId);
+            inst.qrBase64 = null;
+            inst._reconnectDelay = 8000;
+          } else if (replaced) {
+            inst._replaced440Count = (inst._replaced440Count || 0) + 1;
+            if (inst._replaced440Count >= 3) {
+              inst.status = "conflict";
+              console.log(
+                `[Baileys:${instanceId}] Sessão substituída (440) ${inst._replaced440Count}x consecutivas — parando reconexão automática. Outra sessão está ativa.`,
+              );
+              log.warn(
+                { instanceId, replaced440Count: inst._replaced440Count },
+                "Baileys: reconexão 440 desabilitada — sessão em conflito",
+              );
+            } else {
+              const delayMs = inst._replaced440Count === 1 ? 45000 : 90000;
+              console.log(
+                `[Baileys:${instanceId}] Sessão substituída (440) #${inst._replaced440Count} — reconectando em ${delayMs / 1000}s...`,
+              );
+              setTimeout(() => start(instanceId), delayMs);
+            }
           } else {
-            const delayMs = inst._replaced440Count === 1 ? 45000 : 90000;
-            console.log(
-              `[Baileys:${instanceId}] Sessão substituída (440) #${inst._replaced440Count} — reconectando em ${delayMs / 1000}s...`,
-            );
-            setTimeout(() => start(instanceId), delayMs);
+            inst._replaced440Count = 0;
+            inst._reconnectDelay = 8000;
+            console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
+            setTimeout(() => start(instanceId), 8000);
           }
-        } else {
-          inst._replaced440Count = 0;
-          inst._reconnectDelay = 8000;
-          console.log(`[Baileys:${instanceId}] Conexão fechada (code=${code}) — reconectando em 8s...`);
-          setTimeout(() => start(instanceId), 8000);
-        }
         }
       } catch (err) {
         log.error({ err, instanceId, connection }, "Erro em connection.update");
@@ -726,9 +726,7 @@ function delay(ms) {
 }
 
 async function broadcastSend(numbers, message, instanceId = "default", delayMs = 5000) {
-  const normalized = numbers
-    .map((n) => String(n || "").replace(/\D/g, ""))
-    .filter((n) => n.length >= 10);
+  const normalized = numbers.map((n) => String(n || "").replace(/\D/g, "")).filter((n) => n.length >= 10);
   const unique = [...new Set(normalized)];
   const results = { sent: 0, failed: 0, errors: [] };
 

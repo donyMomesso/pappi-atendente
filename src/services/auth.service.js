@@ -47,7 +47,11 @@ async function verifySession(accessToken, opts = {}) {
       ip,
       userAgent,
     });
-    return { denied: true, reason: "user_not_authorized", message: "Usuário não autorizado. Entre em contato com o administrador." };
+    return {
+      denied: true,
+      reason: "user_not_authorized",
+      message: "Usuário não autorizado. Entre em contato com o administrador.",
+    };
   }
 
   if (!staff.active) {
@@ -88,7 +92,9 @@ async function verifySession(accessToken, opts = {}) {
  */
 async function requestPasswordReset(email, opts = {}) {
   const { ip, userAgent } = opts;
-  const emailNorm = String(email || "").trim().toLowerCase();
+  const emailNorm = String(email || "")
+    .trim()
+    .toLowerCase();
   if (!emailNorm) return { ok: false, message: "E-mail obrigatório." };
 
   const staff = await staffUser.findByEmail(emailNorm);

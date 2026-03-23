@@ -4,9 +4,13 @@
 const prisma = require("../lib/db");
 const log = require("../lib/logger").child({ service: "order-delay-monitor" });
 const { getClients, listActive } = require("./tenant.service");
-const { computeDailyAverages, computeEstimatedRemaining, formatTimeRange, getRiskLevel } = require("./order-delay.service");
+const {
+  computeDailyAverages,
+  computeEstimatedRemaining,
+  formatTimeRange,
+  getRiskLevel,
+} = require("./order-delay.service");
 const { getWeatherForCity } = require("./weather.service");
-const { generateCompensationCoupon, markCouponSent } = require("./coupon.service");
 const chatMemory = require("./chat-memory.service");
 const baileys = require("./baileys.service");
 const socketService = require("./socket.service");
@@ -27,7 +31,6 @@ async function processTenant(tenantId) {
   if (!tenant?.active) return;
 
   const intervalMin = await getDelayAlertInterval(tenantId);
-  const threshold = DELAY_THRESHOLD_MIN * 60 * 1000;
 
   // Pedidos em em_producao com cwOrderId (usa status — rode `npx prisma generate` para usar cardapiowebStatus)
   const orders = await prisma.order.findMany({
@@ -80,7 +83,6 @@ async function processTenant(tenantId) {
 
     const delayAlertSentAt = order.delayAlertSentAt ? new Date(order.delayAlertSentAt).getTime() : 0;
     const secondDelayAlertSentAt = order.secondDelayAlertSentAt ? new Date(order.secondDelayAlertSentAt).getTime() : 0;
-    const thirdDelayAlertSentAt = order.thirdDelayAlertSentAt ? new Date(order.thirdDelayAlertSentAt).getTime() : 0;
 
     // 1º alerta: 60 min
     if (!order.delayAlertSentAt) {
@@ -114,7 +116,11 @@ async function processTenant(tenantId) {
     }
 
     // 3º alerta: +15 ou 20 min
-    if (!order.thirdDelayAlertSentAt && secondDelayAlertSentAt && now - secondDelayAlertSentAt >= intervalMin * 60 * 1000) {
+    if (
+      !order.thirdDelayAlertSentAt &&
+      secondDelayAlertSentAt &&
+      now - secondDelayAlertSentAt >= intervalMin * 60 * 1000
+    ) {
       await sendThirdAlert(tenantId, order, customerName, phone);
       await prisma.order.update({ where: { id: order.id }, data: { thirdDelayAlertSentAt: new Date() } });
       log.info({ orderId: order.id }, "3º alerta de atraso enviado");

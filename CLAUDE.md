@@ -40,7 +40,7 @@ As sessões usam mutex por usuário para evitar race condition. O namespace
 no banco é `sess:{tenantId}:{phone}` (não `session:`).
 
 ### Rate Limiting
-`src/lib/rate-limiter.js` — limites: 30 msgs/min (webhook), 10/min (Gemini), 3/10min (pedidos).
+`src/lib/rate-limiter.js` — limites: 60 msgs/min (webhook), 15/min (Gemini), 5/10min (pedidos).
 
 ### Fila de retry CW
 `src/services/cw-retry.service.js` — roda a cada 5 min, reprocessa pedidos sem `cwOrderId`.

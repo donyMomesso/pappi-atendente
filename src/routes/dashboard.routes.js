@@ -493,7 +493,8 @@ router.get("/audit-logs", authAdmin, async (req, res) => {
     const tenantId = req.query.tenant;
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
     const where = {};
-    if (tenantId && req.staffUser?.tenantId !== tenantId && req.role !== "admin") return res.status(403).json({ error: "forbidden" });
+    if (tenantId && req.staffUser?.tenantId !== tenantId && req.role !== "admin")
+      return res.status(403).json({ error: "forbidden" });
     if (tenantId) where.tenantId = tenantId;
 
     const logs = await prisma.auditLog.findMany({
@@ -501,18 +502,20 @@ router.get("/audit-logs", authAdmin, async (req, res) => {
       orderBy: { createdAt: "desc" },
       take: limit,
     });
-    res.json(logs.map((l) => ({
-      id: l.id,
-      tenantId: l.tenantId,
-      userId: l.userId,
-      action: l.action,
-      resourceType: l.resourceType,
-      resourceId: l.resourceId,
-      metadata: l.metadata ? JSON.parse(l.metadata) : null,
-      ip: l.ip,
-      userAgent: l.userAgent,
-      createdAt: l.createdAt,
-    })));
+    res.json(
+      logs.map((l) => ({
+        id: l.id,
+        tenantId: l.tenantId,
+        userId: l.userId,
+        action: l.action,
+        resourceType: l.resourceType,
+        resourceId: l.resourceId,
+        metadata: l.metadata ? JSON.parse(l.metadata) : null,
+        ip: l.ip,
+        userAgent: l.userAgent,
+        createdAt: l.createdAt,
+      })),
+    );
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -765,10 +768,7 @@ router.post("/order", authDash, async (req, res) => {
         discounts: round2(discount),
       },
       items: cart.map((i) => {
-        const addonsSum = (i.addons || []).reduce(
-          (s, a) => s + (a.unit_price || 0) * (a.quantity || 1),
-          0,
-        );
+        const addonsSum = (i.addons || []).reduce((s, a) => s + (a.unit_price || 0) * (a.quantity || 1), 0);
         return {
           ...(i.id ? { item_id: String(i.id) } : {}),
           name: i.name,
@@ -791,9 +791,7 @@ router.post("/order", authDash, async (req, res) => {
         {
           total: calc.expectedTotal,
           payment_method_id: parseInt(paymentMethodId, 10) || paymentMethodId,
-          ...(trocoPara && parseFloat(trocoPara) > calc.expectedTotal
-            ? { change_for: parseFloat(trocoPara) }
-            : {}),
+          ...(trocoPara && parseFloat(trocoPara) > calc.expectedTotal ? { change_for: parseFloat(trocoPara) } : {}),
         },
       ],
       ...(trocoPara && parseFloat(trocoPara) > 0

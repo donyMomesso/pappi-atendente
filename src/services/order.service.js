@@ -73,8 +73,6 @@ async function updateStatus(orderId, status, source = "system", note = null) {
 /** Atualiza status vindo do CardápioWeb e campos de monitoramento de atraso */
 async function updateCwStatus(orderId, cwStatus) {
   const normalized = String(cwStatus || "").toLowerCase();
-  const isProd = ["em_producao", "in_production"].includes(normalized);
-  const isOut = ["saiu_para_entrega", "pronto_para_retirada", "dispatched", "ready_for_pickup"].includes(normalized);
   const isDone = ["pedido_concluido", "delivered", "concluded"].includes(normalized);
   const data = {
     status: cwStatus,

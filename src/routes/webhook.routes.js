@@ -177,10 +177,12 @@ async function processStatus({ status }) {
   if (s === "failed") console.error(`Mensagem ${id} falhou:`, status.errors);
 
   const prisma = require("../lib/db");
-  const row = await prisma.message.findFirst({
-    where: { waMessageId: id },
-    select: { customerId: true },
-  }).catch(() => null);
+  const row = await prisma.message
+    .findFirst({
+      where: { waMessageId: id },
+      select: { customerId: true },
+    })
+    .catch(() => null);
 
   if (row?.customerId) {
     await chatMemory.updateStatus(row.customerId, id, s).catch(() => {});

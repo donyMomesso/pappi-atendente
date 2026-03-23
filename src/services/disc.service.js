@@ -14,7 +14,8 @@ function detectDISC(historyText, userText) {
   if (/(tranquilo|de boa|sem pressa|tanto faz|pode ser|confio|obrigado|valeu)/i.test(t)) score.S += 3;
   if (/(família|criança|pra todo mundo|clássica)/i.test(t)) score.S += 1;
 
-  if (/(detalhe|certinho|confirma|comprovante|conforme|tamanho|ingrediente|sem|com|meio a meio|observação)/i.test(t)) score.C += 3;
+  if (/(detalhe|certinho|confirma|comprovante|conforme|tamanho|ingrediente|sem|com|meio a meio|observação)/i.test(t))
+    score.C += 3;
   if (/(cep|número|bairro|endereço|nota|troco|cartão|pix)/i.test(t)) score.C += 2;
 
   let best = "S";

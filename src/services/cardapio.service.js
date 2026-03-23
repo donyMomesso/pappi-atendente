@@ -219,17 +219,20 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
         const resp = await fetchWithTimeout(`${base}/api/partner/v1/${ep}`, { headers: headersPartner() });
         const data = await safeJson(resp);
         if (!resp.ok) continue;
-        const raw = Array.isArray(data) ? data : data?.data ?? data?.orders ?? [];
+        const raw = Array.isArray(data) ? data : (data?.data ?? data?.orders ?? []);
         if (Array.isArray(raw) && raw.length > 0) return raw.slice(0, limit);
       } catch {}
     }
     const customer = await getCustomerByPhone(normalized);
     if (customer?.id) {
       try {
-        const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders?customer_id=${customer.id}&per_page=${limit}`, { headers: headersPartner() });
+        const resp = await fetchWithTimeout(
+          `${base}/api/partner/v1/orders?customer_id=${customer.id}&per_page=${limit}`,
+          { headers: headersPartner() },
+        );
         const data = await safeJson(resp);
         if (resp.ok && data) {
-          const raw = Array.isArray(data) ? data : data?.data ?? data?.orders ?? [];
+          const raw = Array.isArray(data) ? data : (data?.data ?? data?.orders ?? []);
           return Array.isArray(raw) ? raw.slice(0, limit) : [];
         }
       } catch {}

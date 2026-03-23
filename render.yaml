@@ -89,5 +89,3 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-      - key: WEBHOOK_VERIFY_TOKEN
-        sync: false

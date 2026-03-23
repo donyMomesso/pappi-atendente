@@ -130,8 +130,17 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role, tenantId, active, canViewOrders, canSendMessages, canManageCoupons, canManageSettings, canManageUsers } =
-      req.body;
+    const {
+      name,
+      role,
+      tenantId,
+      active,
+      canViewOrders,
+      canSendMessages,
+      canManageCoupons,
+      canManageSettings,
+      canManageUsers,
+    } = req.body;
     const staff = req.staffUser;
 
     const user = await prisma.staffUser.findUnique({ where: { id } });

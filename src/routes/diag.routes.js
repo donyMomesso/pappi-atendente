@@ -13,7 +13,9 @@ const ENV = require("../config/env");
 router.get("/diag/auth-check", (_req, res) => {
   res.json({
     adminKeyConfigured: !!(ENV.ADMIN_API_KEY && ENV.ADMIN_API_KEY.length > 0),
-    hint: ENV.ADMIN_API_KEY ? "Chave existe. Use: ?key=SUA_CHAVE ou header x-api-key" : "ADMIN_API_KEY não configurada no Render/env",
+    hint: ENV.ADMIN_API_KEY
+      ? "Chave existe. Use: ?key=SUA_CHAVE ou header x-api-key"
+      : "ADMIN_API_KEY não configurada no Render/env",
   });
 });
 

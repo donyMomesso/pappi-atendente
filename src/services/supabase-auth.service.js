@@ -26,7 +26,10 @@ async function verifyToken(accessToken) {
   const supabase = getAdminClient();
   if (!supabase) return null;
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(accessToken);
     if (error) {
       log.debug({ err: error.message }, "Token inválido");
       return null;

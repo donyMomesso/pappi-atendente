@@ -8,7 +8,9 @@ function detectHumanRequest(text) {
 
 function detectIrritation(text) {
   const t = String(text || "").toLowerCase();
-  return /(caracas|aff|pqp|irritad|raiva|rid[ií]culo|absurdo|lixo|merda|porra|n[aã]o aguento|ta errado|de novo|para|chega|vsf)/i.test(t);
+  return /(caracas|aff|pqp|irritad|raiva|rid[ií]culo|absurdo|lixo|merda|porra|n[aã]o aguento|ta errado|de novo|para|chega|vsf)/i.test(
+    t,
+  );
 }
 
 function needsDeescalation(text) {

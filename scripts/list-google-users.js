@@ -6,7 +6,7 @@ async function main() {
   const cfgs = await prisma.config.findMany({ where: { key: { contains: "google_users" } } });
   for (const c of cfgs) {
     const users = JSON.parse(c.value || "[]");
-    console.log(c.key, "=>", users.map(u => u.email).join(", ") || "(vazio)");
+    console.log(c.key, "=>", users.map((u) => u.email).join(", ") || "(vazio)");
   }
 }
 

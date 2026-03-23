@@ -3,7 +3,7 @@
 const express = require("express");
 const { requireAttendantKey } = require("../middleware/auth.middleware");
 const { requireTenant } = require("../middleware/tenant.middleware");
-const { updateStatus, updateCwStatus, findByCwOrderId, findOrderByCwOrderIdGlobal } = require("../services/order.service");
+const { updateStatus, updateCwStatus, findOrderByCwOrderIdGlobal } = require("../services/order.service");
 const { setHandoff, findByPhone } = require("../services/customer.service");
 const { getClients } = require("../services/tenant.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
@@ -86,6 +86,5 @@ router.post("/:id/status", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 module.exports = router;

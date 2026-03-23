@@ -2,7 +2,6 @@
 // Autenticação corporativa: /auth/me, /auth/logout, /auth/reset-password
 
 const express = require("express");
-const prisma = require("../lib/db");
 const authService = require("../services/auth.service");
 const staffUserService = require("../services/staff-user.service");
 const auditLog = require("../services/audit-log.service");

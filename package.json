@@ -15,8 +15,8 @@
     "create-admin": "node scripts/create-first-admin.js",
     "lint": "eslint . --ext .js --ignore-path .gitignore",
     "lint:fix": "eslint . --ext .js --ignore-path .gitignore --fix",
-    "format": "prettier --write \"src/**/*.js\" \"*.js\"",
-    "format:check": "prettier --check \"src/**/*.js\" \"*.js\"",
+    "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\" \"*.js\"",
+    "format:check": "prettier --check \"src/**/*.js\" \"tests/**/*.js\" \"*.js\"",
     "test": "jest --forceExit --detectOpenHandles",
     "test:watch": "jest --watch --forceExit --detectOpenHandles",
     "test:coverage": "jest --coverage --forceExit --detectOpenHandles"
@@ -27,7 +27,6 @@
     "@supabase/supabase-js": "^2.99.2",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.7.0",
-    "baileys": "^7.0.0-rc.9",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
     "node-fetch": "^2.7.0",

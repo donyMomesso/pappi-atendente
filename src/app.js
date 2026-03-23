@@ -67,7 +67,11 @@ const app = express();
 // CORS para app em domínio separado (ou * para aceitar qualquer origem)
 // Em dev, aceita localhost e IPs privados (acesso na rede)
 const isDev = ENV.NODE_ENV === "development" || !ENV.NODE_ENV;
-let corsOrigins = ENV.CORS_ORIGIN ? ENV.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean) : [];
+let corsOrigins = ENV.CORS_ORIGIN
+  ? ENV.CORS_ORIGIN.split(",")
+      .map((o) => o.trim())
+      .filter(Boolean)
+  : [];
 if (isDev && corsOrigins.length === 0) {
   corsOrigins = ["*"]; // dev sem CORS_ORIGIN = aceita qualquer origem (incl. 192.168.x.x)
 }
@@ -95,12 +99,14 @@ if (corsOrigins.length > 0) {
     } else if (origin) {
       if (origins.some((o) => o !== "*" && origin === o)) allowOrigin = true;
       // Aceita qualquer subdomínio *.pappiatendente.com.br (acesso fora da rede)
-      else if (hasPappiDomain && /^https:\/\/([a-z0-9-]+\.)?pappiatendente\.com\.br$/i.test(origin))
-        allowOrigin = true;
+      else if (hasPappiDomain && /^https:\/\/([a-z0-9-]+\.)?pappiatendente\.com\.br$/i.test(origin)) allowOrigin = true;
     }
     if (allowOrigin && origin) res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-attendant-key, x-tenant-id");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, x-api-key, x-attendant-key, x-tenant-id",
+    );
     res.setHeader("Access-Control-Allow-Credentials", "true");
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();

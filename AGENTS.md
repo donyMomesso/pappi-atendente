@@ -36,7 +36,7 @@ Then push the schema: `npx prisma db push`
 ### Running the dev server
 
 ```bash
-npm run dev   # uses node --watch for auto-reload
+npm run dev   # uses nodemon for auto-reload (npx nodemon --ext js,env --delay 2 --exec node index.js)
 ```
 
 Server listens on port 10000.

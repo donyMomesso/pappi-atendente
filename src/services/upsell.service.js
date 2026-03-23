@@ -1,7 +1,7 @@
 // src/services/upsell.service.js
 // Sugestões de upsell baseadas no contexto da conversa
 
-function getUpsellHint({ historyText = "", userText = "", catalog }) {
+function getUpsellHint({ historyText = "", userText = "", catalog: _catalog }) {
   const t = `${historyText || ""}\n${userText || ""}`.toLowerCase();
 
   if (t.includes("16") || t.includes("gigante") || t.includes("grande")) {

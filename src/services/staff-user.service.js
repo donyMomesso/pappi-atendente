@@ -3,7 +3,6 @@
 // Usado por rotas admin e middlewares de autorização.
 
 const prisma = require("../lib/db");
-const log = require("../lib/logger").child({ service: "staff-user" });
 
 const VALID_ROLES = ["admin", "manager", "attendant"];
 
@@ -81,17 +80,27 @@ async function createStaffUser(data, invitedBy = null) {
       canSendMessages: data.canSendMessages !== false,
       canManageCoupons: data.canManageCoupons ?? (role === "admin" || role === "manager"),
       canManageSettings: data.canManageSettings ?? (role === "admin" || role === "manager"),
-      canManageUsers: data.canManageUsers ?? (role === "admin"),
+      canManageUsers: data.canManageUsers ?? role === "admin",
     },
   });
 }
 
 /** Atualiza usuário interno */
-async function updateStaffUser(id, data, currentUserId = null) {
+async function updateStaffUser(id, data, _currentUserId = null) {
   const user = await prisma.staffUser.findUnique({ where: { id } });
   if (!user) return null;
 
-  const allowed = ["name", "role", "tenantId", "active", "canViewOrders", "canSendMessages", "canManageCoupons", "canManageSettings", "canManageUsers"];
+  const allowed = [
+    "name",
+    "role",
+    "tenantId",
+    "active",
+    "canViewOrders",
+    "canSendMessages",
+    "canManageCoupons",
+    "canManageSettings",
+    "canManageUsers",
+  ];
   const updates = {};
   for (const k of allowed) {
     if (data[k] !== undefined) {

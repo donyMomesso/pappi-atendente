@@ -49,7 +49,7 @@ async function transcribeAudio(mediaUrl, token) {
     const { GoogleGenerativeAI } = require("@google/generative-ai");
     const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
     const model = client.getGenerativeModel({
-      model: ENV.GEMINI_MODEL || "gemini-2.0-flash",
+      model: ENV.GEMINI_MODEL || "gemini-2.5-flash",
       generationConfig: { temperature: 0, maxOutputTokens: 512 },
     });
 

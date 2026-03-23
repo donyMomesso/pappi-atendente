@@ -55,4 +55,13 @@ function getIO() {
   return _io;
 }
 
-module.exports = { init, emitMessage, emitMessageStatus, emitConvUpdate, emitQueueUpdate, emitBaileysDisconnected, emitDelayAlert, getIO };
+module.exports = {
+  init,
+  emitMessage,
+  emitMessageStatus,
+  emitConvUpdate,
+  emitQueueUpdate,
+  emitBaileysDisconnected,
+  emitDelayAlert,
+  getIO,
+};

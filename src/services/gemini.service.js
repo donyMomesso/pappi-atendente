@@ -1,7 +1,6 @@
 // src/services/gemini.service.js
 // MELHORIA: sanitização, retry, fallback OpenAI quando Gemini falha
 
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const ENV = require("../config/env");
 const { loadRulesFromFiles } = require("../rules/loader");
 const { getMode } = require("../services/context.service");
@@ -9,19 +8,6 @@ const { detectDISC, discToneGuidance } = require("../services/disc.service");
 const { getUpsellHint } = require("../services/upsell.service");
 const openaiFallback = require("./openai-fallback.service");
 const groqFallback = require("./groq-fallback.service");
-
-let _model = null;
-
-function getModel() {
-  if (_model) return _model;
-  if (!ENV.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY não configurado");
-  const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-  _model = client.getGenerativeModel({
-    model: ENV.GEMINI_MODEL || "gemini-2.0-flash",
-    generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
-  });
-  return _model;
-}
 
 /**
  * Gera texto: tenta Gemini (com retry em 429), depois OpenAI como fallback.
@@ -37,7 +23,7 @@ async function _generateWithFallback(prompt, opts = {}) {
     const { GoogleGenerativeAI } = require("@google/generative-ai");
     const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
     const model = client.getGenerativeModel({
-      model: ENV.GEMINI_MODEL || "gemini-2.0-flash",
+      model: ENV.GEMINI_MODEL || "gemini-2.5-flash",
       generationConfig: { temperature, maxOutputTokens: maxTokens },
     });
     const result = await model.generateContent(prompt);
@@ -119,9 +105,9 @@ function sanitizeInput(text, maxLen = 500) {
   return sanitized.trim();
 }
 
-async function classifyIntent(text) {
+async function classifyIntent(inputText) {
   try {
-    const safe = sanitizeInput(text, 200);
+    const safe = sanitizeInput(inputText, 200);
     const prompt = `Você é um assistente de delivery de comida. O cliente escreve em português.
 Classifique a intenção em UMA opção:
 - PEDIDO: fazer pedido, comprar, "quero pedir", "vou pedir", "quero uma pizza"
@@ -154,7 +140,10 @@ Regras:
 
 Texto: "${safe}"`;
     const { text } = await _generateWithFallback(prompt, { temperature: 0.1, maxTokens: 256 });
-    const raw = text.trim().replace(/```[\w]*\n?|```/g, "").trim();
+    const raw = text
+      .trim()
+      .replace(/```[\w]*\n?|```/g, "")
+      .trim();
     const addr = JSON.parse(raw);
     if (!addr.street || !addr.number) return null;
     if (!addr.city) addr.city = defaultCity;
@@ -193,7 +182,7 @@ async function chatOrder({
   customer = null,
   productType = null,
   chosenSize = null,
-  sizeHint = "",
+  sizeHint: _sizeHint = "",
 }) {
   try {
     const catalogText = _formatCatalog(catalog);
@@ -206,9 +195,7 @@ async function chatOrder({
           ? `Cliente escolheu: ${productType === "lasanha" ? "Lasanha" : "Pizza"}. Ofereça apenas itens desse tipo.`
           : "";
     const rulesText = loadRulesFromFiles(mode);
-    const historyText = history
-      .map((m) => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${m.text}`)
-      .join("\n");
+    const historyText = history.map((m) => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${m.text}`).join("\n");
     const userText = history.filter((m) => m.role === "customer").pop()?.text || "";
     const disc = detectDISC(historyText, userText);
     const toneGuidance = discToneGuidance(disc);

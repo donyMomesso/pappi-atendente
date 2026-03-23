@@ -2,9 +2,8 @@
 // Cálculo de médias do dia e previsão recalculada para pedidos em atraso.
 
 const prisma = require("../lib/db");
-const log = require("../lib/logger").child({ service: "order-delay" });
 
-// Mapeamento de status CW para nosso modelo
+// Mapeamento de status CW para nosso modelo de status CW para nosso modelo
 const CW_PROD = ["em_producao", "in_production", "in_production"];
 const CW_OUT = ["saiu_para_entrega", "pronto_para_retirada", "dispatched", "ready_for_pickup"];
 const CW_DONE = ["pedido_concluido", "delivered", "concluded"];

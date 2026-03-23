@@ -19,7 +19,7 @@ const REQUIRED = [
 
 const RECOMMENDED = [
   { key: "GEMINI_API_KEY", desc: "API Key do Gemini (IA) — bot fica limitado sem ela" },
-  { key: "GEMINI_MODEL", desc: "Modelo Gemini a usar (ex: gemini-2.0-flash)" },
+  { key: "GEMINI_MODEL", desc: "Modelo Gemini a usar (ex: gemini-2.5-flash)" },
   { key: "GOOGLE_MAPS_API_KEY", desc: "Google Maps — necessário para cálculo de taxa de entrega" },
 ];
 

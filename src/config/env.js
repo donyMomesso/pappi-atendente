@@ -27,7 +27,7 @@ module.exports = {
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || "",
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_KEY || "",
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
-  GEMINI_MODEL: (process.env.GEMINI_MODEL || "gemini-2.0-flash").replace(/^models\//, ""),
+  GEMINI_MODEL: (process.env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, ""),
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
   OPENAI_MODEL: (process.env.OPENAI_MODEL || "gpt-4o-mini").trim(),
   GROQ_API_KEY: process.env.GROQ_API_KEY || "",

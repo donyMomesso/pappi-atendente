@@ -7,11 +7,7 @@ const authService = require("../services/auth.service");
 
 /** Retorna true se a requisição traz API key explícita (query ou header de integração). */
 function hasExplicitApiKey(req) {
-  return !!(
-    req.query?.key ||
-    req.headers["x-api-key"] ||
-    req.headers["x-attendant-key"]
-  );
+  return !!(req.query?.key || req.headers["x-api-key"] || req.headers["x-attendant-key"]);
 }
 
 function getBearerToken(req) {
@@ -132,7 +128,7 @@ async function authAdmin(req, res, next) {
       return res.status(403).json({ error: "forbidden" });
     }
   }
-  if (await authBySession(req) || await authBySessionFallback(req)) {
+  if ((await authBySession(req)) || (await authBySessionFallback(req))) {
     if (req.role === "admin") return next();
     return res.status(403).json({ error: "forbidden", message: "Acesso restrito a administradores." });
   }
@@ -148,10 +144,7 @@ async function authAdmin(req, res, next) {
 }
 
 async function requireAdminKey(req, res, next) {
-  const raw =
-    req.query.key ||
-    req.headers["x-api-key"] ||
-    req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
+  const raw = req.query.key || req.headers["x-api-key"] || req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
   if (ENV.ADMIN_API_KEY && raw === ENV.ADMIN_API_KEY) return next();
   return res.status(401).json({ error: "unauthorized" });
 }

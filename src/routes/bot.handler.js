@@ -87,7 +87,16 @@ async function _handle({ tenant, wa, customer, text, phone }) {
   }
 
   // Deescalation: irritação sem pedido explícito de humano — oferece botões
-  const orderSteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT", "ADDRESS", "ADDRESS_NUMBER", "ADDRESS_CONFIRM", "ASK_SIZE", "ORDERING"];
+  const orderSteps = [
+    "MENU",
+    "CHOOSE_PRODUCT_TYPE",
+    "FULFILLMENT",
+    "ADDRESS",
+    "ADDRESS_NUMBER",
+    "ADDRESS_CONFIRM",
+    "ASK_SIZE",
+    "ORDERING",
+  ];
   if (needsDeescalation(text) && orderSteps.includes(session.step)) {
     session._beforeDeescalationStep = session.step;
     session.step = "DEESCALATION";
@@ -113,18 +122,31 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       return;
     }
     if (text === "HELP_BOT" || t.includes("continuar")) {
-      const prev = session._beforeDeescalationStep || (session.fulfillment ? (session.chosenSize ? "ORDERING" : "ASK_SIZE") : (session.productType ? "FULFILLMENT" : "CHOOSE_PRODUCT_TYPE"));
+      const prev =
+        session._beforeDeescalationStep ||
+        (session.fulfillment
+          ? session.chosenSize
+            ? "ORDERING"
+            : "ASK_SIZE"
+          : session.productType
+            ? "FULFILLMENT"
+            : "CHOOSE_PRODUCT_TYPE");
       delete session._beforeDeescalationStep;
       session.step = prev;
       let m;
       if (prev === "ORDERING") m = "Beleza! Me diz seu pedido 🍕 (tamanho + sabor, ou meia a meia)";
-      else if (prev === "ASK_SIZE") m = `Qual tamanho de ${session.productType === "lasanha" ? "lasanha" : "pizza"}?`; // será enviado com botões abaixo
+      else if (prev === "ASK_SIZE")
+        m = `Qual tamanho de ${session.productType === "lasanha" ? "lasanha" : "pizza"}?`; // será enviado com botões abaixo
       else if (prev === "FULFILLMENT") m = "Beleza! Deseja entrega ou retirada?";
       else m = "Beleza! Pizza ou lasanha?";
       if (prev === "ORDERING") {
         await wa.sendText(phone, m);
       } else if (prev === "ASK_SIZE" && session.sizeOptions?.length) {
-        await wa.sendButtons(phone, m, session.sizeOptions.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })));
+        await wa.sendButtons(
+          phone,
+          m,
+          session.sizeOptions.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })),
+        );
       } else if (prev === "FULFILLMENT") {
         await wa.sendButtons(phone, m, [
           { id: "delivery", title: "🚚 Entrega" },
@@ -739,7 +761,7 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
 }
 
 // ── startOrdering ─────────────────────────────────────────────
-async function startOrdering(wa, cw, phone, session, customer, tenant) {
+async function startOrdering(wa, cw, phone, session, customer, _tenant) {
   const [rawCatalog] = await Promise.all([cw.getCatalog(), cw.getPaymentMethods()]);
   const fullCatalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
   session.catalog = fullCatalog;
@@ -778,7 +800,11 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
 
   if (!chosen && sizes.length) {
     const m = `Qual tamanho? Escolha uma opção 👇`;
-    await wa.sendButtons(phone, m, sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })));
+    await wa.sendButtons(
+      phone,
+      m,
+      sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })),
+    );
     return;
   }
 
@@ -789,7 +815,6 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
   metaCapi.trackViewContent({ customer, tenantName: tenant.name }).catch(() => {});
 
   const productType = session.productType || "pizza";
-  const catalog = session.filteredCatalog || session.catalog;
   const isVip = (customer.visitCount || 0) > 0;
   const last = customer.lastOrderSummary;
 
@@ -808,9 +833,11 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
 async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
   session.orderHistory.push({ role: "customer", text });
 
-  const catalog = session.filteredCatalog && (session.filteredCatalog?.categories?.length || session.filteredCatalog?.sections?.length)
-    ? session.filteredCatalog
-    : session.catalog;
+  const catalog =
+    session.filteredCatalog &&
+    (session.filteredCatalog?.categories?.length || session.filteredCatalog?.sections?.length)
+      ? session.filteredCatalog
+      : session.catalog;
   const sizeHint = session.chosenSize ? `Tamanho já escolhido: ${session.chosenSize}. ` : "";
 
   const result = await Gemini.chatOrder({
