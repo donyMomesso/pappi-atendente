@@ -42,6 +42,8 @@ function createInstanceData(id) {
     botEnabled: true,
     _reconnectDelay: 8000,
     _replaced440Count: 0,
+    _genericDisconnectCount: 0,
+    _lastDisconnectAt: 0,
     counters: {
       hour: 0,
       day: 0,
@@ -286,8 +288,8 @@ async function start(instanceId = "default") {
       logger: require("pino")({ level: "silent" }),
       browser: ["Pappi Atendente", "Chrome", "1.0"],
       qrTimeout: 60000,
-      connectTimeoutMs: 30000,
-      keepAliveIntervalMs: 15000,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 25000,
       markOnlineOnConnect: false,
       syncFullHistory: false,
     });
@@ -437,10 +439,28 @@ async function start(instanceId = "default") {
               } catch (e) {
                 log.error({ instanceId, phone, err: e }, "Erro no bot");
                 try {
-                  const fallback =
-                    "Desculpe, tive um problema. Tente de novo ou digite *atendente* pra falar com alguém.";
+                  const { incrementBotErrorAndCheckHandoff } = require("./customer.service");
+                  const { shouldHandoff } = await incrementBotErrorAndCheckHandoff(customer.id);
+                  const ENV = require("../config/env");
+                  const statusUrl = `${ENV.APP_URL || "https://pappiatendente.com.br"}/status`;
+
+                  let fallback;
+                  if (shouldHandoff) {
+                    const { setHandoff } = require("./customer.service");
+                    await setHandoff(customer.id, true);
+                    fallback =
+                      "Como a instabilidade persistiu, você será direcionado para um atendente humano. Aguarde um momento! 👨‍💼";
+                  } else {
+                    fallback =
+                      `Estamos com instabilidade no WhatsApp. Aguarde alguns minutos e tente novamente. Acompanhe: ${statusUrl}\n\nSe persistir, você será direcionado para atendimento humano.`;
+                  }
                   await sendText(customer.phone, fallback, instanceId, true);
                   await botHandler.saveBaileysMessage(customer.phone, fallback, tenantId, "assistant");
+                  if (shouldHandoff) {
+                    const socketService = require("./socket.service");
+                    socketService.emitQueueUpdate();
+                    socketService.emitConvUpdate(customer.id);
+                  }
                 } catch (f) {
                   log.error({ instanceId, err: f }, "Falha ao enviar mensagem de fallback");
                 }
@@ -475,6 +495,7 @@ async function start(instanceId = "default") {
           inst.starting = false;
           inst._reconnectDelay = 8000;
           inst._replaced440Count = 0;
+          if (Date.now() - inst._lastDisconnectAt > 300_000) inst._genericDisconnectCount = 0;
           const user = sock.user;
           inst.account = {
             phone: user?.id?.split(":")[0] || user?.id || "?",
@@ -485,11 +506,13 @@ async function start(instanceId = "default") {
 
         if (connection === "close") {
           const code = lastDisconnect?.error?.output?.statusCode;
+          const errMsg = lastDisconnect?.error?.message || "";
           const loggedOut = code === DisconnectReason.loggedOut;
           const replaced = code === DisconnectReason.connectionReplaced;
           inst.status = "disconnected";
           inst.socket = null;
           inst.starting = false;
+          inst._lastDisconnectAt = Date.now();
 
           if (!inst._intentionalDisconnect) {
             const reason = loggedOut
@@ -499,6 +522,10 @@ async function start(instanceId = "default") {
                 : code
                   ? `Conexão fechada (code ${code})`
                   : "Conexão fechada";
+            log.warn(
+              { instanceId, code, errMsg: errMsg.slice(0, 200) },
+              `Baileys desconectado: ${reason}`,
+            );
             try {
               require("./socket.service").emitBaileysDisconnected(instanceId, reason);
             } catch (e) {
@@ -512,6 +539,7 @@ async function start(instanceId = "default") {
             await clearDbAuth(instanceId);
             inst.qrBase64 = null;
             inst._reconnectDelay = 8000;
+            inst._genericDisconnectCount = 0;
           } else if (replaced) {
             inst._replaced440Count = (inst._replaced440Count || 0) + 1;
             if (inst._replaced440Count >= 3) {
@@ -530,9 +558,18 @@ async function start(instanceId = "default") {
             }
           } else {
             inst._replaced440Count = 0;
-            inst._reconnectDelay = 8000;
-            log.info({ instanceId, code }, "Conexão fechada — reconectando em 8s");
-            setTimeout(() => start(instanceId), 8000);
+            inst._genericDisconnectCount = (inst._genericDisconnectCount || 0) + 1;
+            const backoffDelays = [8000, 16000, 32000, 60000, 120000];
+            const delayMs = Math.min(
+              backoffDelays[Math.min(inst._genericDisconnectCount - 1, backoffDelays.length - 1)],
+              120000,
+            );
+            inst._reconnectDelay = delayMs;
+            log.info(
+              { instanceId, code, attempt: inst._genericDisconnectCount, delaySec: delayMs / 1000 },
+              "Conexão fechada — reconectando com backoff",
+            );
+            setTimeout(() => start(instanceId), delayMs);
           }
         }
       } catch (err) {
@@ -716,6 +753,7 @@ function disconnect(instanceId = "default") {
   inst.starting = false;
   inst._intentionalDisconnect = true;
   inst._replaced440Count = 0;
+  inst._genericDisconnectCount = 0;
   if (inst.socket) {
     try {
       inst.socket.end();

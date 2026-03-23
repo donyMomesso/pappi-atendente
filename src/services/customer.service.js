@@ -114,8 +114,48 @@ async function setName(customerId, name) {
   return prisma.customer.update({ where: { id: customerId }, data: { name } });
 }
 
+const BOT_ERROR_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+/**
+ * Incrementa contador de erros do bot para o cliente.
+ * Se for a 2ª+ vez na janela de 2h, retorna shouldHandoff: true.
+ * @returns {{ shouldHandoff: boolean }}
+ */
+async function incrementBotErrorAndCheckHandoff(customerId) {
+  const key = `botError:${customerId}`;
+  const now = new Date();
+  let cfg = await prisma.config.findUnique({ where: { key } });
+
+  let count = 1;
+  let lastAt = now.getTime();
+  if (cfg?.value) {
+    try {
+      const parsed = JSON.parse(cfg.value);
+      const age = now.getTime() - (parsed.lastAt || 0);
+      if (age < BOT_ERROR_WINDOW_MS) {
+        count = (parsed.count || 0) + 1;
+      }
+      lastAt = now.getTime();
+    } catch {
+      count = 1;
+    }
+  }
+
+  const shouldHandoff = count >= 2;
+  const value = JSON.stringify({ count: shouldHandoff ? 0 : count, lastAt });
+
+  await prisma.config.upsert({
+    where: { key },
+    create: { key, value },
+    update: { value },
+  });
+
+  return { shouldHandoff };
+}
+
 module.exports = {
   findOrCreate,
+  incrementBotErrorAndCheckHandoff,
   touchInteraction,
   setHandoff,
   claimFromQueue,

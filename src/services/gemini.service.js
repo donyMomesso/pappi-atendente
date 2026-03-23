@@ -225,7 +225,7 @@ Pappi (responda APENAS JSON, sem markdown):
       ? scanned.length
         ? `Encontrei no cardápio: ${scanned.join(", ")}. Qual tamanho? (Broto, Média ou Grande)`
         : "Qual sabor você quer? Me diz o tamanho e o sabor, ou meia a meia 😊"
-      : "O cardápio está indisponível no momento. Digite *atendente* para falar com alguém! 🙏";
+      : "O cardápio está indisponível no momento. Tente novamente em instantes. 😊";
     return { reply, items: [], done: false };
   }
 }

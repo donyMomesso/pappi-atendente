@@ -115,6 +115,8 @@ app.get("/ready", async (req, res) => {
 
 // Política de privacidade
 app.get("/privacy", (_req, res) => res.sendFile(path.join(__dirname, "../public/privacy.html")));
+// Status / instabilidade WhatsApp (link enviado quando bot falha)
+app.get("/status", (_req, res) => res.sendFile(path.join(__dirname, "../public/status.html")));
 
 // Rotas
 app.use("/auth", require("./routes/auth.routes"));

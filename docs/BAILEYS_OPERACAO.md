@@ -54,3 +54,33 @@ O Baileys é o WhatsApp QR (não-oficial) usado para notificações internas e, 
 - Por hora: 60 mensagens
 - Por dia: 200 mensagens
 - Acima disso, envios são bloqueados até o reset.
+
+---
+
+## Conexão caindo toda hora — diagnóstico
+
+### Causas comuns
+
+| Causa | Sintoma | Solução |
+|-------|---------|---------|
+| **Render free tier** | App dorme após 15 min inativo, conexão cai ao acordar | Usar cron externo (cron-job.org) para pingar `/health` a cada 10–12 min; ou plano pago |
+| **440 (sessão substituída)** | Log mostra "Sessão 440" | Só 1 processo com Baileys; `WEB_CONCURRENCY=1`; fechar WhatsApp Web no navegador |
+| **Dois ambientes** | Dev local + produção com mesmo número | Rodar Baileys em apenas um; ou usar instâncias diferentes |
+| **Rede instável** | Códigos 408, 503, "Stream Errored" | Backoff exponencial já implementado (8s→16s→32s→60s→120s) |
+| **Logout 401** | "Logout detectado" | Reescaneie o QR no painel |
+
+### O que verificar
+
+1. **WEB_CONCURRENCY=1** no Render e em todos os ambientes
+2. **Apenas um processo** usando o Baileys (não rodar dev e prod ao mesmo tempo com o mesmo auth)
+3. **WhatsApp Web** fechado no navegador se estiver usando o mesmo número
+4. **Logs** — o código de desconexão aparece em `Baileys desconectado: code XXX`; anote para diagnóstico
+
+### Render free tier
+
+O plano free **dorme** após ~15 min sem requisições. Ao dormir:
+- O processo é encerrado
+- A conexão Baileys cai
+- Ao acordar (nova requisição), o app reinicia e tenta reconectar
+
+**Mitigação:** Configure um cron job gratuito para fazer GET em `https://seu-app.onrender.com/health` a cada 10 minutos.
