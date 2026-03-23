@@ -11,7 +11,7 @@ const { getClients } = require("../services/tenant.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
 const { round2 } = require("../calculators/OrderCalculator");
 const AddressNormalizer = require("../normalizers/AddressNormalizer");
-const Gemini = require("../services/gemini.service");
+const ai = require("../services/ai.service");
 const chatMemory = require("../services/chat-memory.service");
 const Maps = require("../services/maps.service");
 const sessionService = require("../services/session.service");
@@ -253,7 +253,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
 
   if (["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)) {
     try {
-      const intent = await Gemini.classifyIntent(text);
+      const intent = await ai.classifyIntent(text);
       if (intent === "STATUS") {
         await handleStatusQuery(wa, phone, customer, tenant);
         return;
@@ -428,24 +428,54 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
   const leadLine = session.isLeadOrder
     ? "\n\n⚠️ _Estamos fechados no momento. Você pode deixar seu pedido — entraremos em contato quando abrirmos!_"
     : "";
-  const timing = "\n⏱️ Entrega 40-60 min | Retirada 30-40 min";
 
-  const greeting = isVip
-    ? `Oi ${firstName}! Que bom te ver de novo! 🍕${urlLine}${timing}${leadLine}\n\nPizza ou lasanha?`
-    : `Olá, ${firstName}! 👋 Prazer em te conhecer!${urlLine}${timing}${leadLine}\n\nPizza ou lasanha?`;
+  // Bloco 1 — Saudação base (programada) + frase de impacto (IA ou fallback)
+  const visits = customer.visitCount || 0;
+  const baseGreeting = isVip
+    ? `Oi ${firstName}! Que bom te ver de novo! 🍕`
+    : `Olá, ${firstName}! 👋 Prazer em te conhecer!`;
 
+  const FALLBACK_PHRASES = {
+    new: "A noite pede pizza. Ou lasanha. E a gente tá pronta! 🍕",
+    vip: "A noite pede pizza. Ou lasanha. E a gente tá pronta! 🍕",
+  };
+
+  let impactPhrase = FALLBACK_PHRASES[isVip ? "vip" : "new"];
+  try {
+    const history = await chatMemory.get(customer.id);
+    const aiPhrase = await ai.generateGreetingPhrase({
+      storeName,
+      firstName,
+      visitCount: visits,
+      lastOrderSummary: customer.lastOrderSummary || "",
+      conversationHistory: history,
+      isNew: !isVip,
+    });
+    if (aiPhrase && aiPhrase.length > 5) {
+      impactPhrase = aiPhrase;
+    }
+  } catch (err) {
+    console.warn("[Bot] generateGreetingPhrase falhou, usando fallback:", err.message);
+  }
+
+  const greeting = `${baseGreeting}\n${impactPhrase}${urlLine}${leadLine}`;
+  await wa.sendText(phone, greeting);
+  await chatMemory.push(customer.id, "bot", greeting);
+
+  // Bloco 2 — Escolha direta (D.I.S.C.: Dominância — objetivo, claro)
   session.step = "CHOOSE_PRODUCT_TYPE";
-  await wa.sendButtons(phone, greeting, [
+  const choiceMsg = "O que vai ser hoje? Escolha uma opção 👇";
+  await wa.sendButtons(phone, choiceMsg, [
     { id: "pizza", title: "🍕 Pizza" },
     { id: "lasanha", title: "🍝 Lasanha" },
   ]);
-  await chatMemory.push(customer.id, "bot", greeting);
+  await chatMemory.push(customer.id, "bot", choiceMsg);
 }
 
 // Pergunta Pizza ou Lasanha
 async function sendProductTypePrompt(wa, phone, customer, session) {
   session.step = "CHOOSE_PRODUCT_TYPE";
-  const m = "Pizza ou lasanha? Escolha uma opção 👇";
+  const m = "O que vai ser hoje? Escolha uma opção 👇";
   await wa.sendButtons(phone, m, [
     { id: "pizza", title: "🍕 Pizza" },
     { id: "lasanha", title: "🍝 Lasanha" },
@@ -564,7 +594,7 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
 
     session.step = "ADDRESS";
     const m =
-      "🛵 Entrega! ⏱️ 40 a 60 min.\nMe manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
+      "🛵 Entrega! ⏱️ 60 min.\nMe manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -621,7 +651,7 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
   session.addressFailCount = session.addressFailCount || 0;
 
   async function tryParseAddress(input) {
-    let addr = await Gemini.extractAddress(input, tenant.city || "Campinas");
+    let addr = await ai.extractAddress(input, tenant.city || "Campinas");
     if (!addr) {
       const ext = AddressNormalizer.fromText(input);
       const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
@@ -771,10 +801,17 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
   session.filteredCatalog = filteredCatalog;
   session.sizeOptions = sizes;
 
+  const prefix =
+    session.fulfillment === "takeout"
+      ? "🏪 Beleza, retirada! ⏱️ 30 a 40 min. "
+      : session.fulfillment === "delivery"
+        ? "🛵 Pronto! "
+        : "";
+
   if (!sizes.length) {
     session.step = "ORDERING";
     session.orderHistory = [];
-    const m = `Me diz seu pedido ${productType === "lasanha" ? "🍝" : "🍕"} (tamanho + sabor)`;
+    const m = `${prefix}Me diz seu pedido ${productType === "lasanha" ? "🍝" : "🍕"} (tamanho + sabor)`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -782,7 +819,7 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
 
   session.step = "ASK_SIZE";
   const tipo = productType === "lasanha" ? "lasanha" : "pizza";
-  const m = `Qual tamanho de ${tipo}? Escolha uma opção 👇`;
+  const m = `${prefix}Qual tamanho de ${tipo}? Escolha uma opção 👇`;
   const buttons = sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s }));
   await wa.sendButtons(phone, m, buttons);
   await chatMemory.push(customer.id, "bot", m);
@@ -840,7 +877,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
       : session.catalog;
   const sizeHint = session.chosenSize ? `Tamanho já escolhido: ${session.chosenSize}. ` : "";
 
-  const result = await Gemini.chatOrder({
+  const result = await ai.chatOrder({
     history: session.orderHistory,
     catalog,
     customerName: customer.name,
@@ -989,7 +1026,9 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   if (isLead) {
     m = `✅ *Pedido #${orderNum} anotado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n\nEntraremos em contato quando abrirmos. Obrigado! 🍕`;
   } else if (cwSuccess) {
-    m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: 40–60 min\n\nObrigado! 🍕`;
+    const previsao =
+      session.fulfillment === "takeout" ? "30 a 40 min" : "60 min";
+    m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: ${previsao}\n\nObrigado! 🍕`;
   } else {
     m = `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
   }

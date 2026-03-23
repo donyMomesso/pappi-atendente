@@ -17,7 +17,7 @@ O dono do projeto (Dony Momesso) autoriza permanentemente:
 - WhatsApp Cloud API (Meta)
 - Baileys (WhatsApp QR interno — multi-instância)
 - Instagram DM + Facebook Messenger
-- Gemini (IA — gemini-2.5-flash)
+- Motor de IA — sequência gemini→groq→openai (AI_PROVIDER_SEQUENCE)
 - Socket.io (WebSocket)
 - Deploy: Render.com
 - Domínio: pappiatendente.com.br

@@ -1,74 +1,19 @@
 // src/services/gemini.service.js
-// MELHORIA: sanitização, retry, fallback OpenAI quando Gemini falha
+// Usa o Motor de IA (ai-motor) com sequência gemini→groq→openai.
+// Mantém lógica de domínio: prompts, sanitização, classifyIntent, chatOrder, etc.
 
 const ENV = require("../config/env");
 const { loadRulesFromFiles } = require("../rules/loader");
 const { getMode } = require("../services/context.service");
 const { detectDISC, discToneGuidance } = require("../services/disc.service");
 const { getUpsellHint } = require("../services/upsell.service");
-const openaiFallback = require("./openai-fallback.service");
-const groqFallback = require("./groq-fallback.service");
+const aiMotor = require("./ai-motor.service");
 
 /**
- * Gera texto: tenta Gemini (com retry em 429), depois OpenAI como fallback.
- * @param {string} prompt
- * @param {{ temperature?: number, maxTokens?: number, provider?: string }} opts
- * @returns {Promise<{ text: string, provider: 'gemini'|'openai' }>}
+ * Gera texto via Motor de IA (sequência configurável: gemini→groq→openai).
  */
 async function _generateWithFallback(prompt, opts = {}) {
-  const temperature = opts.temperature ?? 0.7;
-  const maxTokens = opts.maxTokens ?? 1024;
-
-  const tryGemini = async () => {
-    const { GoogleGenerativeAI } = require("@google/generative-ai");
-    const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-    const model = client.getGenerativeModel({
-      model: ENV.GEMINI_MODEL || "gemini-2.5-flash",
-      generationConfig: { temperature, maxOutputTokens: maxTokens },
-    });
-    const result = await model.generateContent(prompt);
-    const text = result?.response?.text?.();
-    if (!text || typeof text !== "string") throw new Error("Gemini retornou resposta vazia");
-    return text.trim();
-  };
-
-  // 1. Tenta Gemini (com retry em 429)
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const text = await tryGemini();
-      return { text, provider: "gemini" };
-    } catch (err) {
-      const is429 = err?.message?.includes("429") || err?.code === 429;
-      if (is429 && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 2000 * attempt));
-        continue;
-      }
-      if (opts.provider === "gemini") throw err;
-      break;
-    }
-  }
-
-  // 2. Fallback Groq (Llama)
-  if (groqFallback.hasGroqKey()) {
-    try {
-      const text = await groqFallback.generate(prompt, { temperature, maxTokens });
-      return { text, provider: "groq" };
-    } catch (err) {
-      console.warn("[IA] Fallback Groq falhou:", err.message);
-    }
-  }
-
-  // 3. Fallback OpenAI
-  if (openaiFallback.hasOpenAIKey()) {
-    try {
-      const text = await openaiFallback.generate(prompt, { temperature, maxTokens });
-      return { text, provider: "openai" };
-    } catch (err) {
-      console.warn("[IA] Fallback OpenAI falhou:", err.message);
-    }
-  }
-
-  throw new Error("Gemini falhou e nenhum fallback (Groq/OpenAI) configurado ou disponível");
+  return aiMotor.generate(prompt, opts);
 }
 
 /**
@@ -401,50 +346,94 @@ function _formatCatalog(catalog) {
 }
 
 /**
- * Testa conectividade das IAs (Gemini e OpenAI fallback).
- * Útil para verificar se as APIs estão funcionando.
- * @returns {Promise<{ gemini: 'ok'|'fail'|'no_key', openai: 'ok'|'fail'|'not_configured', groq: 'ok'|'fail'|'not_configured', provider?: string }>}
+ * Testa conectividade do Motor de IA (todos os providers na sequência).
+ * @returns {Promise<{ sequence, providers, gemini, openai, groq, provider? }>}
  */
 async function testAI() {
-  const result = { gemini: "no_key", openai: "not_configured", groq: "not_configured" };
-
-  if (!ENV.GEMINI_API_KEY || ENV.GEMINI_API_KEY.length < 10) {
-    return result;
-  }
-
-  try {
-    const { provider } = await _generateWithFallback("Responda apenas: OK", {
-      temperature: 0,
-      maxTokens: 10,
-    });
-    result.gemini = "ok";
-    result.provider = provider;
-  } catch (err) {
-    result.gemini = "fail";
-    result.geminiError = err.message?.slice(0, 100);
-  }
-
-  if (openaiFallback.hasOpenAIKey()) {
-    try {
-      await openaiFallback.generate("Responda apenas: OK", { temperature: 0, maxTokens: 10 });
-      result.openai = "ok";
-    } catch (err) {
-      result.openai = "fail";
-      result.openaiError = err.message?.slice(0, 100);
-    }
-  }
-
-  if (groqFallback.hasGroqKey()) {
-    try {
-      await groqFallback.generate("Responda apenas: OK", { temperature: 0, maxTokens: 10 });
-      result.groq = "ok";
-    } catch (err) {
-      result.groq = "fail";
-      result.groqError = err.message?.slice(0, 100);
-    }
-  }
-
-  return result;
+  const motorResult = await aiMotor.testProviders();
+  return {
+    ...motorResult,
+    gemini: motorResult.providers?.gemini ?? "not_configured",
+    openai: motorResult.providers?.openai ?? "not_configured",
+    groq: motorResult.providers?.groq ?? "not_configured",
+    provider: Object.entries(motorResult.providers || {}).find(([, v]) => v === "ok")?.[0],
+  };
 }
 
-module.exports = { classifyIntent, extractAddress, answerQuestion, chatOrder, sanitizeInput, testAI };
+/**
+ * Gera frase de saudação personalizada com IA.
+ * Usa histórico de conversas para criar intimidade e adaptar ao perfil (D.I.S.C.).
+ * @param {Object} opts
+ * @param {string} opts.storeName - Nome da loja
+ * @param {string} opts.firstName - Primeiro nome do cliente
+ * @param {number} opts.visitCount - Número de pedidos anteriores
+ * @param {string} [opts.lastOrderSummary] - Resumo do último pedido
+ * @param {Array<{role:string,text:string}>} [opts.conversationHistory] - Últimas mensagens
+ * @param {boolean} opts.isNew - true se cliente novo (visitCount === 0)
+ * @returns {Promise<string|null>} Frase curta (1-2 linhas) ou null se falhar
+ */
+async function generateGreetingPhrase({ storeName, firstName, visitCount, lastOrderSummary, conversationHistory, isNew }) {
+  const hasAnyProvider =
+    (ENV.GEMINI_API_KEY && ENV.GEMINI_API_KEY.length > 10) ||
+    require("./groq-fallback.service").hasGroqKey() ||
+    require("./openai-fallback.service").hasOpenAIKey();
+  if (!hasAnyProvider) return null;
+
+  try {
+    const historyText = (conversationHistory || [])
+      .slice(-20)
+      .map((m) => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${(m.text || "").slice(0, 150)}`)
+      .join("\n");
+    const lastUserText = (conversationHistory || [])
+      .filter((m) => m.role === "customer")
+      .pop()?.text || "";
+    const disc = detectDISC(historyText, lastUserText);
+
+    const lastOrderShort = lastOrderSummary
+      ? lastOrderSummary
+          .split("\n")[0]
+          .replace(/^[•\s\d]+x\s*/, "")
+          .split("—")[0]
+          .trim()
+          .slice(0, 40)
+      : "";
+
+    const prompt = `Você é Pappi, atendente virtual da pizzaria "${storeName}" no WhatsApp.
+
+TAREFA: Gere UMA frase curta de saudação personalizada (máximo 2 linhas, ~80 caracteres).
+A frase será inserida após o cumprimento base e antes de perguntar "O que vai ser hoje?".
+
+CONTEXTO:
+- Cliente: ${firstName}
+- É novo? ${isNew ? "Sim, primeira vez" : `Não, ${visitCount} pedidos anteriores`}
+- Último pedido: ${lastOrderShort || "nenhum"}
+- Perfil comportamental (D.I.S.C.): ${disc} — adapte o tom (${discToneGuidance(disc)})
+
+${!isNew && historyText ? `Histórico recente (use para criar intimidade):\n${historyText.slice(-800)}\n` : ""}
+
+REGRAS:
+- Seja natural, caloroso, breve. Uma frase só.
+- Não repita "Olá" ou "Oi" (já foi dito).
+- Para cliente novo: crie expectativa, convide a experimentar.
+- Para cliente recorrente: mostre que lembra dele, crie laço. Pode citar o último pedido se fizer sentido.
+- NÃO inclua emojis na sua resposta (já há no cumprimento base).
+- Retorne APENAS a frase, sem aspas, sem prefixos.`;
+
+    const { text } = await _generateWithFallback(prompt, { temperature: 0.8, maxTokens: 150 });
+    const phrase = text.trim().replace(/^["']|["']$/g, "").slice(0, 120);
+    return phrase || null;
+  } catch (err) {
+    console.warn("[IA] generateGreetingPhrase falhou:", err.message);
+    return null;
+  }
+}
+
+module.exports = {
+  classifyIntent,
+  extractAddress,
+  answerQuestion,
+  chatOrder,
+  sanitizeInput,
+  testAI,
+  generateGreetingPhrase,
+};

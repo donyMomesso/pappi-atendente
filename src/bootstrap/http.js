@@ -6,6 +6,9 @@
 require("dotenv").config();
 process.env.RUN_JOBS = "false";
 process.env.RUN_BAILEYS = "false";
+
+console.log("\n  🍕 Pappi Atendente — processo Web\n");
+
 const { validateEnv } = require("../lib/validate-env");
 validateEnv();
 
@@ -29,5 +32,8 @@ server.on("error", (err) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🔥 Pappi Web/API rodando na porta ${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
+  console.log("");
+  console.log("  🍕 Pappi Web/API pronto");
+  console.log(`  🔗 http://localhost:${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
+  console.log("");
 });

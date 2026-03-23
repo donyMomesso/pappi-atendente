@@ -359,11 +359,11 @@ async function processSocialMessage({ platform, senderId, senderName, text }) {
 
     const { getClients } = require("../services/tenant.service");
     const { cw } = await getClients(tenantId);
-    const gemini = require("../services/gemini.service");
+    const ai = require("../services/ai.service");
     const history = (await chatMemory.get(customer.id)).slice(-10);
     const catalog = await cw.getCatalog().catch(() => null);
 
-    const result = await gemini.chatOrder({
+    const result = await ai.chatOrder({
       history: history.map((m) => ({ role: m.role === "customer" ? "customer" : "assistant", text: m.text })),
       catalog,
       customerName: customer.name,

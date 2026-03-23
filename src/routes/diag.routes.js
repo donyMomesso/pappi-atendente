@@ -19,6 +19,25 @@ router.get("/diag/auth-check", (_req, res) => {
   });
 });
 
+// Status de configuração (sem revelar chaves) — admin ou público para checagem rápida
+router.get("/diag/config", (_req, res) => {
+  const aiMotor = require("../services/ai-motor.service");
+  res.json({
+    aiMotor: {
+      sequence: aiMotor.getSequence(),
+      transcribeSequence: aiMotor.getTranscribeSequence(),
+    },
+    gemini: {
+      configured: !!(ENV.GEMINI_API_KEY && ENV.GEMINI_API_KEY.length > 10),
+      model: ENV.GEMINI_MODEL || "gemini-2.5-flash",
+    },
+    googleMaps: {
+      configured: !!(ENV.GOOGLE_MAPS_API_KEY && ENV.GOOGLE_MAPS_API_KEY.length > 10),
+      storeCoords: ENV.STORE_LAT != null && ENV.STORE_LNG != null,
+    },
+  });
+});
+
 // Teste de conectividade do Cardápio Web (usado pelo bot para catalog, pedidos, etc.)
 router.get("/diag/cw", requireAdminKey, async (req, res) => {
   try {
@@ -61,8 +80,8 @@ router.get("/diag/cw", requireAdminKey, async (req, res) => {
 // Teste de conectividade das IAs (Gemini + OpenAI fallback)
 router.get("/diag/ai", requireAdminKey, async (_req, res) => {
   try {
-    const gemini = require("../services/gemini.service");
-    const status = await gemini.testAI();
+    const ai = require("../services/ai.service");
+    const status = await ai.testAI();
     res.json(status);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -32,6 +32,10 @@ module.exports = {
   OPENAI_MODEL: (process.env.OPENAI_MODEL || "gpt-4o-mini").trim(),
   GROQ_API_KEY: process.env.GROQ_API_KEY || "",
   GROQ_MODEL: (process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim(),
+  // Motor de IA: sequência de fallback. Ex: "gemini,groq,openai"
+  AI_PROVIDER_SEQUENCE: (process.env.AI_PROVIDER_SEQUENCE || "gemini,groq,openai").trim(),
+  // Transcrição de áudio: só gemini e openai suportam. Ex: "gemini,openai"
+  AI_TRANSCRIBE_SEQUENCE: (process.env.AI_TRANSCRIBE_SEQUENCE || "gemini,openai").trim(),
   INSTAGRAM_PAGE_ID: process.env.INSTAGRAM_PAGE_ID || "",
   FACEBOOK_PAGE_ID: process.env.FACEBOOK_PAGE_ID || "",
   FACEBOOK_PAGE_TOKEN: process.env.FACEBOOK_PAGE_TOKEN || "",

@@ -37,6 +37,10 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
+      - key: AI_PROVIDER_SEQUENCE
+        value: "gemini,groq,openai"
+      - key: AI_TRANSCRIBE_SEQUENCE
+        value: "gemini,openai"
       - key: GOOGLE_MAPS_API_KEY
         sync: false
       - key: ATTENDANT_API_KEY

@@ -6,6 +6,8 @@ require("dotenv").config();
 process.env.RUN_JOBS = "true";
 process.env.RUN_BAILEYS = "false";
 
+console.log("\n  🍕 Pappi Atendente — processo Jobs\n");
+
 const { validateEnv } = require("../lib/validate-env");
 validateEnv();
 

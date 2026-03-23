@@ -1,5 +1,13 @@
 require("dotenv").config();
 
+// ── Saudação de boot ─────────────────────────────────────────────────────
+console.log("");
+console.log("  ╔═══════════════════════════════════════════════════════════╗");
+console.log("  ║           🍕 Pappi Atendente v3.1.0                       ║");
+console.log("  ║           Sistema de atendimento WhatsApp + IA            ║");
+console.log("  ╚═══════════════════════════════════════════════════════════╝");
+console.log("");
+
 const { validateEnv } = require("./src/lib/validate-env");
 validateEnv();
 
@@ -11,6 +19,7 @@ const { runStartup } = require("./src/startup");
 
 const PORT = ENV.PORT || 10000;
 
+console.log("  Iniciando serviços...");
 runStartup();
 
 const server = http.createServer(app);
@@ -27,5 +36,9 @@ server.on("error", (err) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🔥 PappiAtendente v3 rodando na porta ${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
+  console.log("");
+  console.log("  ✅ Servidor pronto!");
+  console.log(`  🔗 http://localhost:${PORT}`);
+  console.log(`  📡 NODE_ENV=${ENV.NODE_ENV}`);
+  console.log("");
 });

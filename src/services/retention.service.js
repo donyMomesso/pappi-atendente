@@ -16,15 +16,12 @@ function hoursAgo(h) {
 
 async function evaluateWithAI(customerName, lastOrderSummary, visitCount) {
   try {
-    const ENV = require("../config/env");
-    if (!ENV.GEMINI_API_KEY) return "talvez|GEMINI_API_KEY não configurado";
-
-    const { GoogleGenerativeAI } = require("@google/generative-ai");
-    const client = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-    const model = client.getGenerativeModel({
-      model: ENV.GEMINI_MODEL || "gemini-2.5-flash",
-      generationConfig: { temperature: 0.1, maxOutputTokens: 80 },
-    });
+    const aiMotor = require("./ai-motor.service");
+    const hasAny =
+      (require("../config/env").GEMINI_API_KEY?.length > 10) ||
+      require("./groq-fallback.service").hasGroqKey() ||
+      require("./openai-fallback.service").hasOpenAIKey();
+    if (!hasAny) return "talvez|Nenhum provider de IA configurado";
 
     const prompt = `Você avalia se vale enviar mensagem de retenção para cliente de restaurante.
 
@@ -37,8 +34,8 @@ Responda em UMA linha: <score>|<motivo>
 <score> deve ser: sim, talvez ou nao
 Exemplo: sim|Cliente com 3 pedidos, retorno provável.`;
 
-    const result = await model.generateContent(prompt);
-    const line = result.response.text().trim().split("\n")[0];
+    const { text } = await aiMotor.generate(prompt, { temperature: 0.1, maxTokens: 80 });
+    const line = text.trim().split("\n")[0];
     const [score, reason] = line.split("|");
     const s = (score || "talvez").toLowerCase().trim();
     const normalized = ["sim", "nao"].includes(s) ? s : "talvez";
