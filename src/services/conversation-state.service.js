@@ -70,10 +70,24 @@ async function resetIfEncerrado(customer) {
   return false;
 }
 
+/**
+ * Reseta encerrado se necessário e retorna { botMayRespond, state }.
+ * Uma única chamada getState em vez de duas (resetIfEncerrado + shouldBotRespond).
+ */
+async function resetIfEncerradoAndShouldBotRespond(customer) {
+  let state = await getState(customer);
+  if (state === STATES.ENCERRADO) {
+    await setState(customer.id, STATES.BOT_ATIVO);
+    state = STATES.BOT_ATIVO;
+  }
+  return { botMayRespond: state === STATES.BOT_ATIVO, state };
+}
+
 module.exports = {
   STATES,
   getState,
   setState,
   shouldBotRespond,
   resetIfEncerrado,
+  resetIfEncerradoAndShouldBotRespond,
 };

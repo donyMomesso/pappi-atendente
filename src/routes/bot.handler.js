@@ -56,19 +56,21 @@ function isCep(text) {
 }
 
 // ── Ponto de entrada — com mutex por usuário ──────────────────
-async function handle({ tenant, wa, customer, text, phone }) {
+async function handle({ tenant, wa, customer, text, phone, timer }) {
   const lockKey = `${tenant.id}:${phone}`;
 
   // CORREÇÃO: mutex garante que dois webhooks simultâneos do mesmo usuário
   // não processem em paralelo, evitando race condition na sessão
   return sessionService.withLock(lockKey, async () => {
-    return _handle({ tenant, wa, customer, text, phone });
+    return _handle({ tenant, wa, customer, text, phone, timer });
   });
 }
 
-async function _handle({ tenant, wa, customer, text, phone }) {
+async function _handle({ tenant, wa, customer, text, phone, timer }) {
   const session = await getSession(tenant.id, phone);
+  timer?.mark("session");
   const { cw } = await getClients(tenant.id);
+  timer?.mark("clients");
 
   const t = text
     .toLowerCase()
@@ -237,7 +239,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     await clearSession(tenant.id, phone);
     const fresh = await getSession(tenant.id, phone);
     if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
-    await sendGreeting(wa, cw, phone, customer, tenant, fresh);
+    await sendGreeting(wa, cw, phone, customer, tenant, fresh, timer);
     await saveSession(tenant.id, phone, fresh);
     return;
   }
@@ -251,9 +253,16 @@ async function _handle({ tenant, wa, customer, text, phone }) {
     return;
   }
 
-  if (["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)) {
+  // Fast path: escolhas óbvias — pula classifyIntent (IA ~1–3s) para resposta instantânea
+  const isProductChoice = session.step === "CHOOSE_PRODUCT_TYPE" && /^(pizza|lasanha)$/.test((text || "").trim().toLowerCase());
+  const isFulfillmentChoice =
+    session.step === "FULFILLMENT" && /^(entrega|retirada|delivery|takeout)$/.test((text || "").trim().toLowerCase());
+
+  if (!isProductChoice && !isFulfillmentChoice && ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)) {
     try {
+      timer?.mark("pre_classify");
       const intent = await ai.classifyIntent(text);
+      timer?.mark("classifyIntent");
       if (intent === "STATUS") {
         await handleStatusQuery(wa, phone, customer, tenant);
         return;
@@ -290,13 +299,13 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       await handleChooseProductType(wa, cw, phone, text, t, session, customer, tenant);
       break;
     case "ASK_NAME":
-      await handleAskName(wa, cw, phone, text, session, customer, tenant);
+      await handleAskName(wa, cw, phone, text, session, customer, tenant, timer);
       break;
     case "FULFILLMENT":
       await handleFulfillment(wa, cw, phone, text, t, session, customer, tenant);
       break;
     case "ADDRESS":
-      await handleAddress(wa, cw, phone, text, session, customer, tenant);
+      await handleAddress(wa, cw, phone, text, session, customer, tenant, timer);
       break;
     case "ADDRESS_NUMBER":
       await handleAddressNumber(wa, cw, phone, text, session, customer, tenant);
@@ -308,7 +317,7 @@ async function _handle({ tenant, wa, customer, text, phone }) {
       await handleAskSize(wa, cw, phone, text, session, customer, tenant);
       break;
     case "ORDERING":
-      await handleOrdering(wa, cw, phone, text, session, customer, tenant);
+      await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
       break;
     case "PAYMENT":
       await handlePayment(wa, phone, text, session, customer, tenant);
@@ -401,7 +410,7 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
 }
 
 // ── Saudação ──────────────────────────────────────────────────
-async function sendGreeting(wa, cw, phone, customer, tenant, session) {
+async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
   const storeName = tenant.name || "Pappi Pizza";
 
   if (!customer.name) {
@@ -442,6 +451,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
 
   let impactPhrase = FALLBACK_PHRASES[isVip ? "vip" : "new"];
   try {
+    timer?.mark("pre_greeting");
     const history = await chatMemory.get(customer.id);
     const aiPhrase = await ai.generateGreetingPhrase({
       storeName,
@@ -451,11 +461,11 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session) {
       conversationHistory: history,
       isNew: !isVip,
     });
-    if (aiPhrase && aiPhrase.length > 5) {
-      impactPhrase = aiPhrase;
-    }
+    if (aiPhrase && aiPhrase.length > 5) impactPhrase = aiPhrase;
+    timer?.mark("generateGreetingPhrase");
   } catch (err) {
     console.warn("[Bot] generateGreetingPhrase falhou, usando fallback:", err.message);
+    timer?.mark("greeting_fallback");
   }
 
   const greeting = `${baseGreeting}\n${impactPhrase}${urlLine}${leadLine}`;
@@ -541,7 +551,7 @@ async function handleChooseProductType(wa, cw, phone, text, t, session, customer
 }
 
 // ── ASK_NAME ──────────────────────────────────────────────────
-async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
+async function handleAskName(wa, cw, phone, text, session, customer, tenant, timer) {
   const name = text.trim();
   if (!name || name.length < 2) {
     await wa.sendText(phone, "Pode me dizer seu nome? 😊");
@@ -553,7 +563,7 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant) {
   customer.visitCount = updated.visitCount;
 
   session.step = "MENU";
-  await sendGreeting(wa, cw, phone, updated, tenant, session);
+  await sendGreeting(wa, cw, phone, updated, tenant, session, timer);
 }
 
 // ── FULFILLMENT ───────────────────────────────────────────────
@@ -611,7 +621,7 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
 
 // ── ADDRESS ───────────────────────────────────────────────────
 // Acumula mensagens parciais (rua + número em várias msgs) e tenta parsear o conjunto
-async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
+async function handleAddress(wa, cw, phone, text, session, customer, tenant, timer) {
   const t = (text || "")
     .toLowerCase()
     .normalize("NFD")
@@ -660,7 +670,9 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant) {
     return addr;
   }
 
+  timer?.mark("pre_extractAddress");
   const addr = await tryParseAddress(combined);
+  timer?.mark("extractAddress");
 
   if (!addr?.street) {
     session.addressFailCount += 1;
@@ -867,7 +879,7 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
 }
 
 // ── ORDERING ──────────────────────────────────────────────────
-async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
+async function handleOrdering(wa, cw, phone, text, session, customer, tenant, timer) {
   session.orderHistory.push({ role: "customer", text });
 
   const catalog =
@@ -877,6 +889,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
       : session.catalog;
   const sizeHint = session.chosenSize ? `Tamanho já escolhido: ${session.chosenSize}. ` : "";
 
+  timer?.mark("pre_chatOrder");
   const result = await ai.chatOrder({
     history: session.orderHistory,
     catalog,
@@ -890,6 +903,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant) {
     chosenSize: session.chosenSize,
     sizeHint,
   });
+  timer?.mark("chatOrder");
 
   session.orderHistory.push({ role: "bot", text: result.reply });
   await wa.sendText(phone, result.reply);

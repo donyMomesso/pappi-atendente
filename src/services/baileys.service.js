@@ -16,6 +16,18 @@ const LIMITS = { perHour: 60, perDay: 200, alertAt: 0.7 };
 
 const INSTANCES = new Map();
 
+// Cache de waMessageIds já vistos — evita query no banco para duplicatas rápidas
+const SEEN_MSG_IDS = new Set();
+const SEEN_MSG_MAX = 2000;
+function markMessageProcessed(waId) {
+  if (!waId) return;
+  if (SEEN_MSG_IDS.size >= SEEN_MSG_MAX) {
+    const arr = [...SEEN_MSG_IDS];
+    arr.slice(0, Math.floor(SEEN_MSG_MAX / 2)).forEach((id) => SEEN_MSG_IDS.delete(id));
+  }
+  SEEN_MSG_IDS.add(waId);
+}
+
 // Cache da versão Baileys — evita chamar URL externa a cada reconexão
 let _cachedVersion = null;
 async function getBaileysVersion() {
@@ -355,11 +367,18 @@ async function start(instanceId = "default") {
 
         const waId = msg?.key?.id;
 
-        // Evita reprocessar mensagens já gravadas (recovery após reconexão)
+        // Evita reprocessar: cache em memória (duplicatas) ou banco (recovery)
         if (waId) {
+          if (SEEN_MSG_IDS.has(waId)) continue;
           const existing = await prisma.message.findFirst({ where: { waMessageId: waId } });
-          if (existing) continue;
+          if (existing) {
+            markMessageProcessed(waId);
+            continue;
+          }
         }
+
+        const { startTimer } = require("../lib/timing");
+        const timer = startTimer({ instanceId, phone, step: "baileys" });
 
         log.info(
           { instanceId, jid, phone, text: text.slice(0, 80), type },
@@ -374,6 +393,7 @@ async function start(instanceId = "default") {
               await sock.sendPresenceUpdate("composing", jid);
             } catch {}
           }
+          timer.mark("read_composing");
 
           try {
             const tenantId = await detectTenantByPhone(phone, instanceId);
@@ -388,10 +408,12 @@ async function start(instanceId = "default") {
               log.warn({ instanceId, tenantId }, "Tenant não existe no banco — msg ignorada");
               continue;
             }
+            timer.mark("tenant");
 
             // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
             const pushName = msg.pushName || msg.verifiedBizName || null;
             const customer = await findOrCreate(tenantId, phone, pushName);
+            timer.mark("customer");
 
             if (pushName && !customer.name) {
               await prisma.customer
@@ -407,6 +429,8 @@ async function start(instanceId = "default") {
 
             const botHandler = require("../routes/bot.handler");
             await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer", waId || undefined);
+            if (waId) markMessageProcessed(waId);
+            timer.mark("save_msg");
             require("./socket.service").emitConvUpdate(customer.id);
 
             if (isAppend && !recoverySent.has(customer.id)) {
@@ -424,12 +448,10 @@ async function start(instanceId = "default") {
             if (inst.botEnabled !== false) {
               try {
                 const convState = require("./conversation-state.service");
-                await convState.resetIfEncerrado(customer);
-                const botMayRespond = await convState.shouldBotRespond(customer);
+                const { botMayRespond, state } = await convState.resetIfEncerradoAndShouldBotRespond(customer);
+                timer.mark("conv_state");
 
                 if (!botMayRespond) {
-                  const state = await convState.getState(customer);
-
                   // Auto-libera se estava aguardando humano mas não há atendente ativo
                   if (state === "aguardando_humano" && !customer.claimedBy) {
                     log.info({ instanceId, phone }, "Auto-liberando handoff sem atendente — devolvendo ao bot");
@@ -437,6 +459,8 @@ async function start(instanceId = "default") {
                     customer.handoff = false;
                   } else {
                     log.info({ instanceId, phone, state }, "Bot silencioso (handoff/estado)");
+                    timer.mark("bot_skip");
+                    timer.log(log);
                     continue;
                   }
                 }
@@ -461,11 +485,21 @@ async function start(instanceId = "default") {
                 };
 
                 log.debug({ instanceId, phone }, "Chamando bot.handle");
-                await botHandler.handle({ tenant, wa, customer, text, phone: customer.phone });
+                await botHandler.handle({
+                  tenant,
+                  wa,
+                  customer,
+                  text,
+                  phone: customer.phone,
+                  timer,
+                });
+                timer.mark("bot_handle");
                 require("./socket.service").emitConvUpdate(customer.id);
-                log.debug({ instanceId, phone }, "Bot.handle concluído");
+                timer.log(log);
               } catch (e) {
                 log.error({ instanceId, phone, err: e }, "Erro no bot");
+                timer.mark("bot_error");
+                timer.log(log);
                 try {
                   const { incrementBotErrorAndCheckHandoff } = require("./customer.service");
                   const { shouldHandoff } = await incrementBotErrorAndCheckHandoff(customer.id);
