@@ -9,7 +9,7 @@
 const store = new Map();
 
 // Limpeza periódica de entradas expiradas (evita memory leak)
-setInterval(
+const cleanupInterval = setInterval(
   () => {
     const cutoff = Date.now() - 5 * 60 * 1000; // remove entradas > 5 min
     for (const [key, timestamps] of store.entries()) {
@@ -20,6 +20,11 @@ setInterval(
   },
   2 * 60 * 1000,
 );
+
+/** Para testes: encerra o setInterval para Jest sair sem open handle */
+function stopCleanup() {
+  if (cleanupInterval) clearInterval(cleanupInterval);
+}
 
 /**
  * Verifica se a chave ultrapassou o limite.
@@ -64,4 +69,4 @@ function checkOrder(phone) {
   return check(`ord:${phone}`, LIMITS.order);
 }
 
-module.exports = { check, checkWebhook, checkGemini, checkOrder, LIMITS };
+module.exports = { check, checkWebhook, checkGemini, checkOrder, LIMITS, stopCleanup };

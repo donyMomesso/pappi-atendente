@@ -1,6 +1,7 @@
-const { check, checkWebhook, checkGemini, checkOrder, LIMITS } = require("../src/lib/rate-limiter");
+const { check, checkWebhook, checkGemini, checkOrder, LIMITS, stopCleanup } = require("../src/lib/rate-limiter");
 
 describe("rate-limiter", () => {
+  afterAll(() => stopCleanup());
   describe("check()", () => {
     it("should allow first request", () => {
       const result = check("test-first", { windowMs: 60000, max: 5 });
