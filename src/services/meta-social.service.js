@@ -37,6 +37,11 @@ async function resolveTenantId({ platform, recipientId, senderId }) {
 
   if (existingCustomer?.tenantId) return existingCustomer.tenantId;
 
+  if (!recipientId || String(recipientId).trim() === "") {
+    log.warn({ platform, senderId }, "Social: recipientId ausente, não é possível resolver tenant");
+    return null;
+  }
+
   const configs = await prisma.config.findMany({
     where: {
       OR: [
@@ -54,13 +59,11 @@ async function resolveTenantId({ platform, recipientId, senderId }) {
     return tenantId;
   }
 
-  const fallbackTenant = await prisma.tenant.findFirst({
-    where: { active: true },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return fallbackTenant?.id || null;
+  log.warn(
+    { platform, recipientId, senderId },
+    "Social: recipientId não encontrado em Config, tenant não resolvido (evitando fallback)"
+  );
+  return null;
 }
 
 async function sendInstagram(recipientId, text, tenantId) {
