@@ -1112,7 +1112,8 @@ function buildCwPayload({ session, customer, calc }) {
 }
 
 // ── Salva mensagem enviada pelo Baileys ───────────────────────
-async function saveBaileysMessage(phone, text, tenantId, role = "assistant") {
+// waMessageId opcional: usado para check azul e deduplicação em recovery (append)
+async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waMessageId = null) {
   try {
     const prisma = require("../lib/db");
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
@@ -1123,7 +1124,7 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant") {
     });
     if (customer) {
       const sender = role === "customer" ? null : "WhatsApp Auxiliar";
-      await chatMemory.push(customer.id, role, text, sender, null, "text", null);
+      await chatMemory.push(customer.id, role, text, sender, null, "text", waMessageId);
     } else {
       console.warn(`[BaileysMsg] Cliente não encontrado: ${normalizedPhone} (tenant: ${tenantId})`);
     }

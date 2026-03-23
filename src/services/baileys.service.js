@@ -300,9 +300,12 @@ async function start(instanceId = "default") {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Captura mensagens recebidas
+    // Captura mensagens recebidas (notify = nova em tempo real, append = histórico após reconexão)
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      if (type !== "notify") return;
+      if (type !== "notify" && type !== "append") return;
+      const isAppend = type === "append";
+
+      const recoverySent = new Set(); // evita mandar "Voltei!" várias vezes no mesmo batch
 
       for (const msg of messages) {
         const jid = msg?.key?.remoteJid;
@@ -350,14 +353,27 @@ async function start(instanceId = "default") {
           continue;
         }
 
-        log.info({ instanceId, jid, phone, text: text.slice(0, 80) }, "MSG recebida");
+        const waId = msg?.key?.id;
+
+        // Evita reprocessar mensagens já gravadas (recovery após reconexão)
+        if (waId) {
+          const existing = await prisma.message.findFirst({ where: { waMessageId: waId } });
+          if (existing) continue;
+        }
+
+        log.info(
+          { instanceId, jid, phone, text: text.slice(0, 80), type },
+          isAppend ? "MSG append (recovery)" : "MSG recebida",
+        );
 
         try {
-          // Lido + digitando (Baileys) — cliente vê ✓✓ e "digitando..."
-          try {
-            await sock.readMessages([msg.key]);
-            await sock.sendPresenceUpdate("composing", jid);
-          } catch {}
+          // Lido + digitando — apenas para notify; append são msgs antigas
+          if (!isAppend) {
+            try {
+              await sock.readMessages([msg.key]);
+              await sock.sendPresenceUpdate("composing", jid);
+            } catch {}
+          }
 
           try {
             const tenantId = await detectTenantByPhone(phone, instanceId);
@@ -390,8 +406,20 @@ async function start(instanceId = "default") {
             await setReplyChannel(customer.id, `baileys:${instanceId}`);
 
             const botHandler = require("../routes/bot.handler");
-            await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer");
+            await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer", waId || undefined);
             require("./socket.service").emitConvUpdate(customer.id);
+
+            if (isAppend && !recoverySent.has(customer.id)) {
+              recoverySent.add(customer.id);
+              const recovery =
+                "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
+              try {
+                await sendText(customer.phone, recovery, instanceId, true);
+                await botHandler.saveBaileysMessage(customer.phone, recovery, tenantId, "assistant");
+              } catch (e) {
+                log.warn({ instanceId, phone: customer.phone, err: e }, "Falha ao enviar msg de retomada");
+              }
+            }
 
             if (inst.botEnabled !== false) {
               try {
