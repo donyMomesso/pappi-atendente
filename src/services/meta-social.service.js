@@ -77,10 +77,10 @@ async function sendInstagram(recipientId, text, tenantId) {
   if (!recipientId || !txt || !tenantId) return null;
 
   const cfg = await getTenantSocialConfig(tenantId);
-  if (!cfg.instagramPageToken || !cfg.instagramPageId) return null;
+  if (!cfg.instagramPageToken || !cfg.facebookPageId) return null;
 
   try {
-    const res = await fetch(`${GRAPH}/${cfg.instagramPageId}/messages`, {
+    const res = await fetch(`${GRAPH}/${cfg.facebookPageId}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
