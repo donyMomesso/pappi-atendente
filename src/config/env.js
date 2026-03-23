@@ -50,6 +50,7 @@ module.exports = {
   // Transcrição de áudio: só gemini e openai suportam. Ex: "gemini,openai"
   AI_TRANSCRIBE_SEQUENCE: (process.env.AI_TRANSCRIBE_SEQUENCE || "gemini,openai").trim(),
   INSTAGRAM_PAGE_ID: process.env.INSTAGRAM_PAGE_ID || "",
+  INSTAGRAM_PAGE_TOKEN: process.env.INSTAGRAM_PAGE_TOKEN || "",
   FACEBOOK_PAGE_ID: process.env.FACEBOOK_PAGE_ID || "",
   FACEBOOK_PAGE_TOKEN: process.env.FACEBOOK_PAGE_TOKEN || "",
   STORE_LAT: toNumber(process.env.STORE_LAT, null),

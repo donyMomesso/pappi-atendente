@@ -12,6 +12,7 @@ async function getTenantSocialConfig(tenantId) {
     `${tenantId}:facebook_page_id`,
     `${tenantId}:instagram_page_id`,
     `${tenantId}:facebook_page_token`,
+    `${tenantId}:instagram_page_token`,
   ];
 
   const rows = await prisma.config.findMany({
@@ -20,11 +21,15 @@ async function getTenantSocialConfig(tenantId) {
   });
 
   const map = Object.fromEntries(rows.map((r) => [r.key, (r.value || "").trim()]));
+  const fbToken = map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
+  const igToken = map[`${tenantId}:instagram_page_token`] || ENV.INSTAGRAM_PAGE_TOKEN || fbToken;
 
   return {
     facebookPageId: map[`${tenantId}:facebook_page_id`] || ENV.FACEBOOK_PAGE_ID || "",
     instagramPageId: map[`${tenantId}:instagram_page_id`] || ENV.INSTAGRAM_PAGE_ID || "",
-    pageToken: map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "",
+    facebookPageToken: fbToken,
+    instagramPageToken: igToken,
+    pageToken: fbToken, // fallback legado
   };
 }
 
@@ -72,14 +77,14 @@ async function sendInstagram(recipientId, text, tenantId) {
   if (!recipientId || !txt || !tenantId) return null;
 
   const cfg = await getTenantSocialConfig(tenantId);
-  if (!cfg.pageToken || !cfg.instagramPageId) return null;
+  if (!cfg.instagramPageToken || !cfg.instagramPageId) return null;
 
   try {
     const res = await fetch(`${GRAPH}/${cfg.instagramPageId}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.pageToken}`,
+        Authorization: `Bearer ${cfg.instagramPageToken}`,
       },
       body: JSON.stringify({
         recipient: { id: String(recipientId) },
@@ -122,14 +127,14 @@ async function sendFacebook(recipientId, text, tenantId) {
   if (!recipientId || !txt || !tenantId) return null;
 
   const cfg = await getTenantSocialConfig(tenantId);
-  if (!cfg.pageToken || !cfg.facebookPageId) return null;
+  if (!cfg.facebookPageToken || !cfg.facebookPageId) return null;
 
   try {
     const res = await fetch(`${GRAPH}/${cfg.facebookPageId}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.pageToken}`,
+        Authorization: `Bearer ${cfg.facebookPageToken}`,
       },
       body: JSON.stringify({
         recipient: { id: String(recipientId) },

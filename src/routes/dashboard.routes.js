@@ -1246,6 +1246,7 @@ router.get("/meta/status", authDash, async (req, res) => {
           in: [
             `${tenantId}:instagram_page_id`,
             `${tenantId}:facebook_page_id`,
+            `${tenantId}:instagram_page_token`,
             `${tenantId}:facebook_page_token`,
           ],
         },
@@ -1255,17 +1256,19 @@ router.get("/meta/status", authDash, async (req, res) => {
     const map = Object.fromEntries(configs.map((r) => [r.key, (r.value || "").trim()]));
     const instagramPageId = map[`${tenantId}:instagram_page_id`] || ENV.INSTAGRAM_PAGE_ID || "";
     const facebookPageId = map[`${tenantId}:facebook_page_id`] || ENV.FACEBOOK_PAGE_ID || "";
-    const token = map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
+    const instagramToken =
+      map[`${tenantId}:instagram_page_token`] || ENV.INSTAGRAM_PAGE_TOKEN || map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
+    const facebookToken = map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
 
-    const instagramConnected = !!(instagramPageId && token);
-    const facebookConnected = !!(facebookPageId && token);
+    const instagramConnected = !!(instagramPageId && instagramToken);
+    const facebookConnected = !!(facebookPageId && facebookToken);
 
     res.json({
       instagram: {
         connected: instagramConnected,
         instagramPageId: instagramPageId || null,
         webhookConfigured: !!instagramPageId,
-        tokenPresent: !!token,
+        tokenPresent: !!instagramToken,
         lastWebhookAt: telemetry.instagram.lastWebhookAt,
         lastSenderId: telemetry.instagram.lastSenderId,
         lastRecipientId: telemetry.instagram.lastRecipientId,
@@ -1275,7 +1278,7 @@ router.get("/meta/status", authDash, async (req, res) => {
         connected: facebookConnected,
         facebookPageId: facebookPageId || null,
         webhookConfigured: !!facebookPageId,
-        tokenPresent: !!token,
+        tokenPresent: !!facebookToken,
         lastWebhookAt: telemetry.facebook.lastWebhookAt,
         lastSenderId: telemetry.facebook.lastSenderId,
         lastRecipientId: telemetry.facebook.lastRecipientId,
@@ -1292,7 +1295,7 @@ router.patch("/meta/config", authAdmin, async (req, res) => {
   try {
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
-    const { instagramPageId, facebookPageId, facebookPageToken } = req.body;
+    const { instagramPageId, facebookPageId, instagramPageToken, facebookPageToken } = req.body;
 
     if (instagramPageId !== undefined) {
       const val = String(instagramPageId || "").trim();
@@ -1307,6 +1310,14 @@ router.patch("/meta/config", authAdmin, async (req, res) => {
       await prisma.config.upsert({
         where: { key: `${tenantId}:facebook_page_id` },
         create: { key: `${tenantId}:facebook_page_id`, value: val },
+        update: { value: val },
+      });
+    }
+    if (instagramPageToken !== undefined) {
+      const val = String(instagramPageToken || "").trim();
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:instagram_page_token` },
+        create: { key: `${tenantId}:instagram_page_token`, value: val },
         update: { value: val },
       });
     }

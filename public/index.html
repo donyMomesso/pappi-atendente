@@ -999,7 +999,8 @@
         </div>
         <div class="settings-card" style="max-width:520px">
           <div class="settings-card-body">
-            <div class="settings-field"><label>Facebook Page Token (compartilhado)</label><input id="metaFacebookToken" type="password" placeholder="Token da API Meta"/></div>
+            <div class="settings-field"><label>Instagram Page Token</label><input id="metaInstagramToken" type="password" placeholder="Token Instagram (opcional)"/></div>
+            <div class="settings-field"><label>Facebook Page Token</label><input id="metaFacebookToken" type="password" placeholder="Token Facebook"/></div>
             <button class="btn-save-settings" onclick="saveMetaConfig()">Salvar configurações Meta</button>
           </div>
         </div>
@@ -3515,13 +3516,17 @@ async function loadMetaStatus() {
 async function saveMetaConfig() {
   const instId = document.getElementById("metaInstagramPageId")?.value?.trim() ?? "";
   const fbId = document.getElementById("metaFacebookPageId")?.value?.trim() ?? "";
-  const token = document.getElementById("metaFacebookToken")?.value?.trim() ?? "";
+  const instToken = document.getElementById("metaInstagramToken")?.value?.trim() ?? "";
+  const fbToken = document.getElementById("metaFacebookToken")?.value?.trim() ?? "";
   const body = { instagramPageId: instId, facebookPageId: fbId };
-  if (token) body.facebookPageToken = token;
+  if (instToken) body.instagramPageToken = instToken;
+  if (fbToken) body.facebookPageToken = fbToken;
   const r = await api("/meta/config", { method: "PATCH", body: JSON.stringify(body) });
   if (r?.ok) {
-    const tokenEl = document.getElementById("metaFacebookToken");
-    if (tokenEl) tokenEl.value = "";
+    const instTokenEl = document.getElementById("metaInstagramToken");
+    const fbTokenEl = document.getElementById("metaFacebookToken");
+    if (instTokenEl) instTokenEl.value = "";
+    if (fbTokenEl) fbTokenEl.value = "";
     loadMetaStatus();
     alert("Configurações Meta salvas.");
   } else {
