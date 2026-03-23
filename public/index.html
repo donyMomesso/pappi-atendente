@@ -3462,6 +3462,73 @@ async function sendMsgToPhone(phone) {
   }
 }
 
+// ── CANAIS META ───────────────────────────────────────────────
+function metaStatusBadge(connected, hasError, partial) {
+  if (hasError) return '<span style="color:#e53935;font-weight:600">● Erro</span>';
+  if (connected) return '<span style="color:#25d366;font-weight:600">● Conectado</span>';
+  if (partial) return '<span style="color:#f59e0b;font-weight:600">● Parcial</span>';
+  return '<span style="color:#9e9e9e;font-weight:600">● Ausente</span>';
+}
+
+async function loadMetaStatus() {
+  if (USER_ROLE !== "admin") return;
+  const elInst = document.getElementById("metaInstagramStatus");
+  const elFb = document.getElementById("metaFacebookStatus");
+  const d = await api("/meta/status");
+  if (!d || d.error === "forbidden") {
+    if (elInst) elInst.innerHTML = "● Erro ao carregar";
+    if (elFb) elFb.innerHTML = "● Erro ao carregar";
+    return;
+  }
+  const fmt = (s) => s ? new Date(s).toLocaleString("pt-BR") : "—";
+  if (elInst) {
+    const ig = d.instagram || {};
+    const partial = (ig.instagramPageId || ig.tokenPresent) && !ig.connected;
+    elInst.innerHTML = `
+      <div style="margin-bottom:6px">${metaStatusBadge(ig.connected, !!ig.lastError, partial)}</div>
+      <div style="font-size:11px;color:#666;line-height:1.5">
+        ID: ${ig.instagramPageId || "—"} | Token: ${ig.tokenPresent ? "Presente" : "Ausente"}<br>
+        Último webhook: ${fmt(ig.lastWebhookAt)}<br>
+        Sender: ${ig.lastSenderId || "—"} | Recipient: ${ig.lastRecipientId || "—"}<br>
+        ${ig.lastError ? '<span style="color:#e53935">Erro: ' + esc(ig.lastError) + '</span>' : ""}
+      </div>`;
+  }
+  const instId = document.getElementById("metaInstagramPageId");
+  if (instId) instId.value = d.instagram?.instagramPageId || "";
+
+  if (elFb) {
+    const fb = d.facebook || {};
+    const partial = (fb.facebookPageId || fb.tokenPresent) && !fb.connected;
+    elFb.innerHTML = `
+      <div style="margin-bottom:6px">${metaStatusBadge(fb.connected, !!fb.lastError, partial)}</div>
+      <div style="font-size:11px;color:#666;line-height:1.5">
+        ID: ${fb.facebookPageId || "—"} | Token: ${fb.tokenPresent ? "Presente" : "Ausente"}<br>
+        Último webhook: ${fmt(fb.lastWebhookAt)}<br>
+        Sender: ${fb.lastSenderId || "—"} | Recipient: ${fb.lastRecipientId || "—"}<br>
+        ${fb.lastError ? '<span style="color:#e53935">Erro: ' + esc(fb.lastError) + '</span>' : ""}
+      </div>`;
+  }
+  const fbId = document.getElementById("metaFacebookPageId");
+  if (fbId) fbId.value = d.facebook?.facebookPageId || "";
+}
+
+async function saveMetaConfig() {
+  const instId = document.getElementById("metaInstagramPageId")?.value?.trim() ?? "";
+  const fbId = document.getElementById("metaFacebookPageId")?.value?.trim() ?? "";
+  const token = document.getElementById("metaFacebookToken")?.value?.trim() ?? "";
+  const body = { instagramPageId: instId, facebookPageId: fbId };
+  if (token) body.facebookPageToken = token;
+  const r = await api("/meta/config", { method: "PATCH", body: JSON.stringify(body) });
+  if (r?.ok) {
+    const tokenEl = document.getElementById("metaFacebookToken");
+    if (tokenEl) tokenEl.value = "";
+    loadMetaStatus();
+    alert("Configurações Meta salvas.");
+  } else {
+    alert("Erro: " + (r?.error || "Tente novamente"));
+  }
+}
+
 // ── GOOGLE CONTACTS ───────────────────────────────────────────
 async function gcRefreshStatus() {
   if (USER_ROLE !== "admin") return;
