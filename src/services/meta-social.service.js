@@ -2,6 +2,7 @@
 
 const ENV = require("../config/env");
 const prisma = require("../lib/db");
+const log = require("../lib/logger").child({ service: "meta-social" });
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -48,7 +49,9 @@ async function resolveTenantId({ platform, recipientId, senderId }) {
 
   if (configs.length > 0) {
     const key = configs[0].key;
-    return key.replace(/:facebook_page_id$/, "").replace(/:instagram_page_id$/, "");
+    const tenantId = key.replace(/:facebook_page_id$/, "").replace(/:instagram_page_id$/, "");
+    log.debug({ platform, recipientId, tenantId }, "Social: tenant resolvido por recipientId (Config)");
+    return tenantId;
   }
 
   const fallbackTenant = await prisma.tenant.findFirst({
@@ -61,7 +64,8 @@ async function resolveTenantId({ platform, recipientId, senderId }) {
 }
 
 async function sendInstagram(recipientId, text, tenantId) {
-  if (!recipientId || !text || !tenantId) return null;
+  const txt = typeof text === "string" ? text.trim() : "";
+  if (!recipientId || !txt || !tenantId) return null;
 
   const cfg = await getTenantSocialConfig(tenantId);
   if (!cfg.pageToken || !cfg.instagramPageId) return null;
@@ -74,21 +78,22 @@ async function sendInstagram(recipientId, text, tenantId) {
         Authorization: `Bearer ${cfg.pageToken}`,
       },
       body: JSON.stringify({
-        recipient: { id: recipientId },
-        message: { text },
+        recipient: { id: String(recipientId) },
+        message: { text: txt },
         messaging_type: "RESPONSE",
       }),
     });
 
     return await res.json();
   } catch (err) {
-    console.error("[Meta:Instagram] Erro ao enviar:", err.message);
+    log.error({ recipientId, tenantId, err: err.message }, "Instagram: erro ao enviar");
     return null;
   }
 }
 
 async function sendFacebook(recipientId, text, tenantId) {
-  if (!recipientId || !text || !tenantId) return null;
+  const txt = typeof text === "string" ? text.trim() : "";
+  if (!recipientId || !txt || !tenantId) return null;
 
   const cfg = await getTenantSocialConfig(tenantId);
   if (!cfg.pageToken || !cfg.facebookPageId) return null;
@@ -101,15 +106,15 @@ async function sendFacebook(recipientId, text, tenantId) {
         Authorization: `Bearer ${cfg.pageToken}`,
       },
       body: JSON.stringify({
-        recipient: { id: recipientId },
-        message: { text },
+        recipient: { id: String(recipientId) },
+        message: { text: txt },
         messaging_type: "RESPONSE",
       }),
     });
 
     return await res.json();
   } catch (err) {
-    console.error("[Meta:Facebook] Erro ao enviar:", err.message);
+    log.error({ recipientId, tenantId, err: err.message }, "Facebook: erro ao enviar");
     return null;
   }
 }
@@ -142,6 +147,7 @@ function parseInstagramWebhook(body) {
           msg?.text?.body ?? msg?.text ?? (typeof msg?.text === "string" ? msg.text : "") ?? "";
         const text = typeof rawText === "string" ? rawText.trim() : "";
         const attachmentType = msg?.attachments?.[0]?.type || null;
+        const safeAttachment = attachmentType && typeof attachmentType === "string" ? attachmentType : null;
 
         const senderId = String(value.sender?.id || msg?.from?.id || msg?.from || "");
         if (!senderId) continue;
@@ -152,7 +158,7 @@ function parseInstagramWebhook(body) {
           recipientId,
           senderName: value.contacts?.[0]?.profile?.name || null,
           text,
-          attachmentType,
+          attachmentType: safeAttachment,
           timestamp: value.timestamp || msg?.timestamp || entry?.time || Date.now(),
         });
       }
@@ -170,6 +176,7 @@ function parseFacebookWebhook(body) {
       const rawText = event.message?.text ?? "";
       const text = typeof rawText === "string" ? rawText.trim() : "";
       const attachmentType = event.message?.attachments?.[0]?.type || null;
+      const safeAttachment = attachmentType && typeof attachmentType === "string" ? attachmentType : null;
 
       const senderId = String(event.sender?.id || "");
       if (!senderId) continue;
@@ -180,7 +187,7 @@ function parseFacebookWebhook(body) {
         recipientId: String(event.recipient?.id || ""),
         senderName: null,
         text,
-        attachmentType,
+        attachmentType: safeAttachment,
         timestamp: event.timestamp || entry?.time || Date.now(),
       });
     }

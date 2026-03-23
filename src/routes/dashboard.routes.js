@@ -18,29 +18,42 @@ const router = express.Router();
 
 function parseSocialPhone(phone) {
   if (!phone || typeof phone !== "string") return null;
-  const s = phone.trim();
-  if (s.startsWith("instagram:")) return { platform: "instagram", recipientId: s.slice(10) };
-  if (s.startsWith("facebook:")) return { platform: "facebook", recipientId: s.slice(9) };
+  const s = String(phone).trim();
+  if (s.startsWith("instagram:")) {
+    const recipientId = s.slice(10).trim();
+    return recipientId ? { platform: "instagram", recipientId } : null;
+  }
+  if (s.startsWith("facebook:")) {
+    const recipientId = s.slice(9).trim();
+    return recipientId ? { platform: "facebook", recipientId } : null;
+  }
   return null;
 }
 
 async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
+  const txt = typeof text === "string" ? text.trim() : "";
+  if (!txt) return null;
+
   const social = parseSocialPhone(phone);
   if (social) {
-    if (social.platform === "instagram") return metaSocial.sendInstagram(social.recipientId, text, tenantId);
-    if (social.platform === "facebook") return metaSocial.sendFacebook(social.recipientId, text, tenantId);
+    const dashLog = require("../lib/logger").child({ route: "dash" });
+    dashLog.debug({ platform: social.platform, tenantId }, "Envio outbound via canal social");
+    if (social.platform === "instagram") return metaSocial.sendInstagram(social.recipientId, txt, tenantId);
+    if (social.platform === "facebook") return metaSocial.sendFacebook(social.recipientId, txt, tenantId);
   }
 
   const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
   const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+  if (!normalizedPhone || normalizedPhone.length < 10) return null;
+
   const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
   const useBaileysInstance = replyChannel && replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
 
   if (useBaileysInstance) {
-    return baileys.sendText(normalizedPhone, text, useBaileysInstance, true);
+    return baileys.sendText(normalizedPhone, txt, useBaileysInstance, true);
   }
   const { wa } = await getClients(tenantId);
-  const result = await wa.sendText(normalizedPhone, text);
+  const result = await wa.sendText(normalizedPhone, txt);
   return result?.messages?.[0]?.id ? { ok: true } : result;
 }
 
@@ -495,10 +508,16 @@ router.post("/orders/:id/compensate", authDash, async (req, res) => {
     const msg = `${customerName}, olha o que eu consegui para você: uma borda grátis no seu próximo pedido. É só usar o cupom *${result.code}* aqui com a gente que a borda sai grátis. Foi uma forma que consegui para te compensar pela demora de hoje.`;
 
     if (order.customer?.phone) {
-      const { wa } = await getClients(tenantId);
-      await wa.sendText(order.customer.phone, msg).catch(() => {});
-      await markCouponSent(orderId);
-      if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
+      const sent = await sendOutboundMessage({
+        tenantId,
+        phone: order.customer.phone,
+        text: msg,
+        customerId: order.customerId,
+      });
+      if (sent) {
+        await markCouponSent(orderId);
+        if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
+      }
     }
 
     res.json({ ok: true, code: result.code });
@@ -915,9 +934,10 @@ router.post("/send", authDash, async (req, res) => {
     const { phone, text, customerId } = req.body;
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
-    if (!phone || !text) return res.status(400).json({ error: "phone e text obrigatórios" });
+    const txt = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!req.body?.phone || !txt) return res.status(400).json({ error: "phone e text obrigatórios" });
 
-    const result = await sendOutboundMessage({ tenantId, phone, text, customerId });
+    const result = await sendOutboundMessage({ tenantId, phone: req.body.phone, text: txt, customerId });
     if (!result || (typeof result === "object" && result.error)) throw new Error("Falha ao enviar mensagem");
 
     let waMessageId = null;
@@ -928,7 +948,7 @@ router.post("/send", authDash, async (req, res) => {
       await chatMemory.push(
         customerId,
         "attendant",
-        text,
+        txt,
         req.attendant?.name || "Atendente",
         null,
         "text",
@@ -1033,11 +1053,13 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
     }
 
     let cwOrders = [];
-    try {
-      const { cw } = await getClients(tenantId);
-      cwOrders = (await cw.listOrdersByPhone(customer.phone, 30)) || [];
-    } catch (e) {
-      console.warn("[Customer orders] CW listOrdersByPhone:", e.message);
+    if (!parseSocialPhone(customer.phone)) {
+      try {
+        const { cw } = await getClients(tenantId);
+        cwOrders = (await cw.listOrdersByPhone(customer.phone, 30)) || [];
+      } catch (e) {
+        console.warn("[Customer orders] CW listOrdersByPhone:", e.message);
+      }
     }
 
     for (const o of cwOrders) {
@@ -1488,6 +1510,7 @@ router.get("/customer/:id/avatar", authDash, async (req, res) => {
   try {
     const customer = await prisma.customer.findUnique({ where: { id: req.params.id }, select: { phone: true } });
     if (!customer) return res.status(404).end();
+    if (parseSocialPhone(customer.phone)) return res.status(204).end();
     const url = await baileys.getProfilePicture(customer.phone).catch(() => null);
     if (url) return res.redirect(url);
     res.status(204).end();

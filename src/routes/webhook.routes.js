@@ -15,6 +15,7 @@ const metaSocial = require("../services/meta-social.service");
 const { requireAdminKey } = require("../middleware/auth.middleware");
 const { checkWebhook } = require("../lib/rate-limiter");
 const { transcribeAudio } = require("../services/audio-transcribe.service");
+const prisma = require("../lib/db");
 
 const router = express.Router();
 
@@ -176,7 +177,6 @@ async function processStatus({ status }) {
   const { id, status: s } = status;
   if (s === "failed") console.error(`Mensagem ${id} falhou:`, status.errors);
 
-  const prisma = require("../lib/db");
   const row = await prisma.message
     .findFirst({
       where: { waMessageId: id },
@@ -302,11 +302,12 @@ function isHandoffTrigger(text) {
 async function processSocialMessage({ platform, senderId, recipientId, senderName, text, attachmentType }) {
   if (!senderId) return;
 
-  const displayText = (text && String(text).trim()) || (attachmentType ? `📎 ${attachmentType}` : "");
+  const txt = text && typeof text === "string" ? text.trim() : "";
+  const attachLabel = attachmentType && typeof attachmentType === "string" ? `📎 ${attachmentType}` : "";
+  const displayText = txt || attachLabel;
   if (!displayText) return;
 
   const log = require("../lib/logger").child({ service: "webhook" });
-  const prisma = require("../lib/db");
 
   try {
     const tenantId = await metaSocial.resolveTenantId({ platform, recipientId, senderId });
@@ -362,9 +363,12 @@ async function processSocialMessage({ platform, senderId, recipientId, senderNam
       storeName: tenant.name,
     });
 
-    await chatMemory.push(customer.id, "assistant", result.reply, "Pappi", null, "text");
-    if (platform === "instagram") await metaSocial.sendInstagram(senderId, result.reply, tenantId);
-    if (platform === "facebook") await metaSocial.sendFacebook(senderId, result.reply, tenantId);
+    const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
+    if (reply) {
+      await chatMemory.push(customer.id, "assistant", reply, "Pappi", null, "text");
+      if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply, tenantId);
+      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply, tenantId);
+    }
   } catch (err) {
     log.error({ platform, senderId, err }, "Social: erro ao processar mensagem");
   }
