@@ -89,10 +89,29 @@ router.post("/auth/google", async (req, res) => {
     if (!tokenRes.ok || tokenData.error) return res.status(401).json({ error: "Token Google inválido" });
 
     const email = (tokenData.email || "").toLowerCase();
-    const tenantId = resolveTenant(req);
-    const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:google_users` } });
-    const users = cfg ? JSON.parse(cfg.value) : [];
-    const user = users.find((u) => (u.email || "").toLowerCase() === email);
+    const tenantIdReq = resolveTenant(req);
+
+    // Primeiro tenta o tenant da requisição
+    let cfg = await prisma.config.findUnique({ where: { key: `${tenantIdReq}:google_users` } });
+    let users = cfg ? JSON.parse(cfg.value) : [];
+    let user = users.find((u) => (u.email || "").toLowerCase() === email);
+    let tenantId = tenantIdReq;
+
+    // Se não achou, busca em TODOS os tenants (email pode estar cadastrado em outro)
+    if (!user) {
+      const allCfgs = await prisma.config.findMany({ where: { key: { endsWith: ":google_users" } } });
+      for (const c of allCfgs) {
+        const tid = c.key.replace(/:google_users$/, "");
+        const list = JSON.parse(c.value || "[]");
+        const found = list.find((u) => (u.email || "").toLowerCase() === email);
+        if (found) {
+          user = found;
+          tenantId = tid;
+          break;
+        }
+      }
+    }
+
     if (!user) return res.status(403).json({ error: "Email não autorizado" });
 
     return res.json({

@@ -457,7 +457,7 @@
         <a class="sidebar-item admin-only" href="#" onclick="navTo('sac');return false" id="navSac" style="display:none"><span>📩</span><span class="sidebar-text">SAC</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('usuarios');return false" id="navUsuarios" style="display:none"><span>👥</span><span class="sidebar-text">Usuários</span></a>
         <div class="sidebar-sep"></div>
-        <a class="sidebar-item" href="#" onclick="navTo('config');return false" id="navConfig"><span>⚙️</span><span class="sidebar-text">Configurações</span></a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('config');return false" id="navConfig" style="display:none"><span>⚙️</span><span class="sidebar-text">Configurações</span></a>
         <a class="sidebar-item" href="https://pappiatendente.com.br" target="_blank" rel="noopener"><span>❓</span><span class="sidebar-text">Ajuda</span></a>
       </nav>
       <div class="sidebar-foot">
@@ -603,7 +603,7 @@
   <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
     <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
     <div id="adminTabs" style="display:flex;gap:2px;align-items:center;flex-wrap:wrap">
-      <div class="admin-analise-wrap" style="position:relative;display:inline-block">
+      <div class="admin-analise-wrap admin-only" id="adminAnaliseWrap" style="position:relative;display:none">
         <button class="admin-tab active" id="atAnalise" onclick="toggleAnaliseMenu()">📊 Análise ▾</button>
         <div id="analiseChecklist" class="analise-checklist" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;margin-top:4px;overflow:hidden">
           <div class="analise-checklist-item" onclick="adminTab('dash');closeAnaliseMenu()">☐ 📊 Dashboard</div>
@@ -612,10 +612,10 @@
           <div class="analise-checklist-item" onclick="adminTab('audit');closeAnaliseMenu()">☐ 🔍 Auditoria</div>
         </div>
       </div>
-      <button class="admin-tab" id="atSac" onclick="adminTab('sac')">📩 SAC</button>
-      <button class="admin-tab" id="atBroadcast" onclick="adminTab('broadcast')" style="display:none">📤 Transmissão</button>
-      <button class="admin-tab" id="atAtend" onclick="adminTab('atend')">👥 Usuários</button>
-      <button class="admin-tab" id="atCfg" onclick="adminTab('cfg')">⚙️ Config</button>
+      <button class="admin-tab admin-only" id="atSac" onclick="adminTab('sac')" style="display:none">📩 SAC</button>
+      <button class="admin-tab admin-only" id="atBroadcast" onclick="adminTab('broadcast')" style="display:none">📤 Transmissão</button>
+      <button class="admin-tab admin-only" id="atAtend" onclick="adminTab('atend')" style="display:none">👥 Usuários</button>
+      <button class="admin-tab admin-only" id="atCfg" onclick="adminTab('cfg')" style="display:none">⚙️ Config</button>
     </div>
   </div>
 
@@ -1439,8 +1439,7 @@ async function doLogin() {
 	  initSocket(); // WebSocket tempo real
 	  startRefresh();
 	  loadCatalog();
-	  waIntRefresh();
-	  setInterval(waIntRefresh, 10000);
+	  if (USER_ROLE === "admin") { waIntRefresh(); setInterval(waIntRefresh, 10000); }
 	  document.getElementById("sidebarTenant").textContent = TENANT.replace("tenant-","").replace(/-/g," ").toUpperCase() || "—";
 	  document.getElementById("sidebarUserName").textContent = ATTENDANT_NAME || "—";
 	  if (localStorage.getItem("pappi_sidebar_collapsed") === "true") {
@@ -1587,15 +1586,60 @@ function applyRole() {
     "navVisao", "navStats", "navRel", "navAudit",
     "sidebarAnaliseSep", "sidebarAnaliseSection",
     "adminSep", "adminLabel",
-    "atBroadcast", "atSac", "atAtend", "atCfg", "atAnalise"
+    "atBroadcast", "atSac", "atAtend", "atCfg", "atAnalise", "adminAnaliseWrap"
   ];
   adminOnlyIds.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = isAdmin ? "" : "none";
+    if (!el) return;
+    if (id === "adminAnaliseWrap") el.style.display = isAdmin ? "inline-block" : "none";
+    else el.style.display = isAdmin ? "" : "none";
   });
 }
 document.getElementById("loginKeyInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
 document.getElementById("loginName").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginKeyInput").focus(); });
+
+// ── Auth headers (sessão staff ou API key) ─────────────────────
+function getAuthHeaders() {
+  const h = {};
+  if (SESSION_ACCESS_TOKEN) h["Authorization"] = "Bearer " + SESSION_ACCESS_TOKEN;
+  else if (API_KEY) h["x-api-key"] = API_KEY;
+  return h;
+}
+
+// QR Baileys: com API key usa URL direta; com sessão staff faz fetch+blob
+function loadQrForImg(imgEl, qrUrl) {
+  if (!imgEl || !qrUrl) return;
+  const base = API_BASE || "";
+  const url = base + qrUrl + (qrUrl.includes("?") ? "&" : "?") + "tenant=" + encodeURIComponent(TENANT);
+  if (API_KEY) {
+    imgEl.src = url + "&key=" + encodeURIComponent(API_KEY);
+    return;
+  }
+  if (SESSION_ACCESS_TOKEN) {
+    fetch(url, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => { if (blob && imgEl.parentNode) imgEl.src = URL.createObjectURL(blob); })
+      .catch(() => {});
+  }
+}
+
+// Avatar: com API key usa URL direta; com sessão staff faz fetch+blob
+function loadCustomerAvatar(imgEl, customerId) {
+  if (!imgEl || !customerId) return;
+  const base = API_BASE || "";
+  const url = `${base}/dash/customer/${customerId}/avatar?tenant=${encodeURIComponent(TENANT)}`;
+  if (API_KEY) {
+    imgEl.src = url + "&key=" + encodeURIComponent(API_KEY);
+    imgEl.onerror = null;
+    return;
+  }
+  if (SESSION_ACCESS_TOKEN) {
+    fetch(url, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => { if (blob && imgEl.parentNode) { imgEl.src = URL.createObjectURL(blob); imgEl.classList.add("loaded"); } })
+      .catch(() => {});
+  }
+}
 
 // ── API ───────────────────────────────────────────────────────
 async function api(path, opts={}) {
@@ -1603,9 +1647,7 @@ async function api(path, opts={}) {
   const sep = path.includes("?") ? "&" : "?";
   const tenantParam = TENANT ? `${sep}tenant=${encodeURIComponent(TENANT)}` : "";
   const url = `${base}/dash${path}${tenantParam}`;
-  const headers = { "Content-Type": "application/json" };
-  if (SESSION_ACCESS_TOKEN) headers["Authorization"] = "Bearer " + SESSION_ACCESS_TOKEN;
-  else if (API_KEY) headers["x-api-key"] = API_KEY;
+  const headers = { "Content-Type": "application/json", ...getAuthHeaders() };
   const r = await fetch(url, { headers, ...opts });
   let data = null;
   try { data = await r.json(); } catch {}
@@ -1620,11 +1662,9 @@ async function api(path, opts={}) {
 
   if (!r.ok) {
     const payload = { path, status: r.status, message: data?.message, error: data?.error };
-    if (r.status === 403) {
-      console.error("API 403 Forbidden", payload);
-    } else {
-      console.error("API error", payload);
-    }
+    if (r.status === 403) console.error("API 403 Forbidden", payload);
+    else if (r.status >= 500) console.error("API 5xx Server Error", payload);
+    else console.error("API error", payload);
     return { error: data?.error || "request_failed", status: r.status, message: data?.message || "" };
   }
 
@@ -1634,7 +1674,7 @@ async function api(path, opts={}) {
 // ── STATS ────────────────────────────────────────────────────
 async function fetchStats() {
   const d = await api("/stats");
-  if (!d) return false;
+  if (!d || d.error) return false;
   document.getElementById("h-orders").textContent = d.ordersToday;
   if (d.handoffActive > 0) {
     document.getElementById("h-handoff-stat").style.display = "flex";
@@ -1656,7 +1696,7 @@ async function fetchStats() {
 // ── CONVERSAS ────────────────────────────────────────────────
 async function fetchConvs() {
   const d = await api("/conversations");
-  if (!d) return;
+  if (!d || d.error) return;
   allConvs = d;
   renderConvs(d);
 }
@@ -1686,11 +1726,10 @@ function renderConvs(list) {
       ? `<span class="badge-handoff">🙋 Humano</span>`
       : `<span class="badge-bot">🤖 Bot</span>`;
     const letter = (c.name||c.phoneFormatted||"?")[0].toUpperCase();
-    const avatarUrl = `/dash/customer/${c.id}/avatar?tenant=${encodeURIComponent(TENANT)}&key=${encodeURIComponent(API_KEY)}`;
     return `
     <div class="conv-item${selectedCustomer?.id===c.id?" active":""}${isHandoff?" handoff":""}" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,"&quot;")})">
       <div class="avatar${isHandoff?" orange":""}">
-        <img src="${avatarUrl}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
+        <img data-avatar-cid="${c.id}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
         <span class="avatar-letter">${letter}</span>
       </div>
       <div class="conv-info">
@@ -1700,6 +1739,10 @@ function renderConvs(list) {
       <div class="conv-badge">${badge}</div>
     </div>`;
   }).join("");
+  el.querySelectorAll("img[data-avatar-cid]").forEach(img => {
+    const cid = img.getAttribute("data-avatar-cid");
+    if (cid) loadCustomerAvatar(img, cid);
+  });
 }
 
 function filterConv() {
@@ -1734,9 +1777,11 @@ async function selectCustomer(c) {
 
 async function loadChatHistory(customerId) {
   if (!selectedCustomer || selectedCustomer.id !== customerId) return;
-  const msgs = await fetch(`/dash/customer/${customerId}/messages?tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`)
-    .then(r => r.json()).catch(() => null);
-  if (!msgs) return;
+  const base = API_BASE || "";
+  const url = `${base}/dash/customer/${customerId}/messages?tenant=${encodeURIComponent(TENANT)}`;
+  const r = await fetch(url, { headers: getAuthHeaders() });
+  const msgs = r.ok ? await r.json().catch(() => null) : null;
+  if (!msgs || !Array.isArray(msgs)) return;
 
   // Verifica janela de 24h
   const lastCustomerMsg = msgs.filter(m => m.role === 'customer').pop();
@@ -1806,12 +1851,11 @@ function appendLastOrder(body, order) {
 function renderCenter(c) {
   const botOn = !c.handoff;
   const letter = (c.name||"?")[0].toUpperCase();
-  const avatarUrl = `/dash/customer/${c.id}/avatar?tenant=${encodeURIComponent(TENANT)}&key=${encodeURIComponent(API_KEY)}`;
   const el = document.getElementById("colCenter");
   el.innerHTML = `
     <div class="chat-header">
       <div class="avatar" style="width:36px;height:36px;font-size:14px;background:rgba(255,255,255,.25)">
-        <img src="${avatarUrl}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
+        <img data-avatar-cid="${c.id}" alt="" onload="this.classList.add('loaded')" onerror="this.style.display='none'"/>
         <span class="avatar-letter">${letter}</span>
       </div>
       <div style="flex:1;min-width:0">
@@ -1839,6 +1883,8 @@ function renderCenter(c) {
       </button>
     </div>
   `;
+  const avImg = el.querySelector("img[data-avatar-cid]");
+  if (avImg && c.id) loadCustomerAvatar(avImg, c.id);
 }
 
 async function headerToggleBot() {
@@ -3465,7 +3511,7 @@ async function gcConnect() {
 	            </div>
 	            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);flex-shrink:0">
 	              <p style="font-size:11px;color:#888;margin:0 0 8px;text-align:center;font-weight:600">Escaneie o QR Code</p>
-	              <img src="${inst.qrUrl ? inst.qrUrl + '?tenant=' + encodeURIComponent(TENANT) + '&key=' + encodeURIComponent(API_KEY) : inst.qr}" data-fallback="${inst.qr || ''}" style="width:220px;height:220px;display:block" onerror="var f=this.getAttribute('data-fallback');if(f){this.onerror=null;this.src=f}"/>
+	              <img data-qr-url="${inst.qrUrl || ''}" data-qr-base64="${inst.qr || ''}" style="width:220px;height:220px;display:block" onerror="var f=this.getAttribute('data-qr-base64');if(f){this.onerror=null;this.src=f}"/>
 	            </div>
 	          </div>
 	        ` : ''}
@@ -3503,28 +3549,26 @@ async function gcConnect() {
 	        </div>
 	      </div>`;
 	  }).join("");
+	  container.querySelectorAll("img[data-qr-url]").forEach(img => {
+	    const base64 = img.getAttribute("data-qr-base64");
+	    const qrUrl = img.getAttribute("data-qr-url");
+	    if (base64) img.src = base64;
+	    else if (qrUrl) loadQrForImg(img, qrUrl);
+	  });
 	}
 
 	async function waIntAddNew() {
 	  const id = prompt("Dê um nome ou ID para este WhatsApp (ex: Celular01):");
 	  if (!id) return;
-	  try {
-	    const r = await fetch(`/dash/baileys/instances?tenant=${TENANT}&key=${encodeURIComponent(API_KEY)}`, {
-	      method: "POST",
-	      headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
-	      body: JSON.stringify({ id })
-	    });
-	    const res = await r.json().catch(() => ({}));
-	    if (r.ok && res?.ok) { waIntRefresh(); return; }
-	    let msg = "Verifique sua conexão e tente novamente.";
-	    if (r.status === 401) msg = "Sem permissão.";
-	    else if (r.status === 400 && res?.error) msg = res.error;
-	    else if (r.status >= 500 || r.status === 0) msg = "Servidor indisponível. Verifique sua conexão.";
-	    else if (res?.error) msg = res.error;
-	    alert(msg);
-	  } catch (e) {
-	    alert("Sem conexão. Verifique sua internet.");
-	  }
+	  const res = await api("/baileys/instances", { method: "POST", body: JSON.stringify({ id }) });
+	  if (res?.ok) { waIntRefresh(); return; }
+	  let msg = "Verifique sua conexão e tente novamente.";
+	  if (res?.status === 401) msg = "Sem permissão.";
+	  else if (res?.status === 403) msg = "Acesso restrito a administradores.";
+	  else if (res?.status === 400 && res?.error) msg = res.error;
+	  else if (res?.status >= 500) msg = "Servidor indisponível.";
+	  else if (res?.error) msg = res.error;
+	  alert(msg);
 	}
 
 	async function waIntConnect(id) {
