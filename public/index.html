@@ -1541,30 +1541,32 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
     }
   } catch (_) {}
 
-  // 2. Legacy: API key
+  // 2. Legacy: API key — revalida com backend para evitar role desatualizada (403 em /settings)
   const key  = localStorage.getItem("pappi_key");
   const name = localStorage.getItem("pappi_name");
-  const role = localStorage.getItem("pappi_role");
   const savedTenant = localStorage.getItem("tenantId");
-  if (!key || !name || !role) return;
+  if (!key || !name) return;
   if (!TENANT && savedTenant) TENANT = savedTenant;
   if (!TENANT) return; // sem tenant não entra
 
-  API_KEY        = key;
-  ATTENDANT_NAME = name;
-  USER_ROLE      = role;
-
-  enterApp();
   try {
     const r = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(key)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
     if (r.status === 401) {
       localStorage.removeItem("pappi_key");
       localStorage.removeItem("pappi_name");
       localStorage.removeItem("pappi_role");
-  localStorage.removeItem("tenantId");
-      location.reload();
+      localStorage.removeItem("tenantId");
+      return;
     }
-  } catch(_) {}
+    const authData = await r.json();
+    API_KEY = key;
+    ATTENDANT_NAME = authData.name || name;
+    USER_ROLE = authData.role || "attendant";
+    if (authData.tenantId) TENANT = authData.tenantId;
+    localStorage.setItem("pappi_role", USER_ROLE);
+    localStorage.setItem("pappi_name", ATTENDANT_NAME);
+    enterApp();
+  } catch (_) {}
 })();
 
 function applyRole() {
@@ -1662,8 +1664,27 @@ async function api(path, opts={}) {
 
   if (!r.ok) {
     const payload = { path, status: r.status, message: data?.message, error: data?.error };
-    if (r.status === 403) console.error("API 403 Forbidden", payload);
-    else if (r.status >= 500) console.error("API 5xx Server Error", payload);
+    if (r.status === 403) {
+      console.error("API 403 Forbidden", payload);
+      // Atualiza role do servidor e redireciona — backend diz que não é admin
+      if (SESSION_ACCESS_TOKEN) {
+        try {
+          const meRes = await fetch((API_BASE||"")+"/auth/me", { headers: getAuthHeaders() });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            if (me.role) { USER_ROLE = me.role; applyRole(); if (me.role !== "admin") navTo("chat"); }
+          }
+        } catch (_) {}
+      } else if (API_KEY) {
+        try {
+          const authRes = await fetch((API_BASE||"")+`/dash/auth?key=${encodeURIComponent(API_KEY)}${TENANT ? `&tenant=${encodeURIComponent(TENANT)}` : ""}`);
+          if (authRes.ok) {
+            const authData = await authRes.json();
+            if (authData.role) { USER_ROLE = authData.role; applyRole(); if (authData.role !== "admin") navTo("chat"); }
+          }
+        } catch (_) {}
+      }
+    } else if (r.status >= 500) console.error("API 5xx Server Error", payload);
     else console.error("API error", payload);
     return { error: data?.error || "request_failed", status: r.status, message: data?.message || "" };
   }
@@ -2978,7 +2999,12 @@ async function fetchAdminDash() {
 async function loadAdminSettings() {
   if (USER_ROLE !== "admin") return;
   const d = await api("/settings");
-  if (!d || d.error === "forbidden") return;
+  if (!d || d.error) {
+    if (d?.error === "forbidden" || d?.status === 403) {
+      alert("Acesso restrito a administradores. Faça logout e entre com a chave admin (pappi-admin-2026) ou conta admin.");
+    }
+    return;
+  }
   settingsData = d;
   document.getElementById("cfg-name").value = d.name || "";
   document.getElementById("cfg-city").value = d.city || "";
@@ -3457,8 +3483,12 @@ async function gcConnect() {
 	}
 
 	async function waIntToggleBot(id, enabled) {
-	  await api(`/baileys/instances/${id}/bot`, { method: "PATCH", body: JSON.stringify({ enabled }) });
-	  // Atualiza localmente sem re-fetch para evitar re-render que reseta o toggle
+	  const r = await api(`/baileys/instances/${id}/bot`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+	  if (r?.status === 403 || r?.error === "forbidden") {
+	    alert("Acesso restrito a administradores.");
+	    renderWaIntInstances(); // restaura estado do toggle
+	    return;
+	  }
 	  const inst = waIntInstances.find(i => i.id === id);
 	  if (inst) inst.botEnabled = enabled;
 	}
@@ -3572,27 +3602,38 @@ async function gcConnect() {
 	}
 
 	async function waIntConnect(id) {
-	  await api(`/baileys/instances/${id}/connect`, { method: "POST", body: "{}" });
+	  const r = await api(`/baileys/instances/${id}/connect`, { method: "POST", body: "{}" });
+	  if (r?.status === 403 || r?.error === "forbidden") {
+	    alert("Acesso restrito a administradores. Use a chave admin (pappi-admin-2026) ou faça login com conta admin.");
+	    return;
+	  }
 	  waIntRefresh();
 	}
 
 	async function waIntDisconnect(id) {
 	  if (!confirm("Desconectar este WhatsApp? O cliente não receberá mensagens até reconectar.")) return;
-	  await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  const r = await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  if (r?.status === 403 || r?.error === "forbidden") {
+	    alert("Acesso restrito a administradores.");
+	    return;
+	  }
 	  waIntRefresh();
 	}
 
 	async function waIntClearAndReconnect(id) {
 	  if (!confirm("Limpar esta conexão e gerar novo QR Code para conectar outro número?")) return;
-	  await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  const r1 = await api(`/baileys/instances/${id}/disconnect`, { method: "POST", body: "{}" });
+	  if (r1?.status === 403 || r1?.error === "forbidden") { alert("Acesso restrito a administradores."); return; }
 	  await new Promise(r => setTimeout(r, 500));
-	  await api(`/baileys/instances/${id}/connect`, { method: "POST", body: "{}" });
+	  const r2 = await api(`/baileys/instances/${id}/connect`, { method: "POST", body: "{}" });
+	  if (r2?.status === 403 || r2?.error === "forbidden") { alert("Acesso restrito a administradores."); return; }
 	  waIntRefresh();
 	}
 
 	async function waIntDelete(id) {
 	  if (!confirm("Remover este WhatsApp permanentemente?")) return;
-	  await api(`/baileys/instances/${id}`, { method: "DELETE" });
+	  const r = await api(`/baileys/instances/${id}`, { method: "DELETE" });
+	  if (r?.status === 403 || r?.error === "forbidden") { alert("Acesso restrito a administradores."); return; }
 	  waIntRefresh();
 	}
 

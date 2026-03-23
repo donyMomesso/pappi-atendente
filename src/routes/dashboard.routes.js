@@ -671,7 +671,7 @@ router.post("/baileys/instances", authAdmin, async (req, res) => {
 });
 
 router.post("/baileys/instances/:id/connect", authAdmin, async (req, res) => {
-  await baileys.start(req.params.id);
+  await baileys.start(req.params.id, { force: true });
   res.json({ ok: true });
 });
 router.post("/baileys/instances/:id/disconnect", authAdmin, (req, res) => {
@@ -1370,7 +1370,7 @@ router.get("/retention/stats", authAdmin, async (req, res) => {
 router.get("/wa-internal/status", authDash, async (_req, res) => res.json(await baileys.getAllStatuses()));
 router.post("/wa-internal/connect", authAdmin, async (req, res) => {
   try {
-    await baileys.start(req.body.instanceId || "default");
+    await baileys.start(req.body.instanceId || "default", { force: true });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

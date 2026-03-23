@@ -278,18 +278,32 @@ async function getReplyChannel(customerId) {
 }
 
 // ── Conexão ────────────────────────────────────────────────────
-async function start(instanceId = "default") {
+// opts.force = true: reconexão manual após 440 — permite clicar "Conectar" no painel
+async function start(instanceId = "default", opts = {}) {
   let inst = INSTANCES.get(instanceId);
   if (!inst) {
     inst = createInstanceData(instanceId);
     INSTANCES.set(instanceId, inst);
   }
 
+  const force = opts.force === true;
+  if (inst.status === "conflict" && !force) return;
+  if (force && inst.status === "conflict") {
+    inst.status = "disconnected";
+    inst._replaced440Count = 0;
+    log.info({ instanceId }, "Reconexão manual após 440 — limpando estado");
+  }
+
   if (inst.starting || inst.status === "connected" || inst.status === "qr") return;
-  if (inst.status === "conflict") return;
   inst.starting = true;
 
   try {
+    // Pequena pausa após desconexão recente — evita 440 por "auto-substituição" em restarts rápidos (ex: Render wake)
+    const sinceDisconnect = Date.now() - (inst._lastDisconnectAt || 0);
+    if (sinceDisconnect < 5000 && !force) {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
     const { state, saveCreds } = await useDbAuthState(instanceId);
     const version = await getBaileysVersion();
 
@@ -603,21 +617,18 @@ async function start(instanceId = "default") {
             inst._reconnectDelay = 8000;
             inst._genericDisconnectCount = 0;
           } else if (replaced) {
-            inst._replaced440Count = (inst._replaced440Count || 0) + 1;
-            if (inst._replaced440Count >= 3) {
-              inst.status = "conflict";
-              log.warn(
-                { instanceId, replaced440Count: inst._replaced440Count },
-                "Sessão 440 — parando reconexão. Outra sessão ativa. Recuperação manual necessária.",
-              );
-            } else {
-              const delayMs = inst._replaced440Count === 1 ? 45000 : 90000;
-              log.info(
-                { instanceId, attempt: inst._replaced440Count, delaySec: delayMs / 1000 },
-                "Sessão 440 — reconectando após delay",
-              );
-              setTimeout(() => start(instanceId), delayMs);
+            // 440 = sessão substituída. Para imediatamente, sem ciclo de retry.
+            inst.status = "conflict";
+            inst._replaced440Count = 0;
+            const ENV = require("../config/env");
+            if (ENV.BAILEYS_CLEAR_AUTH_ON_440) {
+              await clearDbAuth(instanceId);
+              log.info({ instanceId }, "440 → auth limpo (BAILEYS_CLEAR_AUTH_ON_440). Próximo Conectar exige novo QR.");
             }
+            log.warn(
+              { instanceId },
+              "Sessão 440. Conecte manualmente no painel. Se 440 persiste sem celular ativo: WEB_CONCURRENCY=1, ou BAILEYS_CLEAR_AUTH_ON_440=true.",
+            );
           } else {
             inst._replaced440Count = 0;
             inst._genericDisconnectCount = (inst._genericDisconnectCount || 0) + 1;

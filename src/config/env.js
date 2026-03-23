@@ -69,6 +69,8 @@ module.exports = {
   // ── Produção privada ──
   BAILEYS_ENABLED: process.env.BAILEYS_ENABLED !== "false",
   BAILEYS_INSTANCE_MODE: process.env.BAILEYS_INSTANCE_MODE || "embedded",
+  // true = ao receber 440, limpa auth — próxima conexão exige novo QR (resolve 440 fantasma)
+  BAILEYS_CLEAR_AUTH_ON_440: process.env.BAILEYS_CLEAR_AUTH_ON_440 === "true",
   WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),
   LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   HEALTHCHECK_TOKEN: process.env.HEALTHCHECK_TOKEN || "",

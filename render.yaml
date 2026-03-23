@@ -15,6 +15,9 @@ services:
       # OBRIGATÓRIO: Baileys exige 1 único processo — múltiplos causam 440 (sessão substituída)
       - key: WEB_CONCURRENCY
         value: "1"
+      # 440 → limpa auth, próxima conexão exige novo QR (resolve 440 fantasma sem celular ativo)
+      - key: BAILEYS_CLEAR_AUTH_ON_440
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
