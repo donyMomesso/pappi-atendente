@@ -1231,6 +1231,99 @@ router.patch("/settings", authAdmin, async (req, res) => {
   }
 });
 
+// ── GET /dash/meta/status ──────────────────────────────────────
+router.get("/meta/status", authDash, async (req, res) => {
+  try {
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+
+    const metaTelemetry = require("../lib/meta-telemetry");
+    const telemetry = metaTelemetry.getMetaTelemetry();
+
+    const configs = await prisma.config.findMany({
+      where: {
+        key: {
+          in: [
+            `${tenantId}:instagram_page_id`,
+            `${tenantId}:facebook_page_id`,
+            `${tenantId}:facebook_page_token`,
+          ],
+        },
+      },
+      select: { key: true, value: true },
+    });
+    const map = Object.fromEntries(configs.map((r) => [r.key, (r.value || "").trim()]));
+    const instagramPageId = map[`${tenantId}:instagram_page_id`] || ENV.INSTAGRAM_PAGE_ID || "";
+    const facebookPageId = map[`${tenantId}:facebook_page_id`] || ENV.FACEBOOK_PAGE_ID || "";
+    const token = map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
+
+    const instagramConnected = !!(instagramPageId && token);
+    const facebookConnected = !!(facebookPageId && token);
+
+    res.json({
+      instagram: {
+        connected: instagramConnected,
+        instagramPageId: instagramPageId || null,
+        webhookConfigured: !!instagramPageId,
+        tokenPresent: !!token,
+        lastWebhookAt: telemetry.instagram.lastWebhookAt,
+        lastSenderId: telemetry.instagram.lastSenderId,
+        lastRecipientId: telemetry.instagram.lastRecipientId,
+        lastError: telemetry.instagram.lastError,
+      },
+      facebook: {
+        connected: facebookConnected,
+        facebookPageId: facebookPageId || null,
+        webhookConfigured: !!facebookPageId,
+        tokenPresent: !!token,
+        lastWebhookAt: telemetry.facebook.lastWebhookAt,
+        lastSenderId: telemetry.facebook.lastSenderId,
+        lastRecipientId: telemetry.facebook.lastRecipientId,
+        lastError: telemetry.facebook.lastError,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /dash/meta/config ────────────────────────────────────
+router.patch("/meta/config", authAdmin, async (req, res) => {
+  try {
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    const { instagramPageId, facebookPageId, facebookPageToken } = req.body;
+
+    if (instagramPageId !== undefined) {
+      const val = String(instagramPageId || "").trim();
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:instagram_page_id` },
+        create: { key: `${tenantId}:instagram_page_id`, value: val },
+        update: { value: val },
+      });
+    }
+    if (facebookPageId !== undefined) {
+      const val = String(facebookPageId || "").trim();
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:facebook_page_id` },
+        create: { key: `${tenantId}:facebook_page_id`, value: val },
+        update: { value: val },
+      });
+    }
+    if (facebookPageToken !== undefined) {
+      const val = String(facebookPageToken || "").trim();
+      await prisma.config.upsert({
+        where: { key: `${tenantId}:facebook_page_token` },
+        create: { key: `${tenantId}:facebook_page_token`, value: val },
+        update: { value: val },
+      });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /dash/stats/report ────────────────────────────────────
 router.get("/stats/report", authAdmin, async (req, res) => {
   try {

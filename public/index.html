@@ -976,6 +976,34 @@
           </div>
         </div>
       </div>
+
+      <!-- Seção 3: Canais Meta -->
+      <div style="margin-top:24px;margin-bottom:20px">
+        <div class="settings-card-head" style="margin-bottom:12px">📱 Canais Meta</div>
+        <p style="font-size:13px;color:#555;margin-bottom:16px">Monitoramento e configuração de Instagram e Facebook Messenger.</p>
+        <div class="cfg-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <div class="settings-card">
+            <div class="settings-card-head">📷 Instagram</div>
+            <div class="settings-card-body">
+              <div id="metaInstagramStatus" style="font-size:13px;color:#888;margin-bottom:12px">Carregando...</div>
+              <div class="settings-field"><label>Instagram Account ID</label><input id="metaInstagramPageId" type="text" placeholder="Ex: 17841400000000000"/></div>
+            </div>
+          </div>
+          <div class="settings-card">
+            <div class="settings-card-head">💬 Facebook Messenger</div>
+            <div class="settings-card-body">
+              <div id="metaFacebookStatus" style="font-size:13px;color:#888;margin-bottom:12px">Carregando...</div>
+              <div class="settings-field"><label>Facebook Page ID</label><input id="metaFacebookPageId" type="text" placeholder="Ex: 123456789012345"/></div>
+            </div>
+          </div>
+        </div>
+        <div class="settings-card" style="max-width:520px">
+          <div class="settings-card-body">
+            <div class="settings-field"><label>Facebook Page Token (compartilhado)</label><input id="metaFacebookToken" type="password" placeholder="Token da API Meta"/></div>
+            <button class="btn-save-settings" onclick="saveMetaConfig()">Salvar configurações Meta</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -3023,6 +3051,7 @@ async function loadAdminSettings() {
   renderGoogleUserList();
   gcRefreshStatus();
   waIntRefresh();
+  loadMetaStatus();
   if (USE_STAFF_AUTH && USER_ROLE === "admin") {
     document.getElementById("staffUsersCard").style.display = "block";
     const tf = document.getElementById("staffFilterTenant");

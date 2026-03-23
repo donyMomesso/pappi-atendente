@@ -3,6 +3,7 @@
 const ENV = require("../config/env");
 const prisma = require("../lib/db");
 const log = require("../lib/logger").child({ service: "meta-social" });
+const metaTelemetry = require("../lib/meta-telemetry");
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -87,9 +88,14 @@ async function sendInstagram(recipientId, text, tenantId) {
       }),
     });
 
-    return await res.json();
+    const json = await res.json();
+    if (json?.error?.message) {
+      metaTelemetry.recordInstagramError(json.error.message);
+    }
+    return json;
   } catch (err) {
     log.error({ recipientId, tenantId, err: err.message }, "Instagram: erro ao enviar");
+    metaTelemetry.recordInstagramError(err.message);
     return null;
   }
 }
@@ -115,9 +121,14 @@ async function sendFacebook(recipientId, text, tenantId) {
       }),
     });
 
-    return await res.json();
+    const json = await res.json();
+    if (json?.error?.message) {
+      metaTelemetry.recordFacebookError(json.error.message);
+    }
+    return json;
   } catch (err) {
     log.error({ recipientId, tenantId, err: err.message }, "Facebook: erro ao enviar");
+    metaTelemetry.recordFacebookError(err.message);
     return null;
   }
 }
@@ -126,6 +137,7 @@ function parseInstagramWebhook(body) {
   const out = [];
 
   for (const entry of body.entry || []) {
+    // Formato baseado em entry.changes[] (webhooks antigos / alternativos)
     for (const change of entry.changes || []) {
       if (change.field !== "messages") continue;
 
@@ -165,6 +177,27 @@ function parseInstagramWebhook(body) {
           timestamp: value.timestamp || msg?.timestamp || entry?.time || Date.now(),
         });
       }
+    }
+
+    // Formato entry.messaging[] (webhook real do Instagram, igual ao Facebook)
+    for (const event of entry.messaging || []) {
+      const rawText = event.message?.text ?? "";
+      const text = typeof rawText === "string" ? rawText.trim() : "";
+      const attachmentType = event.message?.attachments?.[0]?.type || null;
+      const safeAttachment = attachmentType && typeof attachmentType === "string" ? attachmentType : null;
+
+      const senderId = String(event.sender?.id || "");
+      if (!senderId) continue;
+
+      out.push({
+        platform: "instagram",
+        senderId,
+        recipientId: String(event.recipient?.id || entry?.id || ""),
+        senderName: null,
+        text,
+        attachmentType: safeAttachment,
+        timestamp: event.timestamp || entry?.time || Date.now(),
+      });
     }
   }
 

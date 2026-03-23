@@ -12,6 +12,7 @@ const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const chatMemory = require("../services/chat-memory.service");
 const baileys = require("../services/baileys.service");
 const metaSocial = require("../services/meta-social.service");
+const metaTelemetry = require("../lib/meta-telemetry");
 const { requireAdminKey } = require("../middleware/auth.middleware");
 const { checkWebhook } = require("../lib/rate-limiter");
 const { transcribeAudio } = require("../services/audio-transcribe.service");
@@ -52,11 +53,29 @@ router.post("/webhook", async (req, res) => {
     logWebhook(body);
 
     if (body.object === "instagram") {
-      for (const m of metaSocial.parseWebhook(body)) await processSocialMessage(m);
+      const msgs = metaSocial.parseWebhook(body);
+      if (msgs.length > 0) {
+        const first = msgs[0];
+        metaTelemetry.recordInstagramWebhook({
+          at: new Date().toISOString(),
+          senderId: first.senderId,
+          recipientId: first.recipientId,
+        });
+      }
+      for (const m of msgs) await processSocialMessage(m);
       return;
     }
     if (body.object === "page") {
-      for (const m of metaSocial.parseWebhook(body)) await processSocialMessage(m);
+      const msgs = metaSocial.parseWebhook(body);
+      if (msgs.length > 0) {
+        const first = msgs[0];
+        metaTelemetry.recordFacebookWebhook({
+          at: new Date().toISOString(),
+          senderId: first.senderId,
+          recipientId: first.recipientId,
+        });
+      }
+      for (const m of msgs) await processSocialMessage(m);
       return;
     }
     if (body.object !== "whatsapp_business_account") return;
