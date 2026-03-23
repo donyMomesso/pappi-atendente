@@ -1581,18 +1581,15 @@ function applyRole() {
   const hName = document.getElementById("h-user-name");
   if (hName) hName.textContent = ATTENDANT_NAME;
 
-  [
-    "navTransmissao",
-    "navSac",
-    "navUsuarios",
-    "navConfig",
-    "adminSep",
-    "adminLabel",
-    "atBroadcast",
-    "atSac",
-    "atAtend",
-    "atCfg"
-  ].forEach(id => {
+  // Admin-only: attendant/manager não veem nada que dependa de authAdmin
+  const adminOnlyIds = [
+    "navConfig", "navTransmissao", "navSac", "navUsuarios",
+    "navVisao", "navStats", "navRel", "navAudit",
+    "sidebarAnaliseSep", "sidebarAnaliseSection",
+    "adminSep", "adminLabel",
+    "atBroadcast", "atSac", "atAtend", "atCfg", "atAnalise"
+  ];
+  adminOnlyIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAdmin ? "" : "none";
   });
@@ -1622,7 +1619,12 @@ async function api(path, opts={}) {
   }
 
   if (!r.ok) {
-    console.error("API error", { path, status: r.status, data });
+    const payload = { path, status: r.status, message: data?.message, error: data?.error };
+    if (r.status === 403) {
+      console.error("API 403 Forbidden", payload);
+    } else {
+      console.error("API error", payload);
+    }
     return { error: data?.error || "request_failed", status: r.status, message: data?.message || "" };
   }
 
@@ -2640,7 +2642,7 @@ document.addEventListener("click", function(e) {
 });
 function adminTab(tab) {
   const adminOnlyTabs = ["dash", "stats", "rel", "audit", "broadcast", "sac", "atend", "cfg"];
-  if (adminOnlyTabs.includes(tab) && USER_ROLE !== "admin") {
+  if (USER_ROLE !== "admin" && adminOnlyTabs.includes(tab)) {
     alert("Acesso restrito a administradores.");
     return;
   }

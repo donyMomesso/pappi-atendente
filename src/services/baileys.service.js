@@ -104,7 +104,7 @@ function extractPhoneFromMessage(msg) {
     const remoteJid = key.remoteJid || "";
     const m = msg?.message || {};
 
-    // Ordem exata: remoteJidAlt resolve @lid (ex: "5519981399133@s.whatsapp.net")
+    // Ordem de prioridade: remoteJidAlt resolve @lid
     const candidates = [
       key.remoteJidAlt,
       key.participantPn,
@@ -307,7 +307,7 @@ async function start(instanceId = "default") {
         const jid = msg?.key?.remoteJid;
 
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
-        if (jid.endsWith("@broadcast")) continue; // ignora status (stories)
+        if (jid === "status@broadcast" || jid.endsWith("@broadcast")) continue; // ignora status/stories
         if (msg?.key?.fromMe) continue;
 
         if (!msg?.message) {
@@ -334,7 +334,7 @@ async function start(instanceId = "default") {
               key: msg?.key,
               pushName: msg?.pushName,
               verifiedBizName: msg?.verifiedBizName,
-              messageKeys: msg?.message ? Object.keys(msg.message) : [],
+              messageKeys: Object.keys(msg.message || {}),
               messageStubType: msg?.messageStubType,
               messageStubParameters: msg?.messageStubParameters,
             },
