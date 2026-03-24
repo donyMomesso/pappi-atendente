@@ -3590,16 +3590,25 @@ async function gcConnect() {
 	let waIntTenants = [];
 
 	async function waIntRefresh() {
-	  const [data, tenants] = await Promise.all([
-	    api("/baileys/instances"),
-	    api("/tenants").catch(() => []),
-	  ]);
-	  if (!data) return;
-	  waIntInstances = data;
+	  let data = [];
+	  let tenants = [];
+	  try {
+	    const pair = await Promise.all([
+	      api("/baileys/instances"),
+	      api("/tenants").catch(() => []),
+	    ]);
+	    data = pair[0];
+	    tenants = pair[1];
+	  } catch (_) {
+	    data = [];
+	    tenants = [];
+	  }
+	  // 5xx/4xx: api() returns { error, status } — not an array; never assign that to waIntInstances
+	  waIntInstances = Array.isArray(data) ? data : [];
 	  waIntTenants = Array.isArray(tenants) ? tenants : [];
 	  renderWaIntInstances();
 	  // Auto-refresh durante QR/connecting/disconnected (disconnected pode voltar a QR em 8s)
-	  const hasActive = data.some(d => d.status === "qr" || d.status === "connecting" || d.status === "disconnected");
+	  const hasActive = waIntInstances.some(d => d.status === "qr" || d.status === "connecting" || d.status === "disconnected");
 	  if (hasActive && !waIntRefreshTimer) waIntRefreshTimer = setInterval(waIntRefresh, 4000);
 	  else if (!hasActive && waIntRefreshTimer) { clearInterval(waIntRefreshTimer); waIntRefreshTimer = null; }
 	}
@@ -3619,12 +3628,13 @@ async function gcConnect() {
 	  const container = document.getElementById("waIntContainer");
 	  if (!container) return;
 
-	  if (waIntInstances.length === 0) {
+	  const instances = Array.isArray(waIntInstances) ? waIntInstances : [];
+	  if (instances.length === 0) {
 	    container.innerHTML = '<p style="grid-column:1/-1;text-align:center;padding:20px;color:#aaa;font-size:13px">Nenhum WhatsApp conectado.</p>';
 	    return;
 	  }
 
-	  container.innerHTML = waIntInstances.map(inst => {
+	  container.innerHTML = instances.map(inst => {
 	    const isConn = inst.status === 'connected';
 	    const isQr   = inst.status === 'qr' && inst.qr;
 	    const botOn  = inst.botEnabled !== false;
