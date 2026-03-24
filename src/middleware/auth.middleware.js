@@ -49,7 +49,7 @@ async function authBySessionFallback(req) {
   if (!token) return false;
   const user = await supabaseAuth.verifyToken(token);
   if (!user) return false;
-  const staff = await prisma.staffUser.findFirst({
+  const staff = await prisma.staff_users.findFirst({
     where: { authUserId: user.id, active: true },
     include: { tenant: true },
   });

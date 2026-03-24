@@ -4,6 +4,7 @@
 
 const supabaseAuth = require("./supabase-auth.service");
 const staffUser = require("./staff-user.service");
+const staffInvite = require("./staff-invite.service");
 const auditLog = require("./audit-log.service");
 const log = require("../lib/logger").child({ service: "auth" });
 
@@ -135,8 +136,91 @@ function isAuthConfigured() {
   return supabaseAuth.isConfigured();
 }
 
+/**
+ * Primeiro acesso com convite: cria Auth + staff_users e invalida o token.
+ * E-mail e cargo vêm só do convite (não aceitar do cliente).
+ *
+ * @returns {{ ok: true, message: string } | { ok: false, message: string }}
+ */
+async function completeStaffInvite({ token, name, password, phone }, opts = {}) {
+  const { ip, userAgent } = opts;
+  try {
+    staffUser.validateStaffPassword(password);
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+
+  const nameTrim = String(name || "").trim();
+  if (!nameTrim) return { ok: false, message: "Nome obrigatório." };
+
+  const invite = await staffInvite.findValidByToken(token);
+  if (!invite) return { ok: false, message: "Convite inválido ou expirado." };
+
+  const dup = await staffUser.findByEmail(invite.email);
+  if (dup) return { ok: false, message: "Este e-mail já está cadastrado." };
+
+  let authUser;
+  try {
+    authUser = await supabaseAuth.createAuthUser({
+      email: invite.email,
+      password,
+      emailConfirm: true,
+    });
+  } catch (err) {
+    const msg = err?.message || String(err);
+    if (/already|registered|exists/i.test(msg)) {
+      return {
+        ok: false,
+        message: "Este e-mail já está em uso. Use \"Esqueci minha senha\" ou peça novo convite ao administrador.",
+      };
+    }
+    log.warn({ err: msg }, "completeStaffInvite: createAuthUser falhou");
+    return { ok: false, message: msg || "Não foi possível criar o acesso." };
+  }
+
+  try {
+    await staffUser.createStaffUser(
+      {
+        authUserId: authUser.id,
+        email: invite.email,
+        name: nameTrim,
+        role: invite.role,
+        tenantId: invite.tenantId,
+        active: true,
+        phone: phone != null ? String(phone).trim() || null : null,
+        department: invite.department || undefined,
+      },
+      invite.invitedBy,
+    );
+  } catch (err) {
+    try {
+      await supabaseAuth.deleteAuthUser(authUser.id);
+    } catch (delErr) {
+      log.error({ err: delErr.message, authUserId: authUser.id }, "Rollback Auth após falha staff_users falhou");
+    }
+    return { ok: false, message: err.message || "Erro ao finalizar cadastro." };
+  }
+
+  try {
+    await staffInvite.markConsumed(invite.id);
+  } catch (markErr) {
+    log.error({ err: markErr.message, inviteId: invite.id }, "Convite consumido com erro — revisar manualmente");
+  }
+
+  await auditLog.logAction({
+    action: "staff_invite_completed",
+    resourceType: "staff_user",
+    metadata: { email: invite.email, role: invite.role, tenantId: invite.tenantId },
+    ip,
+    userAgent,
+  });
+
+  return { ok: true, message: "Cadastro concluído. Você já pode entrar com e-mail e senha." };
+}
+
 module.exports = {
   verifySession,
   requestPasswordReset,
+  completeStaffInvite,
   isAuthConfigured,
 };

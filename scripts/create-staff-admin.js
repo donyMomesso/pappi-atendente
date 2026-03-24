@@ -17,14 +17,14 @@ if (!email || !password || password.length < 6) {
 }
 
 async function main() {
-  const existing = await prisma.staffUser.findFirst({ where: { email } });
+  const existing = await prisma.staff_users.findFirst({ where: { email } });
   if (existing) {
     console.log("✅ E-mail já existe em staff_users. Use o painel para resetar senha.");
     return;
   }
 
   const authUser = await supabaseAuth.createAuthUser({ email, password, emailConfirm: true });
-  await prisma.staffUser.create({
+  await prisma.staff_users.create({
     data: {
       authUserId: authUser.id,
       email,

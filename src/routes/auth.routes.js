@@ -4,10 +4,50 @@
 const express = require("express");
 const authService = require("../services/auth.service");
 const staffUserService = require("../services/staff-user.service");
+const staffInviteService = require("../services/staff-invite.service");
 const auditLog = require("../services/audit-log.service");
 const { requireStaffAuth } = require("../middleware/auth.middleware");
 
 const router = express.Router();
+
+/** GET /auth/invite-preview?token= — dados públicos do convite (e-mail travado no cadastro) */
+router.get("/invite-preview", async (req, res) => {
+  try {
+    const token = typeof req.query.token === "string" ? req.query.token.trim() : "";
+    if (!token) return res.status(400).json({ error: "token_obrigatorio" });
+    const inv = await staffInviteService.findValidByToken(token);
+    if (!inv) return res.status(404).json({ error: "convite_invalido", message: "Convite inválido ou expirado." });
+    const roleLabel =
+      inv.role === "admin" ? "Administrador" : inv.role === "manager" ? "Coordenador (Manager)" : "Atendente";
+    res.json({
+      email: inv.email,
+      role: inv.role,
+      roleLabel,
+      department: inv.department || null,
+      tenantName: inv.tenant?.name || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /auth/complete-invite — primeiro acesso (senha + nome); e-mail vem do convite */
+router.post("/complete-invite", async (req, res) => {
+  try {
+    const { token, name, password, phone } = req.body || {};
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ error: "token_obrigatorio", message: "Link de convite inválido." });
+    }
+    const result = await authService.completeStaffInvite(
+      { token: token.trim(), name, password, phone },
+      { ip: req.ip, userAgent: req.headers["user-agent"] },
+    );
+    if (!result.ok) return res.status(400).json({ error: "cadastro_negado", message: result.message });
+    res.json({ ok: true, message: result.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 /** GET /auth/me — retorna usuário logado (requer Bearer token) */
 router.get("/me", requireStaffAuth, async (req, res) => {

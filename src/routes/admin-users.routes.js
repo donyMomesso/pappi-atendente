@@ -3,10 +3,13 @@
 // Montar em /admin/users.
 
 const express = require("express");
+const crypto = require("crypto");
 const supabaseAuth = require("../services/supabase-auth.service");
 const staffUserService = require("../services/staff-user.service");
+const staffInviteService = require("../services/staff-invite.service");
 const auditLog = require("../services/audit-log.service");
 const { authAdmin } = require("../middleware/auth.middleware");
+const ENV = require("../config/env");
 
 const router = express.Router();
 router.use(authAdmin);
@@ -37,6 +40,8 @@ router.get("/", async (req, res) => {
         canManageCoupons: u.canManageCoupons,
         canManageSettings: u.canManageSettings,
         canManageUsers: u.canManageUsers,
+        phone: u.phone,
+        department: u.department,
       })),
     );
   } catch (err) {
@@ -44,20 +49,64 @@ router.get("/", async (req, res) => {
   }
 });
 
+/** POST /admin/users/invites — gera link de primeiro acesso (e-mail autorizado) */
+router.post("/invites", async (req, res) => {
+  try {
+    const { email, role, tenantId, department } = req.body || {};
+    const inv = await staffInviteService.createInvite({
+      email,
+      role,
+      tenantId: tenantId || null,
+      department: department || null,
+      invitedBy: req.staffUser?.name || null,
+    });
+    const base = ENV.APP_URL || "";
+    const signupUrl = `${base}/?invite=${encodeURIComponent(inv.token)}`;
+    await auditLog.logAction({
+      tenantId: req.staffUser?.tenantId,
+      userId: req.staffUser?.id,
+      action: "staff_invite_created",
+      resourceType: "staff_user",
+      metadata: { email: inv.email, role: inv.role, tenantId: inv.tenantId },
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+    res.status(201).json({
+      id: inv.id,
+      email: inv.email,
+      expiresAt: inv.expiresAt,
+      signupUrl,
+      token: inv.token,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** POST /admin/users — cria usuário (admin) */
 router.post("/", async (req, res) => {
   try {
-    const { email, password, name, role, tenantId, active } = req.body;
+    const { email, password, name, role, tenantId, active, phone, department } = req.body;
     const staff = req.staffUser;
     if (!email || !name || !role) {
       return res.status(400).json({ error: "E-mail, nome e role obrigatórios." });
+    }
+
+    const pwd =
+      password && String(password).length > 0
+        ? String(password)
+        : crypto.randomBytes(12).toString("base64url");
+    try {
+      staffUserService.validateStaffPassword(pwd);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
     }
 
     let authUser;
     try {
       authUser = await supabaseAuth.createAuthUser({
         email: email.trim().toLowerCase(),
-        password: password || require("crypto").randomUUID().slice(0, 12),
+        password: pwd,
         emailConfirm: true,
       });
     } catch (err) {
@@ -75,6 +124,8 @@ router.post("/", async (req, res) => {
         role,
         tenantId,
         active: active !== false,
+        phone,
+        department,
       },
       staff?.name,
     );
@@ -170,11 +221,11 @@ router.post("/:id/deactivate", async (req, res) => {
 router.post("/:id/reset-password", async (req, res) => {
   const { id } = req.params;
   const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
+  if (!newPassword || newPassword.length < staffUserService.MIN_STAFF_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: `Senha deve ter pelo menos ${staffUserService.MIN_STAFF_PASSWORD_LENGTH} caracteres.` });
   }
   const prisma = require("../lib/db");
-  const target = await prisma.staffUser.findUnique({ where: { id } });
+  const target = await prisma.staff_users.findUnique({ where: { id } });
   if (!target) return res.status(404).json({ error: "Usuário não encontrado." });
   try {
     await supabaseAuth.updateUserPassword(target.authUserId, newPassword);

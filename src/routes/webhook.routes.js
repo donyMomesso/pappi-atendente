@@ -89,7 +89,9 @@ router.post("/webhook", async (req, res) => {
 
         const tenant = await getTenantByPhoneNumberId(phoneNumberId);
         if (!tenant) {
-          console.warn(`⚠️ Nenhum tenant para phoneNumberId=${phoneNumberId}`);
+          require("../lib/logger")
+            .child({ service: "webhook" })
+            .warn({ phoneNumberId }, "WhatsApp Cloud: nenhum tenant ativo com este waPhoneNumberId — evento ignorado");
           continue;
         }
 
@@ -104,7 +106,7 @@ router.post("/webhook", async (req, res) => {
       }
     }
   } catch (err) {
-    console.error("🔥 Erro no webhook:", err);
+    require("../lib/logger").child({ service: "webhook" }).error({ err }, "Erro no processamento do webhook");
   }
 });
 
@@ -177,7 +179,14 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   if (!inActiveFlow && isHandoffTrigger(text)) {
     await setHandoff(customer.id, true);
-    await wa.sendText(phone, "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼");
+    try {
+      await wa.sendText(phone, "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼");
+    } catch (e) {
+      log.warn(
+        { tenantId: tenant.id, phone, err: e.message, code: e.code },
+        "Handoff Cloud: falha ao enviar mensagem automática (token/phoneNumberId ou API)",
+      );
+    }
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     baileys
@@ -359,8 +368,14 @@ async function processSocialMessage({ platform, senderId, recipientId, senderNam
     if (isHandoffTrigger(displayText)) {
       await setHandoff(customer.id, true);
       const reply = "Aguarde um momento, vou te transferir para um atendente. 👨‍💼";
-      if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply, tenantId);
-      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply, tenantId);
+      if (platform === "instagram") {
+        const r = await metaSocial.sendInstagram(senderId, reply, tenantId);
+        if (r?.error) log.warn({ tenantId, code: r.code, message: r.message }, "Social handoff: falha Instagram");
+      }
+      if (platform === "facebook") {
+        const r = await metaSocial.sendFacebook(senderId, reply, tenantId);
+        if (r?.error) log.warn({ tenantId, code: r.code, message: r.message }, "Social handoff: falha Facebook");
+      }
       baileys
         .notify(
           `🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${displayText.slice(0, 60)}`,
@@ -385,8 +400,14 @@ async function processSocialMessage({ platform, senderId, recipientId, senderNam
     const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
     if (reply) {
       await chatMemory.push(customer.id, "assistant", reply, "Pappi", null, "text");
-      if (platform === "instagram") await metaSocial.sendInstagram(senderId, reply, tenantId);
-      if (platform === "facebook") await metaSocial.sendFacebook(senderId, reply, tenantId);
+      if (platform === "instagram") {
+        const r = await metaSocial.sendInstagram(senderId, reply, tenantId);
+        if (r?.error) log.warn({ tenantId, code: r.code, message: r.message }, "Social bot: falha Instagram");
+      }
+      if (platform === "facebook") {
+        const r = await metaSocial.sendFacebook(senderId, reply, tenantId);
+        if (r?.error) log.warn({ tenantId, code: r.code, message: r.message }, "Social bot: falha Facebook");
+      }
     }
   } catch (err) {
     log.error({ platform, senderId, err }, "Social: erro ao processar mensagem");

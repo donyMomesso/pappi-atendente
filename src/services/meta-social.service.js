@@ -74,13 +74,32 @@ async function resolveTenantId({ platform, recipientId, senderId }) {
 
 async function sendInstagram(recipientId, text, tenantId) {
   const txt = typeof text === "string" ? text.trim() : "";
-  if (!recipientId || !txt || !tenantId) return null;
+  if (!recipientId || !txt || !tenantId) {
+    log.debug({ hasRecipient: !!recipientId, hasText: !!txt, tenantId }, "Instagram: parâmetros insuficientes");
+    return {
+      error: true,
+      code: "invalid_params",
+      channel: "instagram",
+      message: "recipientId, texto ou tenantId ausente",
+    };
+  }
 
   const cfg = await getTenantSocialConfig(tenantId);
-  if (!cfg.instagramPageToken || !cfg.facebookPageId) return null;
+  const pageId = (cfg.facebookPageId || cfg.instagramPageId || "").trim();
+  if (!cfg.instagramPageToken || !pageId) {
+    const message = !cfg.instagramPageToken
+      ? "Token Instagram ausente (instagram_page_token ou facebook_page_token no tenant)"
+      : "Page ID ausente (facebook_page_id ou instagram_page_id da página ligada ao Instagram)";
+    log.warn(
+      { tenantId, hasToken: !!cfg.instagramPageToken, hasPageId: !!pageId },
+      "Instagram: config incompleta — envio não realizado",
+    );
+    metaTelemetry.recordInstagramError("missing_config");
+    return { error: true, code: "missing_config", channel: "instagram", message };
+  }
 
   try {
-    const res = await fetch(`${GRAPH}/${cfg.facebookPageId}/messages`, {
+    const res = await fetch(`${GRAPH}/${pageId}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -118,16 +137,34 @@ async function sendInstagram(recipientId, text, tenantId) {
   } catch (err) {
     log.error({ recipientId, tenantId, err: err.message }, "Instagram: erro ao enviar");
     metaTelemetry.recordInstagramError(err.message);
-    return null;
+    return { error: true, code: "exception", channel: "instagram", message: err.message };
   }
 }
 
 async function sendFacebook(recipientId, text, tenantId) {
   const txt = typeof text === "string" ? text.trim() : "";
-  if (!recipientId || !txt || !tenantId) return null;
+  if (!recipientId || !txt || !tenantId) {
+    log.debug({ hasRecipient: !!recipientId, hasText: !!txt, tenantId }, "Facebook: parâmetros insuficientes");
+    return {
+      error: true,
+      code: "invalid_params",
+      channel: "facebook",
+      message: "recipientId, texto ou tenantId ausente",
+    };
+  }
 
   const cfg = await getTenantSocialConfig(tenantId);
-  if (!cfg.facebookPageToken || !cfg.facebookPageId) return null;
+  if (!cfg.facebookPageToken || !cfg.facebookPageId) {
+    const message = !cfg.facebookPageToken
+      ? "facebook_page_token ausente no tenant"
+      : "facebook_page_id ausente no tenant";
+    log.warn(
+      { tenantId, hasToken: !!cfg.facebookPageToken, hasPageId: !!cfg.facebookPageId },
+      "Facebook: config incompleta — envio não realizado",
+    );
+    metaTelemetry.recordFacebookError("missing_config");
+    return { error: true, code: "missing_config", channel: "facebook", message };
+  }
 
   try {
     const res = await fetch(`${GRAPH}/${cfg.facebookPageId}/messages`, {
@@ -168,7 +205,7 @@ async function sendFacebook(recipientId, text, tenantId) {
   } catch (err) {
     log.error({ recipientId, tenantId, err: err.message }, "Facebook: erro ao enviar");
     metaTelemetry.recordFacebookError(err.message);
-    return null;
+    return { error: true, code: "exception", channel: "facebook", message: err.message };
   }
 }
 
@@ -272,8 +309,13 @@ function parseFacebookWebhook(body) {
 }
 
 function parseWebhook(body) {
+  if (!body || typeof body !== "object") {
+    log.warn("Meta webhook: body inválido ou vazio");
+    return [];
+  }
   if (body.object === "instagram") return parseInstagramWebhook(body);
   if (body.object === "page") return parseFacebookWebhook(body);
+  log.debug({ object: body.object }, "Meta webhook: object não tratado (ignorado)");
   return [];
 }
 

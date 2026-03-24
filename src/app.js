@@ -32,13 +32,15 @@ if (isProd) {
 // CORS para app em domínio separado (ou * para aceitar qualquer origem)
 // Em dev, aceita localhost e IPs privados (acesso na rede)
 const isDev = ENV.NODE_ENV === "development" || !ENV.NODE_ENV;
+
 let corsOrigins = ENV.CORS_ORIGIN
   ? ENV.CORS_ORIGIN.split(",")
       .map((o) => o.trim())
       .filter(Boolean)
   : [];
-if (isDev && corsOrigins.length === 0) {
-  corsOrigins = ["*"]; // dev sem CORS_ORIGIN = aceita qualquer origem (incl. 192.168.x.x)
+
+if (corsOrigins.length === 0) {
+  corsOrigins = isDev ? ["*"] : [ENV.APP_URL].filter(Boolean);
 }
 if (corsOrigins.length > 0) {
   let origins = corsOrigins;

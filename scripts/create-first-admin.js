@@ -26,7 +26,7 @@ async function main() {
   }
 
   const emailNorm = ADMIN_EMAIL.trim().toLowerCase();
-  const existing = await prisma.staffUser.findFirst({ where: { email: emailNorm } });
+  const existing = await prisma.staff_users.findFirst({ where: { email: emailNorm } });
   if (existing) {
     console.log("Admin já existe:", emailNorm);
     process.exit(0);
@@ -44,7 +44,7 @@ async function main() {
     process.exit(1);
   }
 
-  await prisma.staffUser.create({
+  await prisma.staff_users.create({
     data: {
       authUserId: authData.user.id,
       email: emailNorm,

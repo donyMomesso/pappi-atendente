@@ -16,6 +16,14 @@ const ENV = require("../config/env");
 
 const router = express.Router();
 
+function outboundSucceeded(result) {
+  if (result == null) return false;
+  if (typeof result !== "object") return true;
+  if (result.error === true) return false;
+  if (result.ok === false) return false;
+  return true;
+}
+
 function parseSocialPhone(phone) {
   if (!phone || typeof phone !== "string") return null;
   const s = String(phone).trim();
@@ -57,27 +65,52 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
   const txt = typeof text === "string" ? text.trim() : "";
   if (!txt) return null;
 
+  const dashLog = require("../lib/logger").child({ route: "dash" });
+
   const social = parseSocialPhone(phone);
   if (social) {
-    const dashLog = require("../lib/logger").child({ route: "dash" });
     dashLog.debug({ platform: social.platform, tenantId }, "Envio outbound via canal social");
-    if (social.platform === "instagram") return metaSocial.sendInstagram(social.recipientId, txt, tenantId);
-    if (social.platform === "facebook") return metaSocial.sendFacebook(social.recipientId, txt, tenantId);
+
+    if (social.platform === "instagram") {
+      const r = await metaSocial.sendInstagram(social.recipientId, txt, tenantId);
+      if (r?.error) dashLog.warn({ tenantId, code: r.code, message: r.message }, "Falha envio Instagram (painel)");
+      return r;
+    }
+
+    if (social.platform === "facebook") {
+      const r = await metaSocial.sendFacebook(social.recipientId, txt, tenantId);
+      if (r?.error) dashLog.warn({ tenantId, code: r.code, message: r.message }, "Falha envio Facebook (painel)");
+      return r;
+    }
   }
 
   const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
   const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
-  if (!normalizedPhone || normalizedPhone.length < 10) return null;
+  if (!normalizedPhone || normalizedPhone.length < 10) {
+    dashLog.warn({ tenantId, phone }, "Envio: telefone inválido após normalização");
+    return { error: true, code: "invalid_phone", message: "Telefone inválido para envio" };
+  }
 
   const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
-  const useBaileysInstance = replyChannel && replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
+  const useBaileysInstance =
+    replyChannel && replyChannel.startsWith("baileys:")
+      ? replyChannel.replace("baileys:", "")
+      : null;
 
   if (useBaileysInstance) {
-    return baileys.sendText(normalizedPhone, txt, useBaileysInstance, true);
+    const r = await baileys.sendText(normalizedPhone, txt, useBaileysInstance, true);
+    if (!r?.ok) dashLog.warn({ tenantId, instanceId: useBaileysInstance, err: r?.error }, "Falha envio Baileys (painel)");
+    return r;
   }
+
+  dashLog.debug({ tenantId }, "Envio outbound via WhatsApp Cloud API");
   const { wa } = await getClients(tenantId);
-  const result = await wa.sendText(normalizedPhone, txt);
-  return result?.messages?.[0]?.id ? { ok: true } : result;
+  try {
+    return await wa.sendText(normalizedPhone, txt);
+  } catch (err) {
+    dashLog.warn({ tenantId, phone: normalizedPhone, err: err.message, code: err.code }, "Falha envio Cloud API (painel)");
+    throw err;
+  }
 }
 
 const DEFAULT_TENANT = "tenant-pappi-001";
@@ -519,7 +552,6 @@ router.post("/orders/:id/compensate", authDash, async (req, res) => {
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
 
     const { generateCompensationCoupon, markCouponSent } = require("../services/coupon.service");
-    const { getClients } = require("../services/tenant.service");
     const chatMemory = require("../services/chat-memory.service");
 
     const result = await generateCompensationCoupon({
@@ -539,7 +571,7 @@ router.post("/orders/:id/compensate", authDash, async (req, res) => {
         text: msg,
         customerId: order.customerId,
       });
-      if (sent) {
+      if (outboundSucceeded(sent)) {
         await markCouponSent(orderId);
         if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
       }
@@ -681,10 +713,11 @@ router.post("/transfer", authDash, async (req, res) => {
 // ── GET /dash/tenants (lista para selector) ────────────────────
 router.get("/tenants", authDash, async (_req, res) => {
   try {
-    const { listActive } = await import("../services/tenant.service");
+    const { listActive } = require("../services/tenant.service");
     const tenants = await listActive();
     res.json((tenants || []).map((t) => ({ id: t.id, name: t.name })));
-  } catch {
+  } catch (err) {
+    console.error("[/dash/tenants]", err.message);
     res.json([]);
   }
 });
@@ -960,17 +993,32 @@ router.get("/catalog", authDash, async (req, res) => {
 // ── POST /dash/send ────────────────────────────────────────────
 router.post("/send", authDash, async (req, res) => {
   try {
-    const { phone, text, customerId } = req.body;
+    const { customerId } = req.body;
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const txt = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     if (!req.body?.phone || !txt) return res.status(400).json({ error: "phone e text obrigatórios" });
 
     const result = await sendOutboundMessage({ tenantId, phone: req.body.phone, text: txt, customerId });
-    if (!result || (typeof result === "object" && result.error)) throw new Error("Falha ao enviar mensagem");
+    if (!outboundSucceeded(result)) {
+      const detail =
+        (typeof result === "object" && result?.message) ||
+        (typeof result === "object" && typeof result?.error === "string" ? result.error : null) ||
+        (typeof result === "object" && result?.body?.error?.message) ||
+        "Falha ao enviar mensagem";
+      throw new Error(detail);
+    }
 
     let waMessageId = null;
-    if (result && typeof result === "object" && result.messages?.[0]?.id) waMessageId = result.messages[0].id;
+
+    if (result && typeof result === "object") {
+      waMessageId =
+        result?.messages?.[0]?.id ||
+        result?.messageId ||
+        result?.key?.id ||
+        result?.id ||
+        null;
+    }
 
     if (customerId) {
       const chatMemory = require("../services/chat-memory.service");
@@ -1269,19 +1317,25 @@ router.get("/meta/status", authDash, async (req, res) => {
     const metaTelemetry = require("../lib/meta-telemetry");
     const telemetry = metaTelemetry.getMetaTelemetry();
 
-    const configs = await prisma.config.findMany({
-      where: {
-        key: {
-          in: [
-            `${tenantId}:instagram_page_id`,
-            `${tenantId}:facebook_page_id`,
-            `${tenantId}:instagram_page_token`,
-            `${tenantId}:facebook_page_token`,
-          ],
+    const [configs, tenantRow] = await Promise.all([
+      prisma.config.findMany({
+        where: {
+          key: {
+            in: [
+              `${tenantId}:instagram_page_id`,
+              `${tenantId}:facebook_page_id`,
+              `${tenantId}:instagram_page_token`,
+              `${tenantId}:facebook_page_token`,
+            ],
+          },
         },
-      },
-      select: { key: true, value: true },
-    });
+        select: { key: true, value: true },
+      }),
+      prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { waToken: true, waPhoneNumberId: true },
+      }),
+    ]);
     const map = Object.fromEntries(configs.map((r) => [r.key, (r.value || "").trim()]));
     const instagramPageId = map[`${tenantId}:instagram_page_id`] || ENV.INSTAGRAM_PAGE_ID || "";
     const facebookPageId = map[`${tenantId}:facebook_page_id`] || ENV.FACEBOOK_PAGE_ID || "";
@@ -1292,7 +1346,17 @@ router.get("/meta/status", authDash, async (req, res) => {
     const instagramConnected = !!(instagramPageId && instagramToken);
     const facebookConnected = !!(facebookPageId && facebookToken);
 
+    const waTokenPresent = !!(tenantRow?.waToken || "").trim();
+    const waPhoneIdPresent = !!(tenantRow?.waPhoneNumberId || "").trim();
+    const whatsappCloudConnected = waTokenPresent && waPhoneIdPresent;
+
     res.json({
+      whatsappCloud: {
+        connected: whatsappCloudConnected,
+        tokenPresent: waTokenPresent,
+        phoneNumberIdPresent: waPhoneIdPresent,
+        phoneNumberId: (tenantRow?.waPhoneNumberId || "").trim() || null,
+      },
       instagram: {
         connected: instagramConnected,
         instagramPageId: instagramPageId || null,

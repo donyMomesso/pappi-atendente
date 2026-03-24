@@ -49,6 +49,25 @@ CREATE INDEX IF NOT EXISTS "idx_staff_users_tenant" ON "public"."staff_users"("t
 CREATE INDEX IF NOT EXISTS "idx_staff_users_role" ON "public"."staff_users"("role");
 CREATE INDEX IF NOT EXISTS "idx_staff_users_active" ON "public"."staff_users"("active");
 CREATE INDEX IF NOT EXISTS "idx_staff_users_tenant_active" ON "public"."staff_users"("tenantId", "active");
+ALTER TABLE "public"."staff_users" ADD COLUMN IF NOT EXISTS "phone" TEXT;
+ALTER TABLE "public"."staff_users" ADD COLUMN IF NOT EXISTS "department" TEXT;
+
+CREATE TABLE IF NOT EXISTS "public"."staff_user_invites" (
+  "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
+  "email" TEXT NOT NULL,
+  "tenantId" TEXT,
+  "role" TEXT NOT NULL,
+  "department" TEXT,
+  "token" TEXT NOT NULL,
+  "expiresAt" TIMESTAMPTZ(6) NOT NULL,
+  "consumedAt" TIMESTAMPTZ(6),
+  "invitedBy" TEXT,
+  "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "staff_user_invites_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "staff_user_invites_token_key" UNIQUE ("token"),
+  CONSTRAINT "staff_user_invites_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "public"."tenants"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "idx_staff_user_invites_email" ON "public"."staff_user_invites"("email");
 
 -- audit_logs
 CREATE TABLE IF NOT EXISTS "public"."audit_logs" (

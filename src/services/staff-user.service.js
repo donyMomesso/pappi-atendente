@@ -6,6 +6,9 @@ const prisma = require("../lib/db");
 
 const VALID_ROLES = ["admin", "manager", "attendant"];
 
+/** Senha mínima para usuários internos (painel + convites). */
+const MIN_STAFF_PASSWORD_LENGTH = 8;
+
 /** Valida se a role é permitida */
 function validateRole(role) {
   if (!role || !VALID_ROLES.includes(role)) {
@@ -28,7 +31,7 @@ async function listStaffUsers(filters = {}) {
   if (role) where.role = role;
   if (active !== undefined) where.active = active === true || active === "true";
 
-  return prisma.staffUser.findMany({
+  return prisma.staff_users.findMany({
     where,
     orderBy: [{ role: "asc" }, { name: "asc" }],
     include: { tenant: { select: { id: true, name: true } } },
@@ -39,13 +42,13 @@ async function listStaffUsers(filters = {}) {
 async function findByEmail(email) {
   if (!email) return null;
   const emailNorm = String(email).trim().toLowerCase();
-  return prisma.staffUser.findFirst({ where: { email: emailNorm } });
+  return prisma.staff_users.findFirst({ where: { email: emailNorm } });
 }
 
 /** Busca usuário por authUserId (Supabase auth.users.id) */
 async function findByAuthUserId(authUserId) {
   if (!authUserId) return null;
-  return prisma.staffUser.findUnique({
+  return prisma.staff_users.findUnique({
     where: { authUserId: String(authUserId) },
     include: { tenant: { select: { id: true, name: true } } },
   });
@@ -67,15 +70,21 @@ async function createStaffUser(data, invitedBy = null) {
   }
 
   const finalTenantId = role === "admin" ? null : tenantId;
-  return prisma.staffUser.create({
+  const phoneNorm = data.phone != null && String(data.phone).trim() ? String(data.phone).trim() : null;
+  const deptNorm =
+    data.department != null && String(data.department).trim() ? String(data.department).trim() : null;
+
+  return prisma.staff_users.create({
     data: {
       authUserId: data.authUserId,
       email: emailNorm,
       name: String(name).trim(),
+      phone: phoneNorm,
+      department: deptNorm,
       role,
       tenantId: finalTenantId,
       active,
-      invitedBy: invitedBy || null,
+      invitedBy: invitedBy != null ? String(invitedBy).trim() || null : null,
       canViewOrders: data.canViewOrders !== false,
       canSendMessages: data.canSendMessages !== false,
       canManageCoupons: data.canManageCoupons ?? (role === "admin" || role === "manager"),
@@ -87,11 +96,13 @@ async function createStaffUser(data, invitedBy = null) {
 
 /** Atualiza usuário interno */
 async function updateStaffUser(id, data, _currentUserId = null) {
-  const user = await prisma.staffUser.findUnique({ where: { id } });
+  const user = await prisma.staff_users.findUnique({ where: { id } });
   if (!user) return null;
 
   const allowed = [
     "name",
+    "phone",
+    "department",
     "role",
     "tenantId",
     "active",
@@ -116,6 +127,8 @@ async function updateStaffUser(id, data, _currentUserId = null) {
         updates[k] = data[k];
       } else if (k === "name") {
         updates[k] = String(data[k]).trim();
+      } else if (k === "phone" || k === "department") {
+        updates[k] = data[k] != null ? String(data[k]).trim() || null : null;
       } else {
         updates[k] = data[k];
       }
@@ -124,38 +137,46 @@ async function updateStaffUser(id, data, _currentUserId = null) {
 
   if (Object.keys(updates).length === 0) return user;
 
-  return prisma.staffUser.update({ where: { id }, data: updates });
+  return prisma.staff_users.update({ where: { id }, data: updates });
 }
 
 /** Ativa usuário */
 async function activateStaffUser(id) {
-  const user = await prisma.staffUser.findUnique({ where: { id } });
+  const user = await prisma.staff_users.findUnique({ where: { id } });
   if (!user) return null;
-  return prisma.staffUser.update({ where: { id }, data: { active: true } });
+  return prisma.staff_users.update({ where: { id }, data: { active: true } });
 }
 
 /** Desativa usuário. Impede auto-desativação. */
 async function deactivateStaffUser(id, currentStaffUserId) {
-  const user = await prisma.staffUser.findUnique({ where: { id } });
+  const user = await prisma.staff_users.findUnique({ where: { id } });
   if (!user) return null;
   if (currentStaffUserId && user.id === currentStaffUserId) {
     throw new Error("Não é possível desativar a si mesmo.");
   }
-  return prisma.staffUser.update({ where: { id }, data: { active: false } });
+  return prisma.staff_users.update({ where: { id }, data: { active: false } });
 }
 
 /** Atualiza lastLoginAt após login bem-sucedido */
 async function updateLastLogin(id) {
-  return prisma.staffUser.update({
+  return prisma.staff_users.update({
     where: { id },
     data: { lastLoginAt: new Date() },
   });
 }
 
+function validateStaffPassword(password) {
+  if (!password || typeof password !== "string" || password.length < MIN_STAFF_PASSWORD_LENGTH) {
+    throw new Error(`Senha deve ter no mínimo ${MIN_STAFF_PASSWORD_LENGTH} caracteres.`);
+  }
+}
+
 module.exports = {
   VALID_ROLES,
+  MIN_STAFF_PASSWORD_LENGTH,
   validateRole,
   validateTenantRequired,
+  validateStaffPassword,
   listStaffUsers,
   findByEmail,
   findByAuthUserId,

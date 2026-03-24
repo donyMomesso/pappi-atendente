@@ -29,6 +29,7 @@ model Tenant {
   orders              Order[]
   retention_campaigns RetentionCampaign[]
   staff_users         staff_users[]
+  staff_user_invites  staff_user_invites[]
 
   @@map("tenants")
   @@schema("public")
@@ -683,6 +684,8 @@ model staff_users {
   tenantId          String?
   email             String
   name              String
+  phone             String?
+  department        String?
   role              String
   active            Boolean   @default(true)
   invitedBy         String?
@@ -694,7 +697,7 @@ model staff_users {
   canManageUsers    Boolean   @default(false)
   createdAt         DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @db.Timestamptz(6)
-  tenants           Tenant?   @relation(fields: [tenantId], references: [id])
+  tenant            Tenant?   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([active], map: "idx_staff_users_active")
   @@index([authUserId], map: "idx_staff_users_auth_user_id")
@@ -702,6 +705,24 @@ model staff_users {
   @@index([role], map: "idx_staff_users_role")
   @@index([tenantId], map: "idx_staff_users_tenant")
   @@index([tenantId, active], map: "idx_staff_users_tenant_active")
+  @@schema("public")
+}
+
+/// Convite: e-mail e cargo definidos pelo admin; usuário completa cadastro com senha.
+model staff_user_invites {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  email      String
+  tenantId   String?
+  role       String
+  department String?
+  token      String    @unique
+  expiresAt  DateTime  @db.Timestamptz(6)
+  consumedAt DateTime? @db.Timestamptz(6)
+  invitedBy  String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([email], map: "idx_staff_user_invites_email")
   @@schema("public")
 }
 

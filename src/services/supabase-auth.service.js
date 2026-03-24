@@ -54,6 +54,14 @@ async function createAuthUser({ email, password, emailConfirm = true }) {
   return data.user;
 }
 
+/** Remove usuário do Auth (uso interno, ex.: rollback após falha) */
+async function deleteAuthUser(authUserId) {
+  const supabase = getAdminClient();
+  if (!supabase) throw new Error("Supabase Admin não configurado");
+  const { error } = await supabase.auth.admin.deleteUser(String(authUserId));
+  if (error) throw error;
+}
+
 /** Atualiza senha de usuário (apenas admin) */
 async function updateUserPassword(authUserId, newPassword) {
   const supabase = getAdminClient();
@@ -83,6 +91,7 @@ module.exports = {
   getAdminClient,
   verifyToken,
   createAuthUser,
+  deleteAuthUser,
   updateUserPassword,
   resetPasswordForEmail,
   isConfigured,

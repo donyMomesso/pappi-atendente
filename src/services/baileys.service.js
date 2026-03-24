@@ -511,9 +511,9 @@ async function start(instanceId = "default", opts = {}) {
                 const wa = {
                   // saveHistory=false: bot handler já salva via chatMemory.push — evita dupla gravação
                   sendText: async (to, msgText) => {
-                    const ok = await sendText(to, msgText, instanceId, true, false);
-                    if (!ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
-                    return ok;
+                    const r = await sendText(to, msgText, instanceId, true, false);
+                    if (!r?.ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
+                    return r;
                   },
                   sendButtons: (to, body, buttons) =>
                     sendText(
@@ -789,43 +789,55 @@ async function initAll() {
 // saveHistory=false: não salva (bot handler já chama chatMemory.push internamente)
 async function sendText(to, text, instanceId = "default", skipNotifyCheck = false, saveHistory = true) {
   const inst = INSTANCES.get(instanceId);
-  if (!inst || !inst.socket || inst.status !== "connected") return false;
+  if (!inst || !inst.socket || inst.status !== "connected") {
+    return { ok: false, error: "instance_not_connected" };
+  }
 
-  // notifyTo só se aplica a notificações internas — bot e respostas diretas são liberados
   if (!skipNotifyCheck && inst.notifyTo.length > 0 && !inst.notifyTo.includes(to)) {
     console.warn(`[Baileys:${instanceId}] Envio bloqueado para ${to} — não está na lista.`);
-    return false;
+    return { ok: false, error: "number_not_allowed" };
   }
 
   if (!checkLimits(inst)) {
     log.warn({ instanceId, to, lastAlert: inst.lastAlert }, "Envio bloqueado: limite atingido");
-    return false;
+    return { ok: false, error: "limit_reached" };
   }
 
   try {
     const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
-    await inst.socket.sendMessage(jid, { text });
+    const sent = await inst.socket.sendMessage(jid, { text });
+
     inst.counters.hour++;
     inst.counters.day++;
 
-    // Salva no histórico apenas para envios diretos
     if (saveHistory) {
       try {
         const botHandler = require("../routes/bot.handler");
         const cleanPhone = to.split("@")[0];
-        const tenantId = await detectTenantByPhone(cleanPhone);
+        const tenantId = await detectTenantByPhone(cleanPhone, instanceId);
+
         if (tenantId) {
-          await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant");
+          await botHandler.saveBaileysMessage(
+            cleanPhone,
+            text,
+            tenantId,
+            "assistant",
+            sent?.key?.id || null,
+          );
         }
       } catch (err) {
         console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
       }
     }
 
-    return true;
+    return {
+      ok: true,
+      messageId: sent?.key?.id || null,
+      key: sent?.key || null,
+    };
   } catch (err) {
     log.error({ instanceId, to, err }, "Erro ao enviar mensagem");
-    return false;
+    return { ok: false, error: err.message || "send_failed" };
   }
 }
 
@@ -975,8 +987,8 @@ async function broadcastSend(numbers, message, instanceId = "default", delayMs =
 
   for (const phone of unique) {
     try {
-      const ok = await sendText(phone, message, instanceId, true);
-      if (ok) results.sent++;
+      const r = await sendText(phone, message, instanceId, true);
+      if (r?.ok) results.sent++;
       else {
         results.failed++;
         results.errors.push({ phone, error: "Falha ao enviar" });

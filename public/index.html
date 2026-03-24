@@ -392,6 +392,9 @@
       <div style="margin-top:12px;text-align:center">
         <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showForgotPassword(event)">Esqueci minha senha</a>
       </div>
+      <div style="margin-top:12px;text-align:center">
+        <a href="#" style="font-size:11px;color:#8ecae6;text-decoration:none" onclick="showInviteLogin(event)">Primeiro acesso com convite</a>
+      </div>
       <div id="loginStaffToLegacy" style="margin-top:16px;text-align:center;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)">
         <a href="#" style="font-size:11px;color:#bbb;text-decoration:none" onclick="showLegacyMode(event)">Entrar com Google ou chave</a>
       </div>
@@ -405,6 +408,37 @@
       </form>
       <div id="loginErrForgot" class="login-err" style="display:none"></div>
       <a href="#" style="font-size:11px;color:#bbb;text-decoration:none;margin-top:12px;display:inline-block" onclick="showStaffLogin(event)">← Voltar ao login</a>
+    </div>
+
+    <!-- Primeiro acesso com convite (e-mail autorizado) -->
+    <div id="loginInvite" style="display:none">
+      <p style="font-size:13px;color:#ccc;margin-bottom:12px;line-height:1.4">Cadastro com convite: o <strong>e-mail</strong>, o <strong>cargo</strong> e o <strong>departamento</strong> foram definidos pelo administrador.</p>
+      <div id="inviteTokenRow" style="margin-bottom:10px">
+        <input id="inviteTokenInput" type="text" placeholder="Cole o código do convite (final do link)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #444;background:#222;color:#fff;font-size:12px;box-sizing:border-box"/>
+        <button type="button" onclick="loadInvitePreview()" style="margin-top:8px;width:100%;padding:10px;border-radius:8px;cursor:pointer">Carregar convite</button>
+      </div>
+      <div id="inviteFormBlock" style="display:none">
+        <div style="font-size:11px;font-weight:700;color:#888;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em">Dados gerais</div>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">Nome</label>
+        <input id="inviteName" type="text" autocomplete="name" placeholder="Nome completo" style="width:100%;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid #444;background:#222;color:#fff;box-sizing:border-box"/>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">E-mail</label>
+        <input id="inviteEmailRo" type="email" readonly tabindex="-1" style="width:100%;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid #333;background:#1a1a1a;color:#aaa;box-sizing:border-box"/>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">Telefone <span style="opacity:.7">(opcional)</span></label>
+        <input id="invitePhone" type="tel" autocomplete="tel" placeholder="(00) 00000-0000" style="width:100%;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid #444;background:#222;color:#fff;box-sizing:border-box"/>
+        <div style="font-size:11px;font-weight:700;color:#888;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em">Cargo e departamentos</div>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">Cargo</label>
+        <input id="inviteRoleRo" type="text" readonly tabindex="-1" style="width:100%;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid #333;background:#1a1a1a;color:#aaa;box-sizing:border-box"/>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">Departamento</label>
+        <input id="inviteDeptRo" type="text" readonly tabindex="-1" style="width:100%;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid #333;background:#1a1a1a;color:#aaa;box-sizing:border-box"/>
+        <div style="font-size:11px;font-weight:700;color:#888;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em">Acesso ao sistema</div>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">Senha <span style="opacity:.7">(mín. 8 caracteres)</span></label>
+        <input id="invitePassword" type="password" autocomplete="new-password" style="width:100%;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid #444;background:#222;color:#fff;box-sizing:border-box"/>
+        <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px">Confirmar senha</label>
+        <input id="invitePassword2" type="password" autocomplete="new-password" style="width:100%;padding:10px;border-radius:8px;margin-bottom:12px;border:1px solid #444;background:#222;color:#fff;box-sizing:border-box"/>
+        <button type="button" id="btnInviteSubmit" onclick="submitInviteComplete()" style="width:100%;padding:12px;border-radius:8px;cursor:pointer;font-weight:700">Criar acesso</button>
+      </div>
+      <div id="loginErrInvite" class="login-err" style="display:none"></div>
+      <a href="#" style="font-size:11px;color:#bbb;text-decoration:none;margin-top:14px;display:inline-block" onclick="showStaffLoginFromInvite(event)">← Voltar ao login</a>
     </div>
 
     <!-- Modo legado (Google + chave) — quando staff auth não configurado -->
@@ -764,22 +798,49 @@
             </div>
             <div id="staffUsersList" style="margin-bottom:12px"></div>
             <button class="btn-save-settings" style="width:auto" onclick="openNewStaffUserModal()">+ Novo usuário</button>
+            <button class="btn-save-settings" style="width:auto;margin-left:8px;background:#2980b9" onclick="openStaffInviteModal()">+ Convite (link)</button>
           </div>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- Modal: Convite por link -->
+  <div id="modalStaffInvite" class="modal-bg" style="display:none" onclick="if(event.target===this)closeStaffInviteModal()">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-head"><h3>Convite — link de cadastro</h3><button onclick="closeStaffInviteModal()">×</button></div>
+      <div class="modal-body" style="padding:20px">
+        <p style="font-size:12px;color:#666;margin-bottom:14px;line-height:1.45">O colaborador abre o link, vê o <strong>e-mail autorizado</strong> (somente leitura) e define nome, telefone e senha (mín. 8 caracteres).</p>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail autorizado</label><input id="inviteModalEmail" type="email" autocomplete="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box" placeholder="exemplo@dominio.com.br"/></div>
+        <div style="margin-bottom:12px" id="inviteModalTenantWrap"><label style="font-size:12px;color:#666">Tenant</label><select id="inviteModalTenant" onchange="refreshInviteModalDepartments()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box"></select></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Cargo</label><select id="inviteModalRole" onchange="onInviteModalRoleChange()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box"><option value="attendant">Atendente</option><option value="manager">Coordenador (Manager)</option><option value="admin">Administrador</option></select></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Departamento</label><select id="inviteModalDepartment" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box"><option value="">— Selecione —</option></select></div>
+      </div>
+      <div class="modal-foot" style="padding:12px 20px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn-cancel" onclick="closeStaffInviteModal()">Fechar</button>
+        <button class="btn-confirm" id="btnStaffInviteCreate" onclick="createStaffInviteLink()">Gerar link</button>
+      </div>
+      <div id="inviteModalResult" style="display:none;padding:0 20px 16px;font-size:12px;color:#333;word-break:break-all"></div>
+    </div>
+  </div>
+
   <!-- Modal: Novo/Editar usuário interno -->
   <div id="modalStaffUser" class="modal-bg" style="display:none" onclick="if(event.target===this)closeStaffUserModal()">
-    <div class="modal" style="max-width:420px">
+    <div class="modal" style="max-width:440px">
       <div class="modal-head"><h3 id="modalStaffUserTitle">Novo usuário</h3><button onclick="closeStaffUserModal()">×</button></div>
       <form class="modal-body" style="padding:20px" onsubmit="saveStaffUser(); return false">
-        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail</label><input id="staffUserEmail" type="email" autocomplete="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="email@empresa.com"/></div>
-        <div style="margin-bottom:12px" id="staffUserPasswordWrap"><label style="font-size:12px;color:#666">Senha</label><input id="staffUserPassword" type="password" autocomplete="new-password" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Mín. 6 caracteres"/></div>
-        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Nome</label><input id="staffUserName" type="text" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px" placeholder="Nome completo"/></div>
-        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Perfil</label><select id="staffUserRole" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"><option value="attendant">Atendente</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>
-        <div style="margin-bottom:12px" id="staffUserTenantWrap"><label style="font-size:12px;color:#666">Tenant</label><select id="staffUserTenant" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px"></select></div>
+        <div style="margin-bottom:8px;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.04em">Dados gerais</div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Nome</label><input id="staffUserName" type="text" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box" placeholder="Nome completo"/></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">E-mail</label><input id="staffUserEmail" type="email" autocomplete="email" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box" placeholder="exemplo@dominio.com.br"/></div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Telefone <span style="color:#999">(opcional)</span></label><input id="staffUserPhone" type="tel" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box" placeholder="(00) 00000-0000"/></div>
+        <div style="margin-bottom:8px;margin-top:16px;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.04em">Cargos</div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Selecionar</label><select id="staffUserRole" onchange="onStaffUserRoleChange()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box"><option value="attendant">Atendente</option><option value="manager">Coordenador (Manager)</option><option value="admin">Administrador</option></select></div>
+        <div style="margin-bottom:8px;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.04em">Departamentos</div>
+        <div style="margin-bottom:12px"><label style="font-size:12px;color:#666">Selecionar</label><select id="staffUserDepartment" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box"><option value="">— Nenhum / não aplicável —</option></select></div>
+        <div style="margin-bottom:8px;margin-top:16px;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.04em">Tenant</div>
+        <div style="margin-bottom:12px" id="staffUserTenantWrap"><label style="font-size:12px;color:#666">Loja / unidade</label><select id="staffUserTenant" onchange="refreshStaffUserDepartments()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box"></select></div>
+        <div style="margin-bottom:8px;margin-top:16px;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.04em">Acesso ao sistema</div>
+        <div style="margin-bottom:12px" id="staffUserPasswordWrap"><label style="font-size:12px;color:#666">Senha</label><input id="staffUserPassword" type="password" autocomplete="new-password" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box" placeholder="Mínimo de 8 caracteres"/></div>
       </form>
       <div class="modal-foot" style="padding:12px 20px;display:flex;gap:8px;justify-content:flex-end">
         <button class="btn-cancel" onclick="closeStaffUserModal()">Cancelar</button>
@@ -940,6 +1001,10 @@
           <div class="settings-card-head">📲 WhatsApp Interno (QR Code)</div>
           <div class="settings-card-body">
             <p style="font-size:13px;color:#555;margin-bottom:12px">Conecte números via QR para notificações e atendimento sem consumir créditos da API.</p>
+            <div id="waCloudApiStatus" style="font-size:12px;color:#666;margin-bottom:14px;padding:10px;background:#f9fafb;border-radius:8px;border:1px solid var(--border)">
+              <strong style="color:#333;display:block;margin-bottom:6px">WhatsApp Cloud API (Meta)</strong>
+              <div id="waCloudApiStatusBody">—</div>
+            </div>
             <div id="waIntContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;min-height:120px">
               <!-- Instâncias renderizadas aqui -->
             </div>
@@ -1076,6 +1141,8 @@ let API_KEY = "";
 let API_BASE = ""; // "" = same origin; ou "https://api.pappiatendente.com.br" em split deploy
 let allConvs = [];
 let USE_STAFF_AUTH = false;
+/** Token do convite ativo na tela de primeiro acesso */
+let INVITE_TOKEN_ACTIVE = null;
 let SUPABASE_CLIENT = null;
 let SESSION_ACCESS_TOKEN = null;
 let selectedCustomer = null;
@@ -1112,6 +1179,30 @@ function initSocket() {
     }
     // Atualiza lista de conversas (badge, última mensagem)
     fetchConvs();
+  });
+
+  _socket.on("message_status", ({ customerId, waMessageId, status }) => {
+    if (!selectedCustomer || selectedCustomer.id !== customerId || !waMessageId) return;
+
+    const body = document.getElementById("chatBody");
+    if (!body) return;
+
+    const nodes = [...body.querySelectorAll("[data-wa-message-id]")];
+    const target = nodes.find((n) => n.dataset.waMessageId === waMessageId);
+    if (!target) return;
+
+    const timeEl = target.querySelector(".time");
+    if (!timeEl) return;
+
+    const baseTime = timeEl.dataset.baseTime || timeEl.textContent.replace(/✓/g, "").trim();
+    timeEl.dataset.baseTime = baseTime;
+
+    let statusIcon = "";
+    if (status === "read") statusIcon = '<span style="color:#34B7F1;margin-left:4px">✓✓</span>';
+    else if (status === "delivered") statusIcon = '<span style="color:#aaa;margin-left:4px">✓✓</span>';
+    else if (status === "sent") statusIcon = '<span style="color:#aaa;margin-left:4px">✓</span>';
+
+    timeEl.innerHTML = `${baseTime}${statusIcon}`;
   });
 
   // Fila ou conversa mudou (handoff toggle, novo cliente)
@@ -1179,22 +1270,34 @@ function showWaDisconnectAlert(instanceId, reason) {
 }
 
 function appendMsgToChat(body, m) {
-  // Remove placeholder "nenhuma mensagem"
   const placeholder = body.querySelector("div[style*='Nenhuma mensagem']") || body.querySelector("div[style*='aguardando']");
   if (placeholder) placeholder.remove();
 
   const isOut = m.role === "attendant" || m.role === "human";
   const isBot = m.role === "assistant" || m.role === "bot";
   const cls = isOut ? "msg out" : "msg in";
-  const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>`
-    : isOut ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>`
-    : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
+  const senderTag = isOut && m.sender
+    ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>`
+    : isOut
+    ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>`
+    : isBot
+    ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>`
+    : "";
+
   const time = new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  let content = `<p style="margin:0">${esc(m.text || "")}</p>`;
+
+  let statusIcon = "";
+  if (isOut || isBot) {
+    if (m.status === "read") statusIcon = '<span style="color:#34B7F1;margin-left:4px">✓✓</span>';
+    else if (m.status === "delivered") statusIcon = '<span style="color:#aaa;margin-left:4px">✓✓</span>';
+    else if (m.status === "sent") statusIcon = '<span style="color:#aaa;margin-left:4px">✓</span>';
+  }
 
   const div = document.createElement("div");
   div.className = cls;
-  div.innerHTML = `${senderTag}${content}<div class="time">${time}</div>`;
+  if (m?.waMessageId) div.dataset.waMessageId = m.waMessageId;
+
+  div.innerHTML = `${senderTag}<p style="margin:0">${esc(m.text || "")}</p><div class="time">${time}${statusIcon}</div>`;
   body.appendChild(div);
   body.scrollTop = body.scrollHeight;
 }
@@ -1337,6 +1440,137 @@ function showStaffLogin(e) { if(e) e.preventDefault(); document.getElementById("
 function showLegacyMode(e) { e?.preventDefault(); document.getElementById("loginStaff").style.display="none"; document.getElementById("loginLegacy").style.display="block"; }
 function showStaffMode(e)  { e?.preventDefault(); document.getElementById("loginLegacy").style.display="none"; document.getElementById("loginStaff").style.display="block"; }
 function showForgotPassword(e) { e.preventDefault(); document.getElementById("loginStaff").style.display="none"; document.getElementById("loginForgot").style.display="block"; document.getElementById("loginErrForgot").style.display="none"; }
+
+function showInviteLogin(e) {
+  e?.preventDefault();
+  document.getElementById("loginLegacy").style.display = "none";
+  document.getElementById("loginStaff").style.display = "none";
+  document.getElementById("loginForgot").style.display = "none";
+  document.getElementById("loginInvite").style.display = "block";
+  document.getElementById("inviteTokenRow").style.display = "block";
+  document.getElementById("inviteFormBlock").style.display = "none";
+  const er = document.getElementById("loginErrInvite");
+  if (er) { er.style.display = "none"; er.style.color = ""; }
+  INVITE_TOKEN_ACTIVE = null;
+}
+
+function showStaffLoginFromInvite(e) {
+  e?.preventDefault();
+  document.getElementById("loginInvite").style.display = "none";
+  document.getElementById("loginStaff").style.display = "block";
+  const er = document.getElementById("loginErrInvite");
+  if (er) { er.style.color = ""; er.style.display = "none"; }
+}
+
+async function fillInviteFormFromPreview(token) {
+  const err = document.getElementById("loginErrInvite");
+  if (err) err.style.display = "none";
+  const r = await fetch((API_BASE || "") + "/auth/invite-preview?token=" + encodeURIComponent(token));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (err) {
+      err.textContent = d.message || "Convite inválido ou expirado.";
+      err.style.display = "block";
+    }
+    document.getElementById("inviteTokenRow").style.display = "block";
+    document.getElementById("inviteFormBlock").style.display = "none";
+    return;
+  }
+  document.getElementById("inviteFormBlock").style.display = "block";
+  document.getElementById("inviteEmailRo").value = d.email || "";
+  document.getElementById("inviteRoleRo").value = d.roleLabel || d.role || "";
+  let deptLine = d.department || "—";
+  if (d.tenantName) deptLine = deptLine + " · " + d.tenantName;
+  document.getElementById("inviteDeptRo").value = deptLine;
+  document.getElementById("inviteName").value = "";
+  document.getElementById("invitePhone").value = "";
+  document.getElementById("invitePassword").value = "";
+  document.getElementById("invitePassword2").value = "";
+}
+
+async function loadInvitePreview() {
+  const t = document.getElementById("inviteTokenInput").value.trim();
+  if (t.length < 16) {
+    alert("Cole o código completo do link de convite.");
+    return;
+  }
+  INVITE_TOKEN_ACTIVE = t;
+  document.getElementById("inviteTokenRow").style.display = "none";
+  await fillInviteFormFromPreview(t);
+}
+
+async function submitInviteComplete() {
+  const err = document.getElementById("loginErrInvite");
+  if (err) {
+    err.style.display = "none";
+    err.style.color = "";
+  }
+  const token =
+    INVITE_TOKEN_ACTIVE || new URLSearchParams(window.location.search).get("invite") || "";
+  const name = document.getElementById("inviteName").value.trim();
+  const phone = document.getElementById("invitePhone").value.trim();
+  const p1 = document.getElementById("invitePassword").value;
+  const p2 = document.getElementById("invitePassword2").value;
+  if (!name) {
+    if (err) {
+      err.textContent = "Informe seu nome.";
+      err.style.display = "block";
+    }
+    return;
+  }
+  if (!p1 || p1.length < 8) {
+    if (err) {
+      err.textContent = "Senha deve ter no mínimo 8 caracteres.";
+      err.style.display = "block";
+    }
+    return;
+  }
+  if (p1 !== p2) {
+    if (err) {
+      err.textContent = "Senhas não conferem.";
+      err.style.display = "block";
+    }
+    return;
+  }
+  const btn = document.getElementById("btnInviteSubmit");
+  btn.disabled = true;
+  try {
+    const r = await fetch((API_BASE || "") + "/auth/complete-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, name, password: p1, phone: phone || null }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (err) {
+        err.textContent = d.message || d.error || "Não foi possível concluir.";
+        err.style.display = "block";
+      }
+      btn.disabled = false;
+      return;
+    }
+    if (err) {
+      err.textContent = d.message || "Cadastro concluído. Faça login abaixo.";
+      err.style.color = "#27ae60";
+      err.style.display = "block";
+    }
+    try {
+      history.replaceState({}, "", location.pathname);
+    } catch (_) {}
+    const loggedEmail = document.getElementById("inviteEmailRo").value;
+    setTimeout(() => {
+      showStaffLoginFromInvite({ preventDefault() {} });
+      const em = document.getElementById("loginEmail");
+      if (em && loggedEmail) em.value = loggedEmail;
+    }, 1500);
+  } catch (_) {
+    if (err) {
+      err.textContent = "Erro de conexão.";
+      err.style.display = "block";
+    }
+  }
+  btn.disabled = false;
+}
 
 async function doStaffLogin(e) {
   e?.preventDefault();
@@ -1534,6 +1768,41 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 
 // ── RESTAURA SESSÃO AO RECARREGAR ──────────────────────────────
 (async function restoreSession() {
+  const inviteQs = new URLSearchParams(window.location.search).get("invite");
+  if (inviteQs && inviteQs.length >= 16) {
+    try {
+      const cfgRes = await fetch((API_BASE || "") + "/auth/config");
+      const cfg = await cfgRes.json();
+      if (!cfg.useStaffAuth) {
+        document.getElementById("login").style.display = "flex";
+        document.getElementById("loginLegacy").style.display = "none";
+        document.getElementById("loginStaff").style.display = "none";
+        document.getElementById("loginForgot").style.display = "none";
+        document.getElementById("loginInvite").style.display = "block";
+        const er = document.getElementById("loginErrInvite");
+        if (er) {
+          er.textContent = "Cadastro por convite requer o login corporativo (e-mail/senha) ativado no servidor.";
+          er.style.display = "block";
+        }
+        return;
+      }
+      USE_STAFF_AUTH = true;
+      if (typeof window.supabase === "function" && cfg.supabaseUrl && cfg.supabaseAnonKey) {
+        SUPABASE_CLIENT = window.supabase(cfg.supabaseUrl, cfg.supabaseAnonKey);
+      }
+      document.getElementById("login").style.display = "flex";
+      document.getElementById("loginLegacy").style.display = "none";
+      document.getElementById("loginStaff").style.display = "none";
+      document.getElementById("loginForgot").style.display = "none";
+      document.getElementById("loginInvite").style.display = "block";
+      document.getElementById("inviteTokenRow").style.display = "none";
+      document.getElementById("inviteFormBlock").style.display = "none";
+      INVITE_TOKEN_ACTIVE = inviteQs;
+      await fillInviteFormFromPreview(inviteQs);
+      return;
+    } catch (_) {}
+  }
+
   // 1. Staff auth: verifica config e sessão Supabase
   try {
     const cfgRes = await fetch((API_BASE||"")+"/auth/config");
@@ -1901,7 +2170,7 @@ async function loadChatHistory(customerId) {
       else if (m.status === 'sent') statusIcon = '<span style="color:#aaa;margin-left:4px">✓</span>';
     }
 
-    return `<div class="${cls}">${senderTag}${content}<div class="time" style="display:flex;align-items:center;justify-content:flex-end">${time}${statusIcon}</div></div>`;
+    return `<div class="${cls}" data-wa-message-id="${esc(m.waMessageId || "")}">${senderTag}${content}<div class="time" style="display:flex;align-items:center;justify-content:flex-end">${time}${statusIcon}</div></div>`;
   }).join("");
   body.scrollTop = body.scrollHeight;
 }
@@ -3084,6 +3353,132 @@ async function loadAdminSettings() {
 
 let staffUserEditId = null;
 let staffUsersCache = [];
+
+async function fetchDepartmentsForTenant(tenantId) {
+  if (!tenantId) return [];
+  const base = API_BASE || "";
+  try {
+    const r = await fetch(
+      `${base}/dash/departments?tenant=${encodeURIComponent(tenantId)}`,
+      { headers: getAuthHeaders() },
+    );
+    if (!r.ok) return [];
+    return await r.json();
+  } catch {
+    return [];
+  }
+}
+
+function fillDepartmentSelect(sel, list, currentVal) {
+  if (!sel) return;
+  const names = (Array.isArray(list) ? list : [])
+    .map((d) => (typeof d === "string" ? d : d && d.name))
+    .filter(Boolean);
+  const cur = currentVal != null ? String(currentVal) : "";
+  sel.innerHTML =
+    '<option value="">— Nenhum / não aplicável —</option>' +
+    names.map((n) => `<option value="${esc(n)}" ${n === cur ? "selected" : ""}>${esc(n)}</option>`).join("");
+}
+
+async function refreshStaffUserDepartments() {
+  const tenantId = document.getElementById("staffUserTenant")?.value || "";
+  const sel = document.getElementById("staffUserDepartment");
+  if (!sel) return;
+  if (!tenantId) {
+    sel.innerHTML = '<option value="">— Nenhum / não aplicável —</option>';
+    return;
+  }
+  const list = await fetchDepartmentsForTenant(tenantId);
+  const cur = sel.dataset.pending || sel.value;
+  delete sel.dataset.pending;
+  fillDepartmentSelect(sel, list, cur);
+}
+
+function onStaffUserRoleChange() {
+  const role = document.getElementById("staffUserRole")?.value;
+  const tw = document.getElementById("staffUserTenantWrap");
+  if (tw) tw.style.display = role === "admin" ? "none" : "block";
+  const sel = document.getElementById("staffUserDepartment");
+  if (role === "admin" && sel) sel.innerHTML = '<option value="">— Nenhum / não aplicável —</option>';
+}
+
+function onInviteModalRoleChange() {
+  const role = document.getElementById("inviteModalRole")?.value;
+  const tw = document.getElementById("inviteModalTenantWrap");
+  if (tw) tw.style.display = role === "admin" ? "none" : "block";
+  refreshInviteModalDepartments();
+}
+
+async function refreshInviteModalDepartments() {
+  const role = document.getElementById("inviteModalRole")?.value;
+  const tenantId = document.getElementById("inviteModalTenant")?.value || "";
+  const sel = document.getElementById("inviteModalDepartment");
+  if (!sel) return;
+  if (role === "admin" || !tenantId) {
+    sel.innerHTML = '<option value="">— Selecione —</option>';
+    return;
+  }
+  const list = await fetchDepartmentsForTenant(tenantId);
+  sel.innerHTML =
+    '<option value="">— Selecione —</option>' +
+    (Array.isArray(list) ? list : [])
+      .map((d) => (typeof d === "string" ? d : d && d.name))
+      .filter(Boolean)
+      .map((n) => `<option value="${esc(n)}">${esc(n)}</option>`)
+      .join("");
+}
+
+async function openStaffInviteModal() {
+  document.getElementById("modalStaffInvite").style.display = "flex";
+  const resEl = document.getElementById("inviteModalResult");
+  resEl.style.display = "none";
+  resEl.innerHTML = "";
+  document.getElementById("inviteModalEmail").value = "";
+  const tenants = (await api("/tenants")) || [];
+  const sel = document.getElementById("inviteModalTenant");
+  sel.innerHTML =
+    '<option value="">— Selecione —</option>' +
+    tenants.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  document.getElementById("inviteModalRole").value = "attendant";
+  onInviteModalRoleChange();
+}
+
+function closeStaffInviteModal() {
+  document.getElementById("modalStaffInvite").style.display = "none";
+}
+
+async function createStaffInviteLink() {
+  const email = document.getElementById("inviteModalEmail").value.trim();
+  const role = document.getElementById("inviteModalRole").value;
+  const tenantId = document.getElementById("inviteModalTenant").value || null;
+  const department = document.getElementById("inviteModalDepartment").value || null;
+  if (!email) {
+    alert("Informe o e-mail autorizado.");
+    return;
+  }
+  if (role !== "admin" && !tenantId) {
+    alert("Selecione o tenant (loja).");
+    return;
+  }
+  const btn = document.getElementById("btnStaffInviteCreate");
+  btn.disabled = true;
+  const r = await api("/staff-users/invites", {
+    method: "POST",
+    body: JSON.stringify({ email, role, tenantId, department }),
+  });
+  btn.disabled = false;
+  if (!r || r.error) {
+    alert((r && r.message) || r?.error || "Erro ao gerar convite.");
+    return;
+  }
+  const resEl = document.getElementById("inviteModalResult");
+  resEl.style.display = "block";
+  const url = r.signupUrl || "";
+  resEl.innerHTML =
+    "<strong>Link gerado.</strong> Envie ao colaborador:<br/><textarea readonly style=\"width:100%;min-height:72px;margin-top:8px;font-size:11px;box-sizing:border-box\">" +
+    esc(url) +
+    "</textarea>";
+}
 async function loadStaffUsers() {
   const tenantId = document.getElementById("staffFilterTenant")?.value || "";
   const role = document.getElementById("staffFilterRole")?.value || "";
@@ -3110,6 +3505,8 @@ async function loadStaffUsers() {
         <strong>${esc(u.name)}</strong> <span style="font-size:11px;color:#888">${esc(u.email)}</span>
         <span style="font-size:10px;background:#e0e0e0;padding:2px 6px;border-radius:6px;margin-left:6px">${roleLbl[u.role]||u.role}</span>
         ${u.tenantName ? `<span style="font-size:11px;color:#666"> · ${esc(u.tenantName)}</span>` : ""}
+        ${u.phone ? `<span style="font-size:10px;color:#888"> · ${esc(u.phone)}</span>` : ""}
+        ${u.department ? `<span style="font-size:10px;color:#888"> · ${esc(u.department)}</span>` : ""}
         ${!u.active ? '<span style="color:#e53935;font-size:11px">(inativo)</span>' : ""}
       </div>
       <div style="display:flex;gap:6px">
@@ -3136,10 +3533,19 @@ async function openEditStaffUserModal(id) {
   document.getElementById("staffUserPasswordWrap").style.display = "none";
   document.getElementById("staffUserPassword").value = "";
   document.getElementById("staffUserName").value = u.name || "";
+  document.getElementById("staffUserPhone").value = u.phone || "";
   document.getElementById("staffUserRole").value = u.role || "attendant";
   const tenants = await api("/tenants") || [];
   const sel = document.getElementById("staffUserTenant");
   sel.innerHTML = '<option value="">— Admin (sem tenant) —</option>' + tenants.map(t => `<option value="${t.id}" ${t.id === u.tenantId ? "selected" : ""}>${esc(t.name)}</option>`).join("");
+  onStaffUserRoleChange();
+  await refreshStaffUserDepartments();
+  const dsel = document.getElementById("staffUserDepartment");
+  if (dsel && u.department) {
+    const ok = [...dsel.options].some((o) => o.value === u.department);
+    if (!ok) dsel.insertAdjacentHTML("beforeend", `<option value="${esc(u.department)}">${esc(u.department)}</option>`);
+    dsel.value = u.department;
+  }
   document.getElementById("modalStaffUser").style.display = "flex";
 }
 
@@ -3151,10 +3557,13 @@ async function openNewStaffUserModal() {
   document.getElementById("staffUserPassword").value = "";
   document.getElementById("staffUserPasswordWrap").style.display = "block";
   document.getElementById("staffUserName").value = "";
+  document.getElementById("staffUserPhone").value = "";
   document.getElementById("staffUserRole").value = "attendant";
   const tenants = await api("/tenants") || [];
   const sel = document.getElementById("staffUserTenant");
   sel.innerHTML = '<option value="">— Selecione —</option>' + tenants.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  onStaffUserRoleChange();
+  await refreshStaffUserDepartments();
   document.getElementById("modalStaffUser").style.display = "flex";
 }
 
@@ -3167,12 +3576,14 @@ async function saveStaffUser() {
   const email = document.getElementById("staffUserEmail").value.trim();
   const password = document.getElementById("staffUserPassword").value;
   const name = document.getElementById("staffUserName").value.trim();
+  const phone = document.getElementById("staffUserPhone").value.trim();
+  const department = document.getElementById("staffUserDepartment").value || null;
   const role = document.getElementById("staffUserRole").value;
   const tenantId = document.getElementById("staffUserTenant").value || null;
   if (!name) { alert("Preencha o nome."); return; }
   if (!staffUserEditId) {
     if (!email) { alert("Preencha o e-mail."); return; }
-    if (!password || password.length < 6) { alert("Informe uma senha de pelo menos 6 caracteres."); return; }
+    if (!password || password.length < 8) { alert("Informe uma senha de pelo menos 8 caracteres."); return; }
   }
   const btn = document.getElementById("btnStaffUserSave");
   btn.disabled = true;
@@ -3181,16 +3592,30 @@ async function saveStaffUser() {
     if (staffUserEditId) {
       r = await api("/staff-users/" + staffUserEditId, {
         method: "PATCH",
-        body: JSON.stringify({ name, role, tenantId: role === "admin" ? null : tenantId }),
+        body: JSON.stringify({
+          name,
+          phone: phone || null,
+          department,
+          role,
+          tenantId: role === "admin" ? null : tenantId,
+        }),
       });
     } else {
       r = await api("/staff-users", {
         method: "POST",
-        body: JSON.stringify({ email, password, name, role, tenantId }),
+        body: JSON.stringify({
+          email,
+          password,
+          name,
+          phone: phone || null,
+          department,
+          role,
+          tenantId,
+        }),
       });
     }
-    if (r) { closeStaffUserModal(); staffUserEditId = null; loadStaffUsers(); }
-    else alert("Erro ao salvar usuário.");
+    if (r && !r.error) { closeStaffUserModal(); staffUserEditId = null; loadStaffUsers(); }
+    else alert("Erro ao salvar usuário: " + ((r && r.message) || r?.error || "Tente novamente."));
   } catch (e) { alert("Erro: " + (e.message || "Tente novamente.")); }
   btn.disabled = false;
 }
@@ -3207,8 +3632,8 @@ async function staffUserDeactivate(id) {
 }
 
 async function staffUserResetPwd(id) {
-  const pwd = prompt("Nova senha (mín. 6 caracteres):");
-  if (!pwd || pwd.length < 6) { alert("Senha deve ter pelo menos 6 caracteres."); return; }
+  const pwd = prompt("Nova senha (mín. 8 caracteres):");
+  if (!pwd || pwd.length < 8) { alert("Senha deve ter pelo menos 8 caracteres."); return; }
   const r = await api("/staff-users/"+id+"/reset-password", { method: "POST", body: JSON.stringify({ newPassword: pwd }) });
   if (r?.ok) alert("Senha alterada.");
   else alert("Erro: " + (r?.error || "Tente novamente."));
@@ -3495,7 +3920,20 @@ async function loadMetaStatus() {
   if (!d || d.error === "forbidden") {
     if (elInst) elInst.innerHTML = "● Erro ao carregar";
     if (elFb) elFb.innerHTML = "● Erro ao carregar";
+    const elWaCloud = document.getElementById("waCloudApiStatusBody");
+    if (elWaCloud) elWaCloud.textContent = "Erro ao carregar";
     return;
+  }
+  const elWaCloud = document.getElementById("waCloudApiStatusBody");
+  if (elWaCloud && d.whatsappCloud) {
+    const w = d.whatsappCloud;
+    const partial = (w.tokenPresent || w.phoneNumberIdPresent) && !w.connected;
+    elWaCloud.innerHTML = `
+      <div style="margin-bottom:4px">${metaStatusBadge(w.connected, false, partial)}</div>
+      <div style="font-size:11px;color:#666;line-height:1.5">
+        Token API: ${w.tokenPresent ? "Presente" : "Ausente"} | Phone number ID: ${w.phoneNumberIdPresent ? "Presente" : "Ausente"}<br>
+        ID: ${esc(w.phoneNumberId || "—")}
+      </div>`;
   }
   const fmt = (s) => s ? new Date(s).toLocaleString("pt-BR") : "—";
   if (elInst) {

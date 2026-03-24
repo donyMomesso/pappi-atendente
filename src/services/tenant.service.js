@@ -2,6 +2,7 @@
 // Req 6 — Arquitetura multi-tenant
 
 const prisma = require("../lib/db");
+const log = require("../lib/logger").child({ service: "tenant" });
 const { createCardapioClient } = require("./cardapio.service");
 const { createClient: createWaClient } = require("../lib/whatsapp");
 
@@ -16,6 +17,27 @@ async function getTenantByPhoneNumberId(phoneNumberId) {
 
 async function getTenantById(tenantId) {
   return prisma.tenant.findUnique({ where: { id: tenantId } });
+}
+
+/** Cliente Cloud API inerte: não quebra getClients quando só Baileys/CW está em uso. */
+function createDisabledWaClient(tenantId, reason) {
+  const fail = async (op) => {
+    const e = new Error(`WhatsApp Cloud API indisponível (tenant ${tenantId}): ${reason}. Operação: ${op}`);
+    e.code = "WA_CLOUD_NOT_CONFIGURED";
+    throw e;
+  };
+  return {
+    sendText: () => fail("sendText"),
+    sendButtons: () => fail("sendButtons"),
+    sendList: () => fail("sendList"),
+    sendTemplate: () => fail("sendTemplate"),
+    markRead: async () => {},
+    getTemplates: async () => [],
+    getMediaUrl: async () => null,
+    sendImage: () => fail("sendImage"),
+    sendAudio: () => fail("sendAudio"),
+    sendDocument: () => fail("sendDocument"),
+  };
 }
 
 async function getClients(tenantId) {
@@ -35,10 +57,26 @@ async function getClients(tenantId) {
     storeId: tenant.cwStoreId,
   });
 
-  const wa = createWaClient({
-    token: tenant.waToken,
-    phoneNumberId: tenant.waPhoneNumberId,
-  });
+  const token = (tenant.waToken || "").trim();
+  const phoneNumberId = (tenant.waPhoneNumberId || "").trim();
+  const wa =
+    token && phoneNumberId
+      ? createWaClient({ token, phoneNumberId })
+      : createDisabledWaClient(
+          tenant.id,
+          !token && !phoneNumberId
+            ? "waToken e waPhoneNumberId ausentes"
+            : !token
+              ? "waToken ausente"
+              : "waPhoneNumberId ausente",
+        );
+
+  if (!token || !phoneNumberId) {
+    log.warn(
+      { tenantId: tenant.id, name: tenant.name, hasToken: !!token, hasPhoneNumberId: !!phoneNumberId },
+      "WhatsApp Cloud API incompleto — envio pela API desabilitado (Baileys/outros canais seguem)",
+    );
+  }
 
   const entry = { cw, wa, config: tenant, loadedAt: Date.now() };
   clientCache.set(tenantId, entry);
