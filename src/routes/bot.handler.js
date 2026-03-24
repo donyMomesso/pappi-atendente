@@ -1162,7 +1162,7 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waM
       where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
     });
     if (customer) {
-      const sender = role === "customer" ? null : "WhatsApp Auxiliar";
+      const sender = role === "customer" ? null : role === "human" ? "WhatsApp App" : "WhatsApp Auxiliar";
       await chatMemory.push(customer.id, role, text, sender, null, "text", waMessageId);
     } else {
       console.warn(`[BaileysMsg] Cliente não encontrado: ${normalizedPhone} (tenant: ${tenantId})`);

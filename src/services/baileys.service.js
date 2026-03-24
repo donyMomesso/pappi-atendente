@@ -368,7 +368,32 @@ async function start(instanceId = "default", opts = {}) {
 
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
         if (jid === "status@broadcast" || jid.endsWith("@broadcast")) continue; // ignora status/stories
-        if (msg?.key?.fromMe) continue;
+
+        // Mensagens enviadas pelo próprio número (respondidas pelo app/celular)
+        // → salva no histórico como "human" para aparecer no painel
+        if (msg?.key?.fromMe) {
+          try {
+            const echoText = extractIncomingText(msg);
+            if (echoText && echoText.length > 0) {
+              const echoPhone = extractPhoneFromMessage(msg);
+              if (echoPhone) {
+                const echoTenantId = await detectTenantByPhone(echoPhone, instanceId);
+                if (echoTenantId) {
+                  const botHandler = require("../routes/bot.handler");
+                  await botHandler.saveBaileysMessage(echoPhone, echoText, echoTenantId, "human", msg?.key?.id);
+                  log.info(
+                    { instanceId, phone: echoPhone, text: echoText.slice(0, 60) },
+                    "Echo capturado (resposta pelo app)",
+                  );
+                  require("./socket.service").emitConvUpdate(null);
+                }
+              }
+            }
+          } catch (echoErr) {
+            log.warn({ instanceId, err: echoErr.message }, "Erro ao capturar echo fromMe");
+          }
+          continue;
+        }
 
         if (!msg?.message) {
           log.warn(
@@ -485,8 +510,7 @@ async function start(instanceId = "default", opts = {}) {
 
             if (isAppend && !recoverySent.has(customer.id)) {
               recoverySent.add(customer.id);
-              const recovery =
-                "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
+              const recovery = "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
               try {
                 await sendText(customer.phone, recovery, instanceId, true);
                 await botHandler.saveBaileysMessage(customer.phone, recovery, tenantId, "assistant");
@@ -563,8 +587,7 @@ async function start(instanceId = "default", opts = {}) {
                     fallback =
                       "Como a instabilidade persistiu, você será direcionado para um atendente humano. Aguarde um momento! 👨‍💼";
                   } else {
-                    fallback =
-                      `Estamos com instabilidade no WhatsApp. Aguarde alguns minutos e tente novamente. Acompanhe: ${statusUrl}\n\nSe persistir, você será direcionado para atendimento humano.`;
+                    fallback = `Estamos com instabilidade no WhatsApp. Aguarde alguns minutos e tente novamente. Acompanhe: ${statusUrl}\n\nSe persistir, você será direcionado para atendimento humano.`;
                   }
                   await sendText(customer.phone, fallback, instanceId, true);
                   await botHandler.saveBaileysMessage(customer.phone, fallback, tenantId, "assistant");
@@ -629,10 +652,7 @@ async function start(instanceId = "default", opts = {}) {
           // Heartbeat para manter lock vivo
           if (inst._heartbeatInterval) clearInterval(inst._heartbeatInterval);
           const ttl = ENV.BAILEYS_LOCK_TTL_MS || 60_000;
-          inst._heartbeatInterval = setInterval(
-            () => baileysLock.heartbeat(instanceId),
-            Math.floor(ttl / 2),
-          );
+          inst._heartbeatInterval = setInterval(() => baileysLock.heartbeat(instanceId), Math.floor(ttl / 2));
         }
 
         if (connection === "close") {
@@ -702,10 +722,7 @@ async function start(instanceId = "default", opts = {}) {
             );
             if (ENV.BAILEYS_CLEAR_AUTH_ON_440) {
               await clearDbAuth(instanceId);
-              log.info(
-                { instanceId },
-                "440 → auth limpo (BAILEYS_CLEAR_AUTH_ON_440). Próximo Conectar exige novo QR.",
-              );
+              log.info({ instanceId }, "440 → auth limpo (BAILEYS_CLEAR_AUTH_ON_440). Próximo Conectar exige novo QR.");
             } else {
               log.info(
                 { instanceId },
@@ -834,13 +851,7 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
         const tenantId = await detectTenantByPhone(cleanPhone, instanceId);
 
         if (tenantId) {
-          await botHandler.saveBaileysMessage(
-            cleanPhone,
-            text,
-            tenantId,
-            "assistant",
-            sent?.key?.id || null,
-          );
+          await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant", sent?.key?.id || null);
         }
       } catch (err) {
         console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
