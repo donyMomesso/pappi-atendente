@@ -256,7 +256,8 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   // Fast path: escolhas óbvias — pula classifyIntent (IA ~1–3s) para resposta instantânea
   // WhatsApp envia o *title* do botão (ex.: "🚚 Entrega"), não só o id — o regex ^entrega$ falhava e a IA
   // classificava como STATUS → mensagem errada de "não encontrei pedido".
-  const isProductChoice = session.step === "CHOOSE_PRODUCT_TYPE" && /^(pizza|lasanha)$/.test((text || "").trim().toLowerCase());
+  const isProductChoice =
+    session.step === "CHOOSE_PRODUCT_TYPE" && /^(pizza|lasanha)$/.test((text || "").trim().toLowerCase());
   const isFulfillmentChoice =
     session.step === "FULFILLMENT" &&
     (t.includes("entrega") ||
@@ -265,7 +266,11 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       t.includes("retirar") ||
       /^(delivery|takeout)$/.test((text || "").trim().toLowerCase()));
 
-  if (!isProductChoice && !isFulfillmentChoice && ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)) {
+  if (
+    !isProductChoice &&
+    !isFulfillmentChoice &&
+    ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)
+  ) {
     try {
       timer?.mark("pre_classify");
       const intent = await ai.classifyIntent(text);
@@ -909,6 +914,8 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     productType: session.productType,
     chosenSize: session.chosenSize,
     sizeHint,
+    tenantId: tenant.id,
+    phone,
   });
   timer?.mark("chatOrder");
 
@@ -1027,6 +1034,18 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   if (cwOrderId) await setCwOrderId(order.id, cwOrderId, cwResponse);
   await recordOrder(customer.id, cartSummary(session.cart), session.paymentMethodName);
 
+  // ── Aprendizado: captura preferências do cliente ────────
+  try {
+    const learning = require("../services/bot-learning.service");
+    await learning.learnCustomerPattern(tenant.id, phone, {
+      favoriteItems: session.cart.map((i) => ({ name: i.name })),
+      paymentMethod: session.paymentMethodName,
+      fulfillment: session.fulfillment,
+      orderHour: new Date().getHours(),
+    });
+    await learning.analyzeConversation(tenant.id, customer.id, phone);
+  } catch {}
+
   // ── CAPI: Purchase ────────────────────────────────────────
   if (!isLead) {
     metaCapi
@@ -1047,8 +1066,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   if (isLead) {
     m = `✅ *Pedido #${orderNum} anotado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n\nEntraremos em contato quando abrirmos. Obrigado! 🍕`;
   } else if (cwSuccess) {
-    const previsao =
-      session.fulfillment === "takeout" ? "30 a 40 min" : "60 min";
+    const previsao = session.fulfillment === "takeout" ? "30 a 40 min" : "60 min";
     m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: ${previsao}\n\nObrigado! 🍕`;
   } else {
     m = `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
