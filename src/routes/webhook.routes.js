@@ -5,7 +5,12 @@
 
 const express = require("express");
 const ENV = require("../config/env");
-const { getTenantByPhoneNumberId, normalizeWaPhoneNumberId, getClients } = require("../services/tenant.service");
+const {
+  getTenantByPhoneNumberId,
+  normalizeWaPhoneNumberId,
+  getClients,
+  isLikelyPlaceholderWaPhoneNumberId,
+} = require("../services/tenant.service");
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
@@ -125,6 +130,8 @@ router.post("/webhook", async (req, res) => {
               phoneNumberId,
               resolution: "unmatched",
             });
+            const placeholderTenants = activeRefs.filter((t) => isLikelyPlaceholderWaPhoneNumberId(t.waPhoneNumberId));
+            const firstBad = placeholderTenants[0];
             wlog.warn(
               {
                 phoneNumberIdReceived: phoneNumberId,
@@ -135,8 +142,17 @@ router.post("/webhook", async (req, res) => {
                   name: t.name,
                   waPhoneNumberId: t.waPhoneNumberId,
                 })),
+                tenantsWithPlaceholderWaPhoneNumberId: placeholderTenants.map((t) => t.id),
+                suggestedFix:
+                  firstBad != null
+                    ? `PATCH /admin/tenants/${firstBad.id} body {"waPhoneNumberId":"${phoneNumberId}"}`
+                    : activeRefs.length === 1
+                      ? `PATCH /admin/tenants/${activeRefs[0].id} body {"waPhoneNumberId":"${phoneNumberId}"}`
+                      : undefined,
               },
-              "WhatsApp Cloud API: nenhum tenant ATIVO com waPhoneNumberId igual ao phone_number_id do webhook — mensagens ignoradas até alinhar o banco (PATCH /admin/tenants/:id ou painel). Baileys não usa waPhoneNumberId.",
+              placeholderTenants.length > 0
+                ? "WhatsApp Cloud API: waPhoneNumberId no banco parece PLACEHOLDER (ex. SEU_PHONE_NUMBER_ID). Substitua pelo phone_number_id que este log mostra em phoneNumberIdReceived — use suggestedFix."
+                : "WhatsApp Cloud API: nenhum tenant ATIVO com waPhoneNumberId igual ao phone_number_id do webhook — mensagens ignoradas até alinhar o banco (PATCH /admin/tenants/:id ou painel). Baileys não usa waPhoneNumberId.",
             );
           }
           continue;

@@ -2,7 +2,7 @@
 
 const express = require("express");
 const { requireAdminKey } = require("../middleware/auth.middleware");
-const { getClients, listActive } = require("../services/tenant.service");
+const { getClients, listActive, isLikelyPlaceholderWaPhoneNumberId } = require("../services/tenant.service");
 const prisma = require("../lib/db");
 const messageDbCompat = require("../lib/message-db-compat");
 const baileys = require("../services/baileys.service");
@@ -210,6 +210,11 @@ router.get("/diag/routing/check", requireAdminKey, async (_req, res) => {
     for (const t of tenants) {
       if (!t.waToken || t.waToken === "dev-token-placeholder") {
         issues.push(`Tenant "${t.name}" tem waToken inválido — Cloud API não funcionará`);
+      }
+      if (isLikelyPlaceholderWaPhoneNumberId(t.waPhoneNumberId)) {
+        issues.push(
+          `Tenant "${t.name}" (${t.id}): waPhoneNumberId parece texto-tutorial (ex. SEU_PHONE_NUMBER_ID) — webhooks Cloud API serão ignorados até salvar o Phone number ID da Meta`,
+        );
       }
     }
 

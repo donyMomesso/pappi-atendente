@@ -15,6 +15,21 @@ function normalizeWaPhoneNumberId(phoneNumberId) {
   return String(phoneNumberId).replace(/\s+/g, "").trim();
 }
 
+/**
+ * true se o valor no banco parece texto de tutorial, não o Phone number ID numérico da Meta
+ * (ex.: SEU_PHONE_NUMBER_ID). IDs reais costumam ser só dígitos (≈10–16).
+ */
+function isLikelyPlaceholderWaPhoneNumberId(raw) {
+  const s = normalizeWaPhoneNumberId(raw);
+  if (!s) return true;
+  if (/^\d{10,20}$/.test(s)) return false;
+  const lower = s.toLowerCase();
+  if (lower.includes("seu_") || lower.includes("your_")) return true;
+  if (lower.includes("placeholder") || lower.includes("changeme") || lower.includes("replace_me")) return true;
+  if (lower.includes("phone_number_id") && /[a-z_]/i.test(s) && !/^\d+$/.test(s)) return true;
+  return false;
+}
+
 async function getTenantByPhoneNumberId(phoneNumberId) {
   const id = normalizeWaPhoneNumberId(phoneNumberId);
   if (!id) return null;
@@ -103,6 +118,7 @@ async function listActive() {
 module.exports = {
   getTenantByPhoneNumberId,
   normalizeWaPhoneNumberId,
+  isLikelyPlaceholderWaPhoneNumberId,
   getTenantById,
   getClients,
   invalidateCache,

@@ -5,7 +5,7 @@
 const express = require("express");
 const prisma = require("../lib/db");
 const { authAdmin, authDash } = require("../middleware/auth.middleware");
-const { getClients, normalizeWaPhoneNumberId } = require("../services/tenant.service");
+const { getClients, normalizeWaPhoneNumberId, isLikelyPlaceholderWaPhoneNumberId } = require("../services/tenant.service");
 const messageDbCompat = require("../lib/message-db-compat");
 const { setHandoff, releaseHandoff, claimFromQueue, closeConversation } = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
@@ -1387,7 +1387,11 @@ router.get("/meta/status", authDash, async (req, res) => {
 
     let waCloudDiagnosticHint = null;
     if (waCloudTel.lastResolution === "unmatched" && lastPid) {
-      waCloudDiagnosticHint = `Nenhum tenant ATIVO usa waPhoneNumberId="${lastPid}". No Meta (WhatsApp > API do WhatsApp > número): copie o Phone number ID e salve no tenant (PATCH /admin/tenants/:id com {"waPhoneNumberId":"${lastPid}"} ou equivalente no painel).`;
+      if (isLikelyPlaceholderWaPhoneNumberId(tenantRow?.waPhoneNumberId)) {
+        waCloudDiagnosticHint = `Este tenant ainda tem texto de exemplo em waPhoneNumberId ("${(tenantRow?.waPhoneNumberId || "").trim()}"). O webhook já mostra o valor correto da Meta: ${lastPid}. Atualize: PATCH /admin/tenants/${tenantId} com {"waPhoneNumberId":"${lastPid}"} (ou painel / SQL).`;
+      } else {
+        waCloudDiagnosticHint = `Nenhum tenant ATIVO usa waPhoneNumberId="${lastPid}". No Meta (WhatsApp > API do WhatsApp > número): copie o Phone number ID e salve no tenant (PATCH /admin/tenants/:id com {"waPhoneNumberId":"${lastPid}"} ou equivalente no painel).`;
+      }
     } else if (waCloudTel.lastResolution === "inactive" && lastPid) {
       waCloudDiagnosticHint = `O phone_number_id ${lastPid} corresponde a um tenant INATIVO. Reative esse tenant ou atualize waPhoneNumberId do tenant ativo que deve atender este número.`;
     } else if (lastPid && savedPid && lastPid !== savedPid) {
