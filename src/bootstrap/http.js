@@ -17,12 +17,11 @@ const socketService = require("../services/socket.service");
 const { runStartup } = require("../startup");
 const ENV = require("../config/env");
 
-runStartup();
-
 const PORT = ENV.PORT || 10000;
 
 const server = http.createServer(app);
 socketService.init(server);
+runStartup();
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {

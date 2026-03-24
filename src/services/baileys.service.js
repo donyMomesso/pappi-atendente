@@ -755,8 +755,9 @@ async function initAll() {
   try {
     const socketService = require("./socket.service");
     if (!socketService.getIO()) {
-      log.warn(
-        "Socket.IO não inicializado neste processo — histórico grava no banco, mas o painel não recebe new_message/queue_update em tempo real (use monólito node index.js ou adapter Redis).",
+      // Normal em `src/bootstrap/baileys.js` (processo só QR). Em monólito, index.js inicia Socket antes de runStartup.
+      log.info(
+        "Baileys: Socket.IO não está neste processo — esperado no worker dedicado; painel em tempo real depende do serviço web ou monólito (node index.js).",
       );
     }
   } catch {}

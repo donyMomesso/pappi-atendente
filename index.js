@@ -30,11 +30,13 @@ if (ENV.WEB_CONCURRENCY > 1) {
 if (ENV.NODE_ENV === "production" && (!ENV.RUN_BAILEYS || !ENV.RUN_JOBS)) {
   console.warn("  ⚠️  RUN_BAILEYS ou RUN_JOBS desligados — confirme se é intencional para este deploy.");
 }
-console.log("  Iniciando serviços (startup)...");
-runStartup();
 
+// Ordem monólito: Socket.IO antes de runStartup() — Baileys usa getIO() e emite eventos ao painel.
 const server = http.createServer(app);
 socketService.init(server);
+console.log("  Socket.IO anexado ao servidor HTTP");
+console.log("  Iniciando Baileys + jobs (startup)...");
+runStartup();
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
