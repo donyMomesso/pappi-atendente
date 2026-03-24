@@ -13,6 +13,7 @@ const baileys = require("../services/baileys.service");
 const retention = require("../services/retention.service");
 const metaSocial = require("../services/meta-social.service");
 const ENV = require("../config/env");
+const attendantsConfig = require("../lib/attendants-config");
 
 const router = express.Router();
 
@@ -125,8 +126,17 @@ function normalizeDepartment(d) {
   return { name: d?.name || "", transferPhone: d?.transferPhone || null };
 }
 
+async function resolveAttendantSenderEmail(tenantId, attendantName) {
+  if (!tenantId || !attendantName) return null;
+  const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
+  const map = attendantsConfig.emailByNameMap(
+    attendantsConfig.normalizeAttendantsList(attendantsConfig.parseAttendantsJson(cfg?.value)),
+  );
+  return map.get(String(attendantName).trim().toLowerCase()) || null;
+}
+
 // Envia saudação quando humano assume: "Olá, tudo bem? Aqui quem está falando é [nome]. Em que posso te ajudar?"
-async function sendAttendantGreeting(customerId, attendantName, tenantId) {
+async function sendAttendantGreeting(customerId, attendantName, tenantId, senderEmail = null) {
   const customer = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!customer) return;
 
@@ -135,8 +145,10 @@ async function sendAttendantGreeting(customerId, attendantName, tenantId) {
 
   await sendOutboundMessage({ tenantId: tid, phone: customer.phone, text: greeting, customerId });
 
+  const resolvedEmail = senderEmail || (await resolveAttendantSenderEmail(tid, attendantName));
+
   const chatMemory = require("../services/chat-memory.service");
-  await chatMemory.push(customerId, "attendant", greeting, attendantName, null, "text", null);
+  await chatMemory.push(customerId, "attendant", greeting, attendantName, null, "text", null, resolvedEmail);
 }
 
 // ── GET /dash/auth ─────────────────────────────────────────────
@@ -154,8 +166,15 @@ router.get("/auth", async (req, res) => {
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
     if (cfg) {
-      const att = JSON.parse(cfg.value).find((a) => a.key === key);
-      if (att) return res.json({ role: att.role || "attendant", name: att.name, tenantId });
+      const list = attendantsConfig.normalizeAttendantsList(attendantsConfig.parseAttendantsJson(cfg.value));
+      const att = list.find((a) => a.key === key);
+      if (att)
+        return res.json({
+          role: att.role || "attendant",
+          name: att.name,
+          tenantId,
+          email: att.email || null,
+        });
     }
     return res.status(401).json({ error: "unauthorized" });
   } catch (err) {
@@ -345,7 +364,7 @@ router.put("/handoff", authDash, async (req, res) => {
       const attendantName = attendant || req.attendant?.name || "Atendente";
       await claimFromQueue(customerId, attendantName);
       try {
-        await sendAttendantGreeting(customerId, attendantName, tenantId);
+        await sendAttendantGreeting(customerId, attendantName, tenantId, req.attendant?.email || null);
       } catch (greetingErr) {
         console.error("[Handoff] Erro ao enviar saudação:", greetingErr.message);
       }
@@ -368,7 +387,7 @@ router.post("/queue/claim", authDash, async (req, res) => {
 
     const tenantId = resolveTenant(req);
     try {
-      await sendAttendantGreeting(customerId, attendantName, tenantId);
+      await sendAttendantGreeting(customerId, attendantName, tenantId, req.attendant?.email || null);
     } catch (greetingErr) {
       console.error("[Queue/claim] Erro ao enviar saudação:", greetingErr.message);
     }
@@ -623,8 +642,9 @@ router.get("/attendants", authDash, async (req, res) => {
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } });
-    const list = cfg ? JSON.parse(cfg.value) : [];
-    res.json(list.map((a) => ({ name: a.name, role: a.role || "attendant" })));
+    const list = cfg ? attendantsConfig.parseAttendantsJson(cfg.value) : [];
+    const normalized = attendantsConfig.normalizeAttendantsList(list);
+    res.json(normalized.map((a) => ({ name: a.name, role: a.role || "attendant" })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1030,6 +1050,7 @@ router.post("/send", authDash, async (req, res) => {
         null,
         "text",
         waMessageId,
+        req.attendant?.email || req.staffUser?.email || null,
       );
     }
     res.json({ ok: true });
@@ -1236,6 +1257,8 @@ router.get("/settings", authAdmin, async (req, res) => {
 
     const departmentsRaw = departmentsCfg ? JSON.parse(departmentsCfg.value) : [];
     const departments = (Array.isArray(departmentsRaw) ? departmentsRaw : []).map(normalizeDepartment);
+    const attendantsRaw = attendantsCfg ? attendantsConfig.parseAttendantsJson(attendantsCfg.value) : [];
+    const attendants = attendantsConfig.normalizeAttendantsList(attendantsRaw);
     res.json({
       id: tenant.id,
       name: tenant.name,
@@ -1244,7 +1267,7 @@ router.get("/settings", authAdmin, async (req, res) => {
       cwBaseUrl: tenant.cwBaseUrl,
       cwStoreId: tenant.cwStoreId,
       active: tenant.active,
-      attendants: attendantsCfg ? JSON.parse(attendantsCfg.value) : [],
+      attendants,
       googleUsers: googleCfg ? JSON.parse(googleCfg.value) : [],
       departments,
       sacPhone: sacCfg?.value?.trim() || "",
@@ -1271,10 +1294,12 @@ router.patch("/settings", authAdmin, async (req, res) => {
     }
 
     if (Array.isArray(attendants)) {
+      const v = attendantsConfig.validateAttendantsForSave(attendants);
+      if (!v.ok) return res.status(400).json({ error: v.error });
       await prisma.config.upsert({
         where: { key: `${tenantId}:attendants` },
-        create: { key: `${tenantId}:attendants`, value: JSON.stringify(attendants) },
-        update: { value: JSON.stringify(attendants) },
+        create: { key: `${tenantId}:attendants`, value: JSON.stringify(v.normalized) },
+        update: { value: JSON.stringify(v.normalized) },
       });
     }
     if (Array.isArray(googleUsers)) {
@@ -1438,24 +1463,58 @@ router.get("/stats/report", authAdmin, async (req, res) => {
     since.setDate(since.getDate() - days);
     since.setHours(0, 0, 0, 0);
 
-    const [msgSent, msgReceived, orders, uniqueCustomers, handoffs, handoffsOpen, topCustomers, cwFailed] =
-      await Promise.all([
-        prisma.message.count({
-          where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: { gte: since } },
-        }),
-        prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: { gte: since } } }),
-        prisma.order.count({ where: { tenantId, createdAt: { gte: since } } }),
-        prisma.customer.count({ where: { tenantId, lastInteraction: { gte: since } } }),
-        prisma.customer.count({ where: { tenantId, handoffAt: { gte: since } } }),
-        prisma.customer.count({ where: { tenantId, handoff: true } }),
-        prisma.customer.findMany({
-          where: { tenantId, visitCount: { gt: 0 } },
-          orderBy: { visitCount: "desc" },
-          take: 5,
-          select: { name: true, phone: true, visitCount: true },
-        }),
-        prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
-      ]);
+    const [
+      msgSent,
+      msgReceived,
+      orders,
+      uniqueCustomers,
+      handoffs,
+      handoffsOpen,
+      topCustomers,
+      cwFailed,
+      attendantMsgRows,
+      attendantsCfg,
+    ] = await Promise.all([
+      prisma.message.count({
+        where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: { gte: since } },
+      }),
+      prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: { gte: since } } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: since } } }),
+      prisma.customer.count({ where: { tenantId, lastInteraction: { gte: since } } }),
+      prisma.customer.count({ where: { tenantId, handoffAt: { gte: since } } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+      prisma.customer.findMany({
+        where: { tenantId, visitCount: { gt: 0 } },
+        orderBy: { visitCount: "desc" },
+        take: 5,
+        select: { name: true, phone: true, visitCount: true },
+      }),
+      prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
+      prisma.message.findMany({
+        where: { customer: { tenantId }, role: "attendant", createdAt: { gte: since } },
+        select: { sender: true, senderEmail: true },
+      }),
+      prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }),
+    ]);
+
+    const emailByName = attendantsConfig.emailByNameMap(
+      attendantsConfig.normalizeAttendantsList(attendantsConfig.parseAttendantsJson(attendantsCfg?.value)),
+    );
+    const agg = new Map();
+    for (const r of attendantMsgRows) {
+      const name = (r.sender || "—").trim() || "—";
+      const email =
+        (r.senderEmail && String(r.senderEmail).trim()) ||
+        emailByName.get(name.toLowerCase()) ||
+        null;
+      const key = `${name}\t${email || ""}`;
+      agg.set(key, (agg.get(key) || 0) + 1);
+    }
+    const attendantMessages = [...agg.entries()].map(([k, count]) => {
+      const [name, email] = k.split("\t");
+      return { name, email: email || null, count };
+    });
+    attendantMessages.sort((a, b) => b.count - a.count);
 
     res.json({
       msgSent,
@@ -1467,6 +1526,7 @@ router.get("/stats/report", authAdmin, async (req, res) => {
       handoffsOpen,
       topCustomers,
       cwFailed,
+      attendantMessages,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

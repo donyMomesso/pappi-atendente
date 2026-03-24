@@ -140,6 +140,7 @@ model Message {
   role        String
   text        String
   sender      String?
+  senderEmail String?
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
   mediaUrl    String?
   mediaType   String?  @default("text")

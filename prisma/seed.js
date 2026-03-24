@@ -96,8 +96,8 @@ async function main() {
     create: {
       key: `${tenantId}:attendants`,
       value: JSON.stringify([
-        { name: "Admin", key: "pappi-atendente-2026", role: "admin" },
-        { name: "Operador 1", key: "op1-key-dev", role: "attendant" },
+        { name: "Admin", email: "admin@pappi.local", key: "pappi-atendente-2026", role: "admin" },
+        { name: "Operador 1", email: "operador1@pappi.local", key: "op1-key-dev", role: "attendant" },
       ]),
     },
   });

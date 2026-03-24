@@ -34,6 +34,7 @@ router.post("/send", async (req, res) => {
         null,
         "text",
         waMessageId,
+        req.attendant?.email || null,
       );
     }
 

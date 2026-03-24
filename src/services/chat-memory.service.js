@@ -21,9 +21,18 @@ function getEntry(customerId) {
   return entry;
 }
 
-async function push(customerId, role, text, sender = null, mediaUrl = null, mediaType = "text", waMessageId = null) {
+async function push(
+  customerId,
+  role,
+  text,
+  sender = null,
+  mediaUrl = null,
+  mediaType = "text",
+  waMessageId = null,
+  senderEmail = null,
+) {
   const at = new Date().toISOString();
-  const msg = { role, text, sender, mediaUrl, mediaType, waMessageId, at };
+  const msg = { role, text, sender, senderEmail, mediaUrl, mediaType, waMessageId, at };
 
   // Memória
   const entry = getEntry(customerId);
@@ -33,7 +42,7 @@ async function push(customerId, role, text, sender = null, mediaUrl = null, medi
   // Banco (persistente)
   try {
     await prisma.message.create({
-      data: { customerId, role, text, sender, mediaUrl, mediaType, waMessageId },
+      data: { customerId, role, text, sender, senderEmail, mediaUrl, mediaType, waMessageId },
     });
   } catch (err) {
     console.error("[ChatMemory] Erro ao salvar no banco:", err.message);
@@ -88,6 +97,7 @@ async function get(customerId) {
       role: r.role,
       text: r.text,
       sender: r.sender,
+      senderEmail: r.senderEmail,
       mediaUrl: r.mediaUrl,
       mediaType: r.mediaType,
       status: r.status,

@@ -4,6 +4,7 @@
 const prisma = require("../lib/db");
 const ENV = require("../config/env");
 const authService = require("../services/auth.service");
+const attendantsConfig = require("../lib/attendants-config");
 
 /** Retorna true se a requisição traz API key explícita (query ou header de integração). */
 function hasExplicitApiKey(req) {
@@ -23,7 +24,7 @@ function attachStaffToReq(req, staff) {
   req.tenantScope = staff.tenantId;
   req.tenantId = staff.tenantId;
   req.role = staff.role;
-  req.attendant = { name: staff.name, key: staff.id, role: staff.role };
+  req.attendant = { name: staff.name, key: staff.id, role: staff.role, email: staff.email || null };
 }
 
 async function authBySession(req) {
@@ -71,7 +72,7 @@ async function authByApiKey(req) {
     req.tenantId = tenantId || null;
     req.staffUser = { role: "admin", tenantId: req.tenantId, name: "API Admin" };
     req.tenantScope = req.tenantId;
-    req.attendant = { name: "API Admin", role: "admin" };
+    req.attendant = { name: "API Admin", role: "admin", email: null };
     req.user = { role: "admin", name: "Admin" };
     return true;
   }
@@ -80,22 +81,22 @@ async function authByApiKey(req) {
     req.tenantId = tenantId || null;
     req.staffUser = { role: "attendant", tenantId: req.tenantId, name: "API Atendente" };
     req.tenantScope = req.tenantId;
-    req.attendant = { name: "API Atendente", role: "attendant" };
+    req.attendant = { name: "API Atendente", role: "attendant", email: null };
     req.user = { role: "attendant", name: "Atendente" };
     return true;
   }
   const tid = tenantId || "tenant-pappi-001";
   const cfg = await prisma.config.findUnique({ where: { key: `${tid}:attendants` } });
   if (cfg) {
-    const attendants = JSON.parse(cfg.value || "[]");
+    const attendants = attendantsConfig.normalizeAttendantsList(attendantsConfig.parseAttendantsJson(cfg.value));
     const att = attendants.find((a) => a.key === key);
     if (att) {
       req.tenantId = tid;
       req.role = att.role || "attendant";
-      req.staffUser = { role: req.role, tenantId: tid, name: att.name };
+      req.staffUser = { role: req.role, tenantId: tid, name: att.name, email: att.email || null };
       req.tenantScope = tid;
-      req.attendant = att;
-      req.user = { role: req.role, name: att.name };
+      req.attendant = { ...att, email: att.email || null };
+      req.user = { role: req.role, name: att.name, email: att.email || null };
       return true;
     }
   }

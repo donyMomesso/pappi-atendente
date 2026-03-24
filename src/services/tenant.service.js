@@ -9,9 +9,17 @@ const { createClient: createWaClient } = require("../lib/whatsapp");
 const clientCache = new Map();
 const CLIENT_TTL = 5 * 60 * 1000; // 5 min
 
+/** Meta às vezes manda phone_number_id como número JSON; no banco costuma ser string. */
+function normalizeWaPhoneNumberId(phoneNumberId) {
+  if (phoneNumberId == null) return "";
+  return String(phoneNumberId).replace(/\s+/g, "").trim();
+}
+
 async function getTenantByPhoneNumberId(phoneNumberId) {
+  const id = normalizeWaPhoneNumberId(phoneNumberId);
+  if (!id) return null;
   return prisma.tenant.findFirst({
-    where: { waPhoneNumberId: phoneNumberId, active: true },
+    where: { waPhoneNumberId: id, active: true },
   });
 }
 
@@ -92,4 +100,11 @@ async function listActive() {
   return prisma.tenant.findMany({ where: { active: true } });
 }
 
-module.exports = { getTenantByPhoneNumberId, getTenantById, getClients, invalidateCache, listActive };
+module.exports = {
+  getTenantByPhoneNumberId,
+  normalizeWaPhoneNumberId,
+  getTenantById,
+  getClients,
+  invalidateCache,
+  listActive,
+};

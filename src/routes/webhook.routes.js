@@ -5,7 +5,7 @@
 
 const express = require("express");
 const ENV = require("../config/env");
-const { getTenantByPhoneNumberId, getClients } = require("../services/tenant.service");
+const { getTenantByPhoneNumberId, normalizeWaPhoneNumberId, getClients } = require("../services/tenant.service");
 const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
@@ -84,14 +84,29 @@ router.post("/webhook", async (req, res) => {
       for (const change of entry.changes || []) {
         if (change.field !== "messages") continue;
         const value = change.value;
-        const phoneNumberId = value?.metadata?.phone_number_id;
+        const phoneNumberId = normalizeWaPhoneNumberId(value?.metadata?.phone_number_id);
         if (!phoneNumberId) continue;
 
         const tenant = await getTenantByPhoneNumberId(phoneNumberId);
         if (!tenant) {
-          require("../lib/logger")
-            .child({ service: "webhook" })
-            .warn({ phoneNumberId }, "WhatsApp Cloud: nenhum tenant ativo com este waPhoneNumberId — evento ignorado");
+          const wlog = require("../lib/logger").child({ service: "webhook" });
+          const inactive = await prisma.tenant.findFirst({
+            where: { waPhoneNumberId: phoneNumberId, active: false },
+            select: { id: true, name: true },
+          });
+          if (inactive) {
+            wlog.warn(
+              { phoneNumberId, tenantId: inactive.id, name: inactive.name },
+              "WhatsApp Cloud: tenant encontrado mas inativo — reative o tenant ou alinhe waPhoneNumberId",
+            );
+          } else {
+            wlog.warn(
+              { phoneNumberId },
+              "WhatsApp Cloud: nenhum tenant ativo com este waPhoneNumberId. Cadastre no tenant o mesmo ID que aparece no Meta (Phone number ID do número da API) em tenants.waPhoneNumberId — ex.: PATCH /admin/tenants/:id com { \"waPhoneNumberId\": \"" +
+                phoneNumberId +
+                "\" }. Baileys (QR) não usa este campo; são canais diferentes.",
+            );
+          }
           continue;
         }
 

@@ -721,6 +721,12 @@
           <div id="statsTopCustomers"></div>
         </div>
       </div>
+
+      <div style="background:#fff;border-radius:14px;padding:20px;margin-top:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+        <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px">Mensagens do painel por atendente</div>
+        <p style="font-size:11px;color:#888;margin:0 0 12px;line-height:1.4">Contagem no período (role <code>attendant</code>). Nome e e-mail exigidos no cadastro de <strong>Atendentes autorizados</strong>; e-mail também é salvo ao enviar pelo painel.</p>
+        <div id="statsAttendantMsgs"></div>
+      </div>
     </div>
   </div>
 
@@ -765,10 +771,12 @@
         <div class="settings-card">
           <div class="settings-card-head">👤 Atendentes Autorizados</div>
           <div class="settings-card-body">
-            <p style="font-size:13px;color:#555;margin-bottom:12px">Nomes dos atendentes que podem ser atribuídos aos chamados.</p>
+            <p style="font-size:13px;color:#555;margin-bottom:12px"><strong>Nome e e-mail são obrigatórios</strong> (e-mail aparece nos relatórios e é gravado nas mensagens enviadas pelo painel). Opcional: chave para login por API (mesmo valor no header <code>x-api-key</code>).</p>
             <div class="attendant-list" id="attendantList"></div>
-            <div class="add-attendant-row">
-              <input id="newAttendantName" type="text" placeholder="Nome do atendente" onkeydown="if(event.key==='Enter')addAttendant()"/>
+            <div class="add-attendant-row" style="flex-wrap:wrap">
+              <input id="newAttendantName" type="text" placeholder="Nome completo" style="min-width:120px" onkeydown="if(event.key==='Enter')addAttendant()"/>
+              <input id="newAttendantEmail" type="email" placeholder="email@empresa.com" style="min-width:160px" onkeydown="if(event.key==='Enter')addAttendant()"/>
+              <input id="newAttendantKey" type="text" placeholder="Chave API (opcional)" style="min-width:120px" title="Opcional: para login com x-api-key"/>
               <button class="btn-add-att" onclick="addAttendant()">+ Adicionar</button>
             </div>
             <button class="btn-save-settings" style="margin-top:14px" onclick="saveAttendants()">Salvar atendentes</button>
@@ -3213,6 +3221,16 @@ async function fetchStatsPanel() {
           </div>
         </div>`).join("")
     : '<div style="color:#bbb;font-size:12px;text-align:center;padding:20px">Sem dados</div>';
+
+  const am = data.attendantMessages || [];
+  const amEl = document.getElementById("statsAttendantMsgs");
+  if (amEl) {
+    amEl.innerHTML = am.length
+      ? `<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:#888;border-bottom:1px solid #eee"><th style="padding:6px 8px">Atendente</th><th style="padding:6px 8px">E-mail</th><th style="padding:6px 8px;width:72px">Msgs</th></tr></thead><tbody>` +
+        am.map((r) => `<tr style="border-bottom:1px solid #f5f5f5"><td style="padding:8px">${esc(r.name)}</td><td style="padding:8px;color:#555">${esc(r.email || "—")}</td><td style="padding:8px;font-weight:700">${r.count}</td></tr>`).join("") +
+        `</tbody></table>`
+      : '<div style="color:#bbb;font-size:12px;text-align:center;padding:16px">Nenhuma mensagem de atendente no período</div>';
+  }
 }
 
 function renderBarChart(chartId, labelsId, days, color, valFn) {
@@ -3657,25 +3675,54 @@ async function waIntSaveNumbers() {
 }
 
 
+function attendantRecordFromSettings(a) {
+  if (typeof a === "string") return { name: a.trim(), email: "", role: "attendant" };
+  return {
+    name: (a.name || "").trim(),
+    email: (a.email || "").trim().toLowerCase(),
+    role: a.role === "admin" ? "admin" : "attendant",
+    ...(a.key ? { key: String(a.key).trim() } : {}),
+  };
+}
+
 function renderAttendantList() {
   const el = document.getElementById("attendantList");
   if (!settingsData.attendants.length) {
     el.innerHTML = '<p style="font-size:12px;color:#bbb;text-align:center;padding:8px">Nenhum atendente cadastrado</p>';
     return;
   }
-  el.innerHTML = settingsData.attendants.map((a, i) => `
+  el.innerHTML = settingsData.attendants.map((raw, i) => {
+    const a = attendantRecordFromSettings(raw);
+    const roleTag = a.role === "admin" ? ' <span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#FF6B35;color:#fff">admin</span>' : "";
+    const keyHint = a.key ? ` <span style="font-size:10px;color:#888">· API</span>` : "";
+    return `
     <div class="attendant-item">
-      <span>👤 ${esc(a)}</span>
+      <span>👤 <strong>${esc(a.name || "?")}</strong>${roleTag}${keyHint}<br/><span style="font-size:11px;color:#666">${esc(a.email || "— e-mail pendente —")}</span></span>
       <button class="btn-del-att" onclick="removeAttendant(${i})">×</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 function addAttendant() {
-  const input = document.getElementById("newAttendantName");
-  const name = input.value.trim();
-  if (!name) return;
-  if (!settingsData.attendants.includes(name)) settingsData.attendants.push(name);
-  input.value = "";
+  const name = document.getElementById("newAttendantName")?.value.trim() || "";
+  const email = document.getElementById("newAttendantEmail")?.value.trim().toLowerCase() || "";
+  const keyRaw = document.getElementById("newAttendantKey")?.value.trim() || "";
+  if (!name || !email || !email.includes("@")) {
+    alert("Preencha nome e um e-mail válido (obrigatório para relatório).");
+    return;
+  }
+  if (!settingsData.attendants) settingsData.attendants = [];
+  const dup = settingsData.attendants.some((raw) => attendantRecordFromSettings(raw).name.toLowerCase() === name.toLowerCase());
+  if (dup) {
+    alert("Já existe atendente com este nome.");
+    return;
+  }
+  const row = { name, email, role: "attendant" };
+  if (keyRaw) row.key = keyRaw;
+  settingsData.attendants.push(row);
+  document.getElementById("newAttendantName").value = "";
+  document.getElementById("newAttendantEmail").value = "";
+  document.getElementById("newAttendantKey").value = "";
   renderAttendantList();
 }
 
@@ -3750,12 +3797,21 @@ async function saveCompany() {
 }
 
 async function saveAttendants() {
+  const list = (settingsData.attendants || []).map(attendantRecordFromSettings);
+  for (const a of list) {
+    if (!a.name || !a.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(a.email)) {
+      alert("Cada atendente precisa de nome e e-mail válidos (obrigatório para relatório).");
+      return;
+    }
+  }
   const r = await api("/settings", {
     method: "PATCH",
-    body: JSON.stringify({ tenantId: TENANT, attendants: settingsData.attendants }),
+    body: JSON.stringify({ tenantId: TENANT, attendants: list }),
   });
-  if (r?.ok) alert("✅ Atendentes salvos!");
-  else alert("Erro: " + (r?.error || "Tente novamente"));
+  if (r?.ok) {
+    settingsData.attendants = list;
+    alert("✅ Atendentes salvos!");
+  } else alert("Erro: " + (r?.error || "Tente novamente"));
 }
 
 // ── BUSCA DE CONTATOS GOOGLE ──────────────────────────────────
