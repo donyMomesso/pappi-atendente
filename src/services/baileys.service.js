@@ -293,6 +293,7 @@ async function start(instanceId = "default", opts = {}) {
     inst = createInstanceData(instanceId);
     INSTANCES.set(instanceId, inst);
   }
+  await applyInstancePrefsFromDb(instanceId, inst);
 
   const force = opts.force === true;
   if (inst.status === "conflict" && !force) return;
@@ -849,13 +850,39 @@ async function getInstanceTenant(instanceId) {
   return null;
 }
 
-async function setInstanceTenant(instanceId, tenantId) {
+/** Mescla JSON em `baileys:instance:{env}:{id}` preservando tenantId e botEnabled. */
+async function mergeInstanceConfig(instanceId, patch) {
   const key = instanceConfigKey(instanceId);
+  let base = { tenantId: null };
+  const row = await prisma.config.findUnique({ where: { key } });
+  if (row?.value) {
+    try {
+      base = { ...base, ...JSON.parse(row.value) };
+    } catch {}
+  }
+  const next = { ...base, ...patch };
   await prisma.config.upsert({
     where: { key },
-    create: { key, value: JSON.stringify({ tenantId: tenantId || null }) },
-    update: { value: JSON.stringify({ tenantId: tenantId || null }) },
+    create: { key, value: JSON.stringify(next) },
+    update: { value: JSON.stringify(next) },
   });
+  return next;
+}
+
+async function setInstanceTenant(instanceId, tenantId) {
+  await mergeInstanceConfig(instanceId, { tenantId: tenantId || null });
+}
+
+/** Aplica botEnabled salvo no banco (se existir). Default em memória continua true. */
+async function applyInstancePrefsFromDb(instanceId, inst) {
+  try {
+    const cfg = await prisma.config.findUnique({
+      where: { key: instanceConfigKey(instanceId) },
+    });
+    if (!cfg?.value) return;
+    const j = JSON.parse(cfg.value);
+    if (typeof j.botEnabled === "boolean") inst.botEnabled = j.botEnabled;
+  } catch {}
 }
 
 async function getStatus(instanceId = "default") {
@@ -880,9 +907,11 @@ async function getStatus(instanceId = "default") {
   };
 }
 
-function setBotEnabled(instanceId = "default", enabled) {
+async function setBotEnabled(instanceId = "default", enabled) {
+  const on = !!enabled;
   const inst = INSTANCES.get(instanceId);
-  if (inst) inst.botEnabled = !!enabled;
+  if (inst) inst.botEnabled = on;
+  await mergeInstanceConfig(instanceId, { botEnabled: on });
 }
 
 async function getAllStatuses() {

@@ -742,9 +742,13 @@ router.post("/baileys/instances/:id/disconnect", authAdmin, async (req, res) => 
   await baileys.disconnect(req.params.id);
   res.json({ ok: true });
 });
-router.patch("/baileys/instances/:id/bot", authAdmin, (req, res) => {
-  baileys.setBotEnabled(req.params.id, req.body.enabled !== false);
-  res.json({ ok: true });
+router.patch("/baileys/instances/:id/bot", authAdmin, async (req, res) => {
+  try {
+    await baileys.setBotEnabled(req.params.id, req.body.enabled !== false);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 router.patch("/baileys/instances/:id/tenant", authDash, async (req, res) => {
   try {
