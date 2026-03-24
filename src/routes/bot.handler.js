@@ -254,9 +254,16 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   }
 
   // Fast path: escolhas óbvias — pula classifyIntent (IA ~1–3s) para resposta instantânea
+  // WhatsApp envia o *title* do botão (ex.: "🚚 Entrega"), não só o id — o regex ^entrega$ falhava e a IA
+  // classificava como STATUS → mensagem errada de "não encontrei pedido".
   const isProductChoice = session.step === "CHOOSE_PRODUCT_TYPE" && /^(pizza|lasanha)$/.test((text || "").trim().toLowerCase());
   const isFulfillmentChoice =
-    session.step === "FULFILLMENT" && /^(entrega|retirada|delivery|takeout)$/.test((text || "").trim().toLowerCase());
+    session.step === "FULFILLMENT" &&
+    (t.includes("entrega") ||
+      t.includes("retirada") ||
+      t.includes("buscar") ||
+      t.includes("retirar") ||
+      /^(delivery|takeout)$/.test((text || "").trim().toLowerCase()));
 
   if (!isProductChoice && !isFulfillmentChoice && ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step)) {
     try {

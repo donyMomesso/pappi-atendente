@@ -3984,11 +3984,31 @@ async function loadMetaStatus() {
   if (elWaCloud && d.whatsappCloud) {
     const w = d.whatsappCloud;
     const partial = (w.tokenPresent || w.phoneNumberIdPresent) && !w.connected;
+    const fmtW = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
+    const resLabel = (r) =>
+      r === "matched"
+        ? "✓ Roteado"
+        : r === "unmatched"
+          ? "✗ Sem tenant"
+          : r === "inactive"
+            ? "⚠ Tenant inativo"
+            : "—";
+    let tenantsLine = "";
+    if (Array.isArray(w.activeTenantsCloudApi) && w.activeTenantsCloudApi.length) {
+      tenantsLine = `<br><span style="color:#555">Tenants ativos (waPhoneNumberId):</span><br>${w.activeTenantsCloudApi
+        .map((t) => `${esc(t.name || t.id)} → <code style="font-size:10px">${esc(t.waPhoneNumberId || "—")}</code>`)
+        .join("<br>")}`;
+    }
     elWaCloud.innerHTML = `
       <div style="margin-bottom:4px">${metaStatusBadge(w.connected, false, partial)}</div>
       <div style="font-size:11px;color:#666;line-height:1.5">
         Token API: ${w.tokenPresent ? "Presente" : "Ausente"} | Phone number ID: ${w.phoneNumberIdPresent ? "Presente" : "Ausente"}<br>
-        ID: ${esc(w.phoneNumberId || "—")}
+        <strong>ID salvo (este tenant):</strong> <code style="font-size:10px">${esc(w.phoneNumberId || "—")}</code><br>
+        <strong>Último phone_number_id no webhook:</strong> <code style="font-size:10px">${esc(w.webhookLastPhoneNumberIdReceived || "—")}</code> (${fmtW(w.webhookLastAt)})<br>
+        Resolução: ${resLabel(w.webhookLastResolution)} ${w.savedPhoneNumberIdMatchesLastWebhook ? "· coincide com este tenant" : w.webhookLastPhoneNumberIdReceived ? "· <span style=\"color:#c62828\">diferente ou sem match</span>" : ""}
+        ${typeof d.dbMessagesTable !== "undefined" && d.dbMessagesTable && d.dbMessagesTable.available === false ? '<br><span style="color:#c62828;font-weight:600">⚠ Tabela public.messages ausente — histórico não persiste no BD.</span>' : ""}
+        ${w.diagnosticHint ? `<br><div style="margin-top:6px;padding:6px 8px;background:#fff8e1;border-radius:6px;color:#5d4037;font-size:11px;line-height:1.45"><strong>Ação:</strong> ${esc(w.diagnosticHint)}</div>` : ""}
+        ${tenantsLine}
       </div>`;
   }
   const fmt = (s) => s ? new Date(s).toLocaleString("pt-BR") : "—";

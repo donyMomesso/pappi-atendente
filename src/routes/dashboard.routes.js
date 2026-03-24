@@ -5,7 +5,8 @@
 const express = require("express");
 const prisma = require("../lib/db");
 const { authAdmin, authDash } = require("../middleware/auth.middleware");
-const { getClients } = require("../services/tenant.service");
+const { getClients, normalizeWaPhoneNumberId } = require("../services/tenant.service");
+const messageDbCompat = require("../lib/message-db-compat");
 const { setHandoff, releaseHandoff, claimFromQueue, closeConversation } = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
 const googleContacts = require("../services/google-contacts.service");
@@ -270,15 +271,18 @@ router.get("/conversations", authDash, async (req, res) => {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     // IDs de clientes com mensagens nas últimas 24h (histórico real, não só lastInteraction)
-    const recentMsgRows = await prisma.message.findMany({
-      where: {
-        createdAt: { gte: since24h },
-        customer: { tenantId },
-      },
-      select: { customerId: true },
-      distinct: ["customerId"],
-    });
-    const idsFromMessages = recentMsgRows.map((r) => r.customerId);
+    let idsFromMessages = [];
+    if (messageDbCompat.isMessagesTableAvailable()) {
+      const recentMsgRows = await prisma.message.findMany({
+        where: {
+          createdAt: { gte: since24h },
+          customer: { tenantId },
+        },
+        select: { customerId: true },
+        distinct: ["customerId"],
+      });
+      idsFromMessages = recentMsgRows.map((r) => r.customerId);
+    }
 
     const customers = await prisma.customer.findMany({
       where: {
@@ -1376,12 +1380,44 @@ router.get("/meta/status", authDash, async (req, res) => {
     const waPhoneIdPresent = !!(tenantRow?.waPhoneNumberId || "").trim();
     const whatsappCloudConnected = waTokenPresent && waPhoneIdPresent;
 
+    const waCloudTel = telemetry.whatsappCloud || {};
+    const savedPid = normalizeWaPhoneNumberId(tenantRow?.waPhoneNumberId);
+    const lastPid = normalizeWaPhoneNumberId(waCloudTel.lastPhoneNumberIdReceived);
+    const lastEqualsSaved = !!(savedPid && lastPid && savedPid === lastPid);
+
+    let waCloudDiagnosticHint = null;
+    if (waCloudTel.lastResolution === "unmatched" && lastPid) {
+      waCloudDiagnosticHint = `Nenhum tenant ATIVO usa waPhoneNumberId="${lastPid}". No Meta (WhatsApp > API do WhatsApp > número): copie o Phone number ID e salve no tenant (PATCH /admin/tenants/:id com {"waPhoneNumberId":"${lastPid}"} ou equivalente no painel).`;
+    } else if (waCloudTel.lastResolution === "inactive" && lastPid) {
+      waCloudDiagnosticHint = `O phone_number_id ${lastPid} corresponde a um tenant INATIVO. Reative esse tenant ou atualize waPhoneNumberId do tenant ativo que deve atender este número.`;
+    } else if (lastPid && savedPid && lastPid !== savedPid) {
+      waCloudDiagnosticHint = `Divergência: o último webhook trouxe phone_number_id "${lastPid}"; este tenant está com "${savedPid}". Alinhe o campo waPhoneNumberId ao valor que a Meta envia.`;
+    }
+
+    let activeTenantsCloudApi;
+    if (req.role === "admin") {
+      activeTenantsCloudApi = await prisma.tenant.findMany({
+        where: { active: true },
+        select: { id: true, name: true, waPhoneNumberId: true },
+        orderBy: { name: "asc" },
+      });
+    }
+
     res.json({
+      dbMessagesTable: { available: messageDbCompat.isMessagesTableAvailable() },
       whatsappCloud: {
         connected: whatsappCloudConnected,
         tokenPresent: waTokenPresent,
         phoneNumberIdPresent: waPhoneIdPresent,
         phoneNumberId: (tenantRow?.waPhoneNumberId || "").trim() || null,
+        webhookLastAt: waCloudTel.lastWebhookAt || null,
+        webhookLastPhoneNumberIdReceived: waCloudTel.lastPhoneNumberIdReceived || null,
+        webhookLastResolution: waCloudTel.lastResolution || null,
+        webhookLastMatchedTenantId: waCloudTel.lastMatchedTenantId || null,
+        webhookLastMatchedTenantName: waCloudTel.lastMatchedTenantName || null,
+        savedPhoneNumberIdMatchesLastWebhook: lastEqualsSaved,
+        diagnosticHint: waCloudDiagnosticHint,
+        activeTenantsCloudApi: activeTenantsCloudApi || undefined,
       },
       instagram: {
         connected: instagramConnected,
@@ -1464,6 +1500,7 @@ router.get("/stats/report", authAdmin, async (req, res) => {
     since.setDate(since.getDate() - days);
     since.setHours(0, 0, 0, 0);
 
+    const msgOk = messageDbCompat.isMessagesTableAvailable();
     const [
       msgSent,
       msgReceived,
@@ -1476,10 +1513,14 @@ router.get("/stats/report", authAdmin, async (req, res) => {
       attendantMsgRows,
       attendantsCfg,
     ] = await Promise.all([
-      prisma.message.count({
-        where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: { gte: since } },
-      }),
-      prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: { gte: since } } }),
+      msgOk
+        ? prisma.message.count({
+            where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: { gte: since } },
+          })
+        : Promise.resolve(0),
+      msgOk
+        ? prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: { gte: since } } })
+        : Promise.resolve(0),
       prisma.order.count({ where: { tenantId, createdAt: { gte: since } } }),
       prisma.customer.count({ where: { tenantId, lastInteraction: { gte: since } } }),
       prisma.customer.count({ where: { tenantId, handoffAt: { gte: since } } }),
@@ -1491,10 +1532,15 @@ router.get("/stats/report", authAdmin, async (req, res) => {
         select: { name: true, phone: true, visitCount: true },
       }),
       prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
-      prisma.message.findMany({
-        where: { customer: { tenantId }, role: "attendant", createdAt: { gte: since } },
-        select: { sender: true, senderEmail: true },
-      }),
+      msgOk
+        ? prisma.message.findMany({
+            where: { customer: { tenantId }, role: "attendant", createdAt: { gte: since } },
+            select: {
+              sender: true,
+              ...(messageDbCompat.hasMessageSenderEmailColumn() ? { senderEmail: true } : {}),
+            },
+          })
+        : Promise.resolve([]),
       prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }),
     ]);
 
@@ -1802,8 +1848,20 @@ router.get("/debug", authAdmin, async (req, res) => {
         select: { phone: true, name: true, lastInteraction: true },
       }),
     ]);
+    const metaTelemetry = require("../lib/meta-telemetry");
+    const waT = metaTelemetry.getWhatsAppCloudTelemetry();
     res.json({
       tenant: { id: tenant?.id, name: tenant?.name, waPhoneNumberId: tenant?.waPhoneNumberId, active: tenant?.active },
+      whatsappCloudWebhook: {
+        lastPhoneNumberIdReceived: waT.lastPhoneNumberIdReceived,
+        lastWebhookAt: waT.lastWebhookAt,
+        lastResolution: waT.lastResolution,
+        savedOnThisTenant: tenant?.waPhoneNumberId || null,
+        savedEqualsLastReceived:
+          !!(normalizeWaPhoneNumberId(tenant?.waPhoneNumberId) &&
+            normalizeWaPhoneNumberId(waT.lastPhoneNumberIdReceived) &&
+            normalizeWaPhoneNumberId(tenant?.waPhoneNumberId) === normalizeWaPhoneNumberId(waT.lastPhoneNumberIdReceived)),
+      },
       recentCustomers,
       baileysStatus: await baileys.getAllStatuses(),
     });

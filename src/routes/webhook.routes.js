@@ -94,21 +94,60 @@ router.post("/webhook", async (req, res) => {
             where: { waPhoneNumberId: phoneNumberId, active: false },
             select: { id: true, name: true },
           });
+          const activeRefs = await prisma.tenant.findMany({
+            where: { active: true },
+            select: { id: true, name: true, waPhoneNumberId: true },
+            orderBy: { name: "asc" },
+            take: 50,
+          });
           if (inactive) {
+            metaTelemetry.recordWhatsAppCloudRouting({
+              phoneNumberId,
+              resolution: "inactive",
+              tenantId: inactive.id,
+              tenantName: inactive.name,
+            });
             wlog.warn(
-              { phoneNumberId, tenantId: inactive.id, name: inactive.name },
-              "WhatsApp Cloud: tenant encontrado mas inativo — reative o tenant ou alinhe waPhoneNumberId",
+              {
+                phoneNumberIdReceived: phoneNumberId,
+                tenantId: inactive.id,
+                tenantName: inactive.name,
+                activeTenantsWaPhoneNumberIds: activeRefs.map((t) => ({
+                  id: t.id,
+                  name: t.name,
+                  waPhoneNumberId: t.waPhoneNumberId,
+                })),
+              },
+              "WhatsApp Cloud API: webhook com phone_number_id que bate com tenant INATIVO — reative o tenant ou atualize tenants.waPhoneNumberId para o ID do Meta (número da API). Baileys/QR é outro canal.",
             );
           } else {
+            metaTelemetry.recordWhatsAppCloudRouting({
+              phoneNumberId,
+              resolution: "unmatched",
+            });
             wlog.warn(
-              { phoneNumberId },
-              "WhatsApp Cloud: nenhum tenant ativo com este waPhoneNumberId. Cadastre no tenant o mesmo ID que aparece no Meta (Phone number ID do número da API) em tenants.waPhoneNumberId — ex.: PATCH /admin/tenants/:id com { \"waPhoneNumberId\": \"" +
-                phoneNumberId +
-                "\" }. Baileys (QR) não usa este campo; são canais diferentes.",
+              {
+                phoneNumberIdReceived: phoneNumberId,
+                hint: "No Meta: WhatsApp > API do WhatsApp > número > Phone number ID (não é o número de telefone).",
+                activeTenantCount: activeRefs.length,
+                activeTenantsWaPhoneNumberIds: activeRefs.map((t) => ({
+                  id: t.id,
+                  name: t.name,
+                  waPhoneNumberId: t.waPhoneNumberId,
+                })),
+              },
+              "WhatsApp Cloud API: nenhum tenant ATIVO com waPhoneNumberId igual ao phone_number_id do webhook — mensagens ignoradas até alinhar o banco (PATCH /admin/tenants/:id ou painel). Baileys não usa waPhoneNumberId.",
             );
           }
           continue;
         }
+
+        metaTelemetry.recordWhatsAppCloudRouting({
+          phoneNumberId,
+          resolution: "matched",
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+        });
 
         const { wa } = await getClients(tenant.id);
 
@@ -219,6 +258,9 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 async function processStatus({ status }) {
   const { id, status: s } = status;
   if (s === "failed") console.error(`Mensagem ${id} falhou:`, status.errors);
+
+  const messageDbCompat = require("../lib/message-db-compat");
+  if (!messageDbCompat.isMessagesTableAvailable()) return;
 
   const row = await prisma.message
     .findFirst({

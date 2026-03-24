@@ -16,6 +16,7 @@ const http = require("http");
 const app = require("./src/app");
 const socketService = require("./src/services/socket.service");
 const { runStartup } = require("./src/startup");
+const messageDbCompat = require("./src/lib/message-db-compat");
 
 const PORT = ENV.PORT || 10000;
 
@@ -35,8 +36,7 @@ if (ENV.NODE_ENV === "production" && (!ENV.RUN_BAILEYS || !ENV.RUN_JOBS)) {
 const server = http.createServer(app);
 socketService.init(server);
 console.log("  Socket.IO anexado ao servidor HTTP");
-console.log("  Iniciando Baileys + jobs (startup)...");
-runStartup();
+console.log("  Iniciando após sondagem DB + Baileys + jobs (startup)...");
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
@@ -48,9 +48,17 @@ server.on("error", (err) => {
   process.exit(1);
 });
 
-server.listen(PORT, () => {
-  console.log("");
-  console.log("  ✅ Monólito no ar — escutando HTTP + WebSocket");
-  console.log(`  🔗 porta ${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
-  console.log("");
-});
+(async function boot() {
+  try {
+    await messageDbCompat.refreshMessageSenderEmailSupport();
+  } catch (e) {
+    console.warn("  [message-db-compat] falha ao sondar coluna messages.senderEmail:", e.message);
+  }
+  runStartup();
+  server.listen(PORT, () => {
+    console.log("");
+    console.log("  ✅ Monólito no ar — escutando HTTP + WebSocket");
+    console.log(`  🔗 porta ${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
+    console.log("");
+  });
+})();

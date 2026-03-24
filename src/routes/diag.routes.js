@@ -4,6 +4,7 @@ const express = require("express");
 const { requireAdminKey } = require("../middleware/auth.middleware");
 const { getClients, listActive } = require("../services/tenant.service");
 const prisma = require("../lib/db");
+const messageDbCompat = require("../lib/message-db-compat");
 const baileys = require("../services/baileys.service");
 
 const router = express.Router();
@@ -188,11 +189,19 @@ router.get("/diag/routing/check", requireAdminKey, async (_req, res) => {
     const tenants = await listActive();
     const baileysStatus = await baileys.getAllStatuses();
     const customerCount = await prisma.customer.count();
-    const recentMessages = await prisma.message.count({
-      where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
-    });
+    const recentMessages = messageDbCompat.isMessagesTableAvailable()
+      ? await prisma.message.count({
+          where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        })
+      : 0;
 
     const issues = [];
+
+    if (!messageDbCompat.isMessagesTableAvailable()) {
+      issues.push(
+        'Tabela public.messages ausente — rode prisma migrate deploy ou SQL em prisma/migrations/20260324140000_ensure_public_messages_table/migration.sql',
+      );
+    }
 
     if (tenants.length === 0) {
       issues.push("Nenhum tenant ativo — mensagens de todos os canais serão descartadas");

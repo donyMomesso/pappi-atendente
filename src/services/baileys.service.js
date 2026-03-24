@@ -10,6 +10,7 @@ const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-aut
 const baileysLock = require("./baileys-lock.service");
 const QRCode = require("qrcode");
 const prisma = require("../lib/db");
+const messageDbCompat = require("../lib/message-db-compat");
 const ENV = require("../config/env");
 const log = require("../lib/logger").child({ service: "baileys" });
 
@@ -413,7 +414,13 @@ async function start(instanceId = "default", opts = {}) {
         // Evita reprocessar: cache em memória (duplicatas) ou banco (recovery)
         if (waId) {
           if (SEEN_MSG_IDS.has(waId)) continue;
-          const existing = await prisma.message.findFirst({ where: { waMessageId: waId } });
+          let existing = null;
+          if (messageDbCompat.isMessagesTableAvailable()) {
+            existing = await prisma.message.findFirst({
+              where: { waMessageId: waId },
+              select: { id: true },
+            });
+          }
           if (existing) {
             markMessageProcessed(waId);
             continue;

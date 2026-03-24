@@ -9,6 +9,30 @@ const { invalidateCache, listActive } = require("../services/tenant.service");
 const router = express.Router();
 router.use(requireAdminKey);
 
+// GET /admin/whatsapp-cloud/diagnostic — telemetria do último webhook Cloud + IDs cadastrados (x-api-key admin)
+router.get("/whatsapp-cloud/diagnostic", async (_req, res) => {
+  try {
+    const metaTelemetry = require("../lib/meta-telemetry");
+    const tenants = await prisma.tenant.findMany({
+      select: { id: true, name: true, waPhoneNumberId: true, active: true },
+      orderBy: { name: "asc" },
+    });
+    res.json({
+      lastWebhook: metaTelemetry.getWhatsAppCloudTelemetry(),
+      tenants: tenants.map((t) => ({
+        id: t.id,
+        name: t.name,
+        active: t.active,
+        waPhoneNumberId: t.waPhoneNumberId,
+      })),
+      note:
+        "Compare lastWebhook.lastPhoneNumberIdReceived com tenants[].waPhoneNumberId (ativos). Phone number ID vem do Meta em API do WhatsApp > número de telefone.",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /admin/tenants
 router.get("/tenants", async (_req, res) => {
   const tenants = await listActive();

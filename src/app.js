@@ -86,12 +86,17 @@ app.use(express.static(path.join(__dirname, "../public")));
 // Saúde (público para load balancer)
 app.get("/health", async (req, res) => {
   const env = require("./config/env");
+  const messageDbCompat = require("./lib/message-db-compat");
   const status = {
     ok: true,
     version: "3.1.0",
     db: "ok",
     env: env.NODE_ENV,
+    messagesTable: messageDbCompat.isMessagesTableAvailable() ? "ok" : "missing",
   };
+  if (!messageDbCompat.isMessagesTableAvailable()) {
+    status.degraded = true;
+  }
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {

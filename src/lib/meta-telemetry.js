@@ -5,6 +5,8 @@
 const state = {
   instagram: { lastWebhook: null, lastError: null },
   facebook: { lastWebhook: null, lastError: null },
+  /** Último roteamento WhatsApp Cloud API (metadata.phone_number_id → tenant) */
+  whatsappCloud: { lastRouting: null },
 };
 
 function recordInstagramWebhook({ at, senderId, recipientId }) {
@@ -23,6 +25,35 @@ function recordFacebookError(message) {
   state.facebook.lastError = typeof message === "string" ? message : (message?.message || String(message));
 }
 
+/**
+ * @param {object} p
+ * @param {string} [p.at] ISO
+ * @param {string} p.phoneNumberId metadata.phone_number_id normalizado
+ * @param {'matched'|'unmatched'|'inactive'} p.resolution
+ * @param {string} [p.tenantId]
+ * @param {string} [p.tenantName]
+ */
+function recordWhatsAppCloudRouting({ at, phoneNumberId, resolution, tenantId, tenantName }) {
+  state.whatsappCloud.lastRouting = {
+    at: at || new Date().toISOString(),
+    phoneNumberId: phoneNumberId || null,
+    resolution: resolution || "unmatched",
+    tenantId: tenantId || null,
+    tenantName: tenantName || null,
+  };
+}
+
+function getWhatsAppCloudTelemetry() {
+  const r = state.whatsappCloud.lastRouting;
+  return {
+    lastWebhookAt: r?.at || null,
+    lastPhoneNumberIdReceived: r?.phoneNumberId || null,
+    lastResolution: r?.resolution || null,
+    lastMatchedTenantId: r?.tenantId || null,
+    lastMatchedTenantName: r?.tenantName || null,
+  };
+}
+
 function getMetaTelemetry() {
   return {
     instagram: {
@@ -37,6 +68,7 @@ function getMetaTelemetry() {
       lastRecipientId: state.facebook.lastWebhook?.recipientId || null,
       lastError: state.facebook.lastError || null,
     },
+    whatsappCloud: getWhatsAppCloudTelemetry(),
   };
 }
 
@@ -45,5 +77,7 @@ module.exports = {
   recordFacebookWebhook,
   recordInstagramError,
   recordFacebookError,
+  recordWhatsAppCloudRouting,
+  getWhatsAppCloudTelemetry,
   getMetaTelemetry,
 };
