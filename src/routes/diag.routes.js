@@ -8,6 +8,10 @@ const baileys = require("../services/baileys.service");
 
 const router = express.Router();
 const ENV = require("../config/env");
+const log = require("../lib/logger").child({ route: "diag" });
+
+const DEFAULT_DIAG_TENANT = "tenant-pappi-001";
+const GRAPH = "https://graph.facebook.com/v19.0";
 
 // Debug: verifica se ADMIN_API_KEY está configurada (sem revelar o valor)
 router.get("/diag/auth-check", (_req, res) => {
@@ -87,6 +91,82 @@ router.get("/diag/ai", requireAdminKey, async (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/** Chamada mínima à Graph (id,username) — validação Meta / App Review.
+ *  Use GET /diag/tools/instagram-basic-test se o deploy antigo ainda tiver /diag/:tenantId antes da rota curta. */
+async function handleInstagramBasicTest(req, res) {
+  const tenantId = String(req.query.tenant || DEFAULT_DIAG_TENANT).trim();
+
+  const rows = await prisma.config.findMany({
+    where: {
+      key: {
+        in: [`${tenantId}:instagram_page_id`, `${tenantId}:facebook_page_token`],
+      },
+    },
+    select: { key: true, value: true },
+  });
+  const map = Object.fromEntries(rows.map((r) => [r.key, (r.value || "").trim()]));
+  const instagramPageId =
+    map[`${tenantId}:instagram_page_id`] || ENV.INSTAGRAM_PAGE_ID || "";
+  const token = map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
+
+  if (!instagramPageId || !token) {
+    log.warn({ tenantId, instagramPageIdPresent: !!instagramPageId, tokenPresent: !!token }, "instagram-basic-test: config ausente");
+    return res.status(400).json({
+      ok: false,
+      tenantId,
+      instagramPageId: instagramPageId || null,
+      error: "instagram_page_id ou token ausente (Config ou ENV)",
+    });
+  }
+
+  const url = `${GRAPH}/${encodeURIComponent(instagramPageId)}?fields=id,username`;
+  let status;
+  let bodyParsed;
+
+  try {
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    status = r.status;
+    const raw = await r.text();
+    try {
+      bodyParsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      bodyParsed = raw;
+    }
+
+    if (r.ok) {
+      log.info({ tenantId, instagramPageId, status, ok: true }, "instagram-basic-test: sucesso");
+      return res.json({
+        ok: true,
+        tenantId,
+        instagramPageId,
+        data: bodyParsed,
+      });
+    }
+
+    log.error({ tenantId, instagramPageId, status, ok: false }, "instagram-basic-test: falha HTTP");
+    return res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
+      ok: false,
+      tenantId,
+      instagramPageId,
+      status,
+      body: bodyParsed,
+    });
+  } catch (err) {
+    log.error({ tenantId, instagramPageId, err: err.message }, "instagram-basic-test: exceção");
+    return res.status(500).json({
+      ok: false,
+      tenantId,
+      instagramPageId,
+      error: err.message,
+    });
+  }
+}
+
+router.get("/diag/tools/instagram-basic-test", requireAdminKey, handleInstagramBasicTest);
+router.get("/diag/instagram-basic-test", requireAdminKey, handleInstagramBasicTest);
 
 router.get("/diag/:tenantId", requireAdminKey, async (req, res) => {
   try {
