@@ -1,4 +1,10 @@
 // src/services/socket.service.js
+//
+// Coexistência multi-canal:
+// - Cloud API, Meta (IG/FB) e rotas /dash disparam eventos daqui quando Socket.IO foi init() no MESMO processo.
+// - Se Baileys (ou jobs) rodam em processo separado (start:baileys / start:jobs), _io fica null aqui:
+//   mensagens ainda vão ao banco via chatMemory, mas o painel só atualiza no polling (~10s) ou com Redis adapter.
+// - Recomendação: produção simples = um processo (npm start / node index.js) ou @socket.io/redis-adapter entre web e workers.
 
 let _io = null;
 

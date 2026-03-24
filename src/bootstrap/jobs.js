@@ -1,6 +1,5 @@
 // src/bootstrap/jobs.js
-// Inicializa apenas os schedulers (retention, cw-retry, order-delay, etc).
-// Roda em processo separado ou junto com o web (modo monólito).
+// SECUNDÁRIO — só schedulers, sem HTTP. No monólito (npm start) os jobs já sobem com index.js.
 
 require("dotenv").config();
 process.env.RUN_JOBS = "true";

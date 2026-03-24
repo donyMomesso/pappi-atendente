@@ -1,11 +1,12 @@
 // src/bootstrap/http.js
-// Inicializa servidor HTTP + Socket.io + Jobs.
-// NÃO inicia Baileys — processo dedicado em src/bootstrap/baileys.js.
+// SECUNDÁRIO — não use como deploy principal hoje.
+// Produção recomendada: npm start (index.js) = monólito com Baileys + jobs + Socket.IO junto.
+// Este arquivo força RUN_BAILEYS=false; jobs ainda sobem (útil só em arquitetura split legada).
 
 require("dotenv").config();
 process.env.RUN_BAILEYS = "false";
 
-console.log("\n  🍕 Pappi Atendente — processo Web/API\n");
+console.log("\n  🍕 Pappi — bootstrap Web (sem Baileys neste processo) — prefira `npm start` para monólito\n");
 
 const { validateEnv } = require("../lib/validate-env");
 validateEnv();

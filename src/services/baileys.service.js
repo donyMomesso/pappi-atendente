@@ -752,6 +752,15 @@ async function initAll() {
   }
   _initInProgress = true;
 
+  try {
+    const socketService = require("./socket.service");
+    if (!socketService.getIO()) {
+      log.warn(
+        "Socket.IO não inicializado neste processo — histórico grava no banco, mas o painel não recebe new_message/queue_update em tempo real (use monólito node index.js ou adapter Redis).",
+      );
+    }
+  } catch {}
+
   const concurrency = ENV.WEB_CONCURRENCY || 1;
   if (concurrency > 1) {
     log.warn(

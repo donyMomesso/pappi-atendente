@@ -1,3 +1,6 @@
+# Render — serviço único MONÓLITO (recomendado): web + Socket.IO + jobs + Baileys.
+# Desative no dashboard qualquer Worker "pappi-baileys" antigo para não haver dois Baileys (440).
+
 services:
   - type: web
     name: pappi-atendente
@@ -5,7 +8,7 @@ services:
     plan: free
     region: oregon
     buildCommand: npm install && npx prisma generate && npx prisma db push
-    startCommand: node src/bootstrap/http.js
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -15,13 +18,11 @@ services:
       - key: PORT
         value: 10000
       - key: RUN_BAILEYS
-        value: "false"
+        value: "true"
       - key: RUN_JOBS
         value: "true"
-      # OBRIGATÓRIO: Baileys exige 1 único processo — múltiplos causam 440 (sessão substituída)
       - key: WEB_CONCURRENCY
         value: "1"
-      # 440 → limpa auth, próxima conexão exige novo QR (resolve 440 fantasma sem celular ativo)
       - key: BAILEYS_CLEAR_AUTH_ON_440
         value: "true"
       - key: DATABASE_URL
@@ -101,47 +102,4 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
-        sync: false
-
-  # Worker Baileys — processo dedicado, evita 440. Use o mesmo grupo de env do web
-  - type: worker
-    name: pappi-baileys
-    runtime: node
-    plan: free
-    region: oregon
-    buildCommand: npm install && npx prisma generate && npx prisma db push
-    startCommand: node src/bootstrap/baileys.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: APP_ENV
-        value: prod
-      - key: RUN_BAILEYS
-        value: "true"
-      - key: RUN_JOBS
-        value: "false"
-      - key: BAILEYS_ENABLED
-        value: "true"
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: BAILEYS_LOCK_TTL_MS
-        value: "60000"
-      - key: LOG_LEVEL
-        value: info
-      # Worker precisa das mesmas chaves do web (bot, CardápioWeb, etc)
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: CARDAPIOWEB_API_KEY
-        sync: false
-      - key: CARDAPIOWEB_PARTNER_KEY
-        sync: false
-      - key: CARDAPIOWEB_STORE_ID
-        sync: false
-      - key: CARDAPIOWEB_BASE_URL
-        value: https://integracao.cardapioweb.com
-      - key: ATTENDANT_API_KEY
-        sync: false
-      - key: ADMIN_API_KEY
         sync: false

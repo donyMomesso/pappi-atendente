@@ -7,6 +7,16 @@ function toNumber(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** true/false explícitos; vazio = defaultValue (monólito: jobs e Baileys ligados por padrão). */
+function envFlag(name, defaultValue = true) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return defaultValue;
+  const v = String(raw).trim().toLowerCase();
+  if (["0", "false", "no", "off", "disabled"].includes(v)) return false;
+  if (["1", "true", "yes", "on", "enabled"].includes(v)) return true;
+  return defaultValue;
+}
+
 // APP_ENV: prod | staging | dev | local — isolamento de sessão Baileys entre ambientes
 function resolveAppEnv() {
   const v = (process.env.APP_ENV || "").trim().toLowerCase();
@@ -89,8 +99,8 @@ module.exports = {
   BAILEYS_PROCESS_NAME: process.env.BAILEYS_PROCESS_NAME || "pappi-baileys",
   BAILEYS_HOSTNAME: process.env.BAILEYS_HOSTNAME || require("os").hostname(),
   WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),
-  RUN_JOBS: process.env.RUN_JOBS !== "false",
-  RUN_BAILEYS: process.env.RUN_BAILEYS !== "false",
+  RUN_JOBS: envFlag("RUN_JOBS", true),
+  RUN_BAILEYS: envFlag("RUN_BAILEYS", true),
   LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   HEALTHCHECK_TOKEN: process.env.HEALTHCHECK_TOKEN || "",
   REDIS_URL: process.env.REDIS_URL || "",

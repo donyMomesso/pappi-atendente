@@ -1034,6 +1034,7 @@ router.post("/send", authDash, async (req, res) => {
     if (result && typeof result === "object") {
       waMessageId =
         result?.messages?.[0]?.id ||
+        result?.message_id ||
         result?.messageId ||
         result?.key?.id ||
         result?.id ||

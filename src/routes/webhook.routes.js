@@ -396,6 +396,10 @@ async function processSocialMessage({ platform, senderId, recipientId, senderNam
           `🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${displayText.slice(0, 60)}`,
         )
         .catch(() => {});
+
+      const socketService = require("../services/socket.service");
+      socketService.emitQueueUpdate();
+      socketService.emitConvUpdate(customer.id);
       return;
     }
 

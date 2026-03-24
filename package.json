@@ -1,7 +1,7 @@
 {
   "name": "pappi-atendente",
   "version": "3.1.0",
-  "description": "Sistema de atendimento WhatsApp multi-tenant com integração CardápioWeb",
+  "description": "Pappi Atendente — Produção: npm start (monólito: web+socket+jobs+Baileys). Secundário: npm run start:web / start:baileys / start:jobs (split).",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

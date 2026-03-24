@@ -1,6 +1,6 @@
 // src/bootstrap/baileys.js
-// Processo dedicado apenas ao Baileys (WhatsApp QR).
-// Garante 1 único processo por sessão, evita 440.
+// SECUNDÁRIO — worker só Baileys (sem HTTP/Socket.IO no mesmo processo).
+// Produção recomendada hoje: npm start (index.js) para painel em tempo real no QR.
 
 require("dotenv").config();
 process.env.RUN_JOBS = "false";
