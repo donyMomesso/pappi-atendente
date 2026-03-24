@@ -18,7 +18,8 @@ const { runStartup } = require("../startup");
 const ENV = require("../config/env");
 const messageDbCompat = require("../lib/message-db-compat");
 
-const PORT = ENV.PORT || 10000;
+const PORT = Number(ENV.PORT) || 10000;
+const BIND_HOST = process.env.BIND_HOST || "0.0.0.0";
 
 const server = http.createServer(app);
 socketService.init(server);
@@ -32,17 +33,17 @@ server.on("error", (err) => {
   process.exit(1);
 });
 
-(async function boot() {
-  try {
-    await messageDbCompat.refreshMessageSenderEmailSupport();
-  } catch (e) {
-    console.warn("  [message-db-compat]", e.message);
-  }
-  runStartup();
-  server.listen(PORT, () => {
-    console.log("");
-    console.log("  🍕 Pappi Web/API pronto");
-    console.log(`  🔗 http://localhost:${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
-    console.log("");
-  });
-})();
+server.listen(PORT, BIND_HOST, () => {
+  console.log("");
+  console.log("  🍕 Pappi Web/API pronto");
+  console.log(`  🔗 http://${BIND_HOST}:${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
+  console.log("");
+  (async function postListenInit() {
+    try {
+      await messageDbCompat.refreshMessageSenderEmailSupport();
+    } catch (e) {
+      console.warn("  [message-db-compat]", e.message);
+    }
+    runStartup();
+  })();
+});

@@ -18,7 +18,9 @@ const socketService = require("./src/services/socket.service");
 const { runStartup } = require("./src/startup");
 const messageDbCompat = require("./src/lib/message-db-compat");
 
-const PORT = ENV.PORT || 10000;
+const PORT = Number(ENV.PORT) || 10000;
+/** Render / Docker exigem bind em todas as interfaces; não bloquear listen com await ao DB (evita port scan timeout). */
+const BIND_HOST = process.env.BIND_HOST || "0.0.0.0";
 
 console.log("  ┌─ Modo MONÓLITO (produção recomendada hoje) ──────────────┐");
 console.log("  │  HTTP + Socket.IO + schedulers + Baileys → mesmo processo │");
@@ -36,7 +38,7 @@ if (ENV.NODE_ENV === "production" && (!ENV.RUN_BAILEYS || !ENV.RUN_JOBS)) {
 const server = http.createServer(app);
 socketService.init(server);
 console.log("  Socket.IO anexado ao servidor HTTP");
-console.log("  Iniciando após sondagem DB + Baileys + jobs (startup)...");
+console.log("  Abrindo porta (sondagem DB + Baileys + jobs após listen — compatível com Render)...");
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
@@ -48,17 +50,17 @@ server.on("error", (err) => {
   process.exit(1);
 });
 
-(async function boot() {
-  try {
-    await messageDbCompat.refreshMessageSenderEmailSupport();
-  } catch (e) {
-    console.warn("  [message-db-compat] falha ao sondar coluna messages.senderEmail:", e.message);
-  }
-  runStartup();
-  server.listen(PORT, () => {
-    console.log("");
-    console.log("  ✅ Monólito no ar — escutando HTTP + WebSocket");
-    console.log(`  🔗 porta ${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
-    console.log("");
-  });
-})();
+server.listen(PORT, BIND_HOST, () => {
+  console.log("");
+  console.log("  ✅ Monólito no ar — escutando HTTP + WebSocket");
+  console.log(`  🔗 http://${BIND_HOST}:${PORT} (NODE_ENV=${ENV.NODE_ENV})`);
+  console.log("");
+  (async function postListenInit() {
+    try {
+      await messageDbCompat.refreshMessageSenderEmailSupport();
+    } catch (e) {
+      console.warn("  [message-db-compat] falha ao sondar public.messages:", e.message);
+    }
+    runStartup();
+  })();
+});
