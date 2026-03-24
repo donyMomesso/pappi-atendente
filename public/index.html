@@ -488,6 +488,7 @@
         <a class="sidebar-item admin-only" href="#" onclick="navTo('rel');return false" id="navRel" style="display:none"><span>📄</span><span class="sidebar-text">Relatórios</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('audit');return false" id="navAudit" style="display:none"><span>🔍</span><span class="sidebar-text">Auditoria</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('analista');return false" id="navAnalista" style="display:none"><span>🤖</span><span class="sidebar-text">Analista</span></a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('aprendizado');return false" id="navAprendizado" style="display:none"><span>🧠</span><span class="sidebar-text">Aprendizado</span></a>
         <div class="sidebar-sep admin-only" id="adminSep" style="display:none"></div>
         <div class="sidebar-section admin-only" id="adminLabel" style="display:none">Admin</div>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none"><span>📤</span><span class="sidebar-text">Transmissão</span></a>
@@ -648,6 +649,7 @@
           <div class="analise-checklist-item" onclick="adminTab('rel');closeAnaliseMenu()">☐ 📋 Relatórios</div>
           <div class="analise-checklist-item" onclick="adminTab('audit');closeAnaliseMenu()">☐ 🔍 Auditoria</div>
           <div class="analise-checklist-item" onclick="adminTab('analista');closeAnaliseMenu()">☐ 🤖 Analista</div>
+          <div class="analise-checklist-item" onclick="adminTab('aprendizado');closeAnaliseMenu()">☐ 🧠 Aprendizado</div>
         </div>
       </div>
       <button class="admin-tab admin-only" id="atSac" onclick="adminTab('sac')" style="display:none">📩 SAC</button>
@@ -802,6 +804,57 @@
           <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:14px">🚗 Delivery vs Retirada (30 dias)</div>
           <div id="analistaFulfillment"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel: Aprendizado -->
+  <div id="adminPanelAprendizado" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f0f2f5">
+    <div style="padding:24px;max-width:1100px;margin:0 auto;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div class="settings-title" style="margin:0">🧠 Aprendizado do Bot</div>
+          <div class="settings-sub" style="margin:4px 0 0">O bot aprende com cada conversa — perguntas frequentes, correções e preferências dos clientes</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="fetchAprendizado()" style="background:var(--purple);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">🔄 Atualizar</button>
+          <button onclick="document.getElementById('addFaqForm').style.display=document.getElementById('addFaqForm').style.display==='none'?'block':'none'" style="background:#22c55e;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">➕ Ensinar FAQ</button>
+        </div>
+      </div>
+
+      <!-- Formulário de FAQ manual -->
+      <div id="addFaqForm" style="display:none;background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px;border-left:4px solid #22c55e">
+        <div style="font-size:14px;font-weight:700;margin-bottom:12px">📝 Ensinar uma nova resposta ao bot</div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:4px">Quando o cliente perguntar:</label>
+          <input id="faqQuestion" placeholder="Ex: qual o horário de funcionamento?" style="width:100%;border:1.5px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;outline:none">
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:4px">O bot deve responder:</label>
+          <textarea id="faqAnswer" placeholder="Ex: Funcionamos de terça a domingo, das 18h às 23h!" style="width:100%;border:1.5px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;outline:none;min-height:60px;resize:vertical"></textarea>
+        </div>
+        <button onclick="submitFaq()" style="background:#22c55e;color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer">✅ Salvar</button>
+      </div>
+
+      <!-- Stats -->
+      <div id="aprendizadoStats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px"></div>
+
+      <!-- FAQ aprendido -->
+      <div style="background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:14px">💡 Perguntas & Respostas aprendidas</div>
+        <div id="aprendizadoFaq" style="font-size:13px"></div>
+      </div>
+
+      <!-- Correções -->
+      <div style="background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:14px">✏️ Correções (bot errou → humano corrigiu)</div>
+        <div id="aprendizadoCorrections" style="font-size:13px"></div>
+      </div>
+
+      <!-- Preferências de clientes -->
+      <div style="background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:14px">👤 Preferências de clientes</div>
+        <div id="aprendizadoPatterns" style="font-size:13px"></div>
       </div>
     </div>
   </div>
@@ -1780,13 +1833,13 @@ async function doLogin() {
 	}
 
 	function navTo(view) {
-	  const views = { chat: "app", pedidos: "viewKanban", atrasos: "viewAtrasos", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", analista: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
+	  const views = { chat: "app", pedidos: "viewKanban", atrasos: "viewAtrasos", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", analista: "viewAdmin", aprendizado: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
 	  document.getElementById("app").style.display = "none";
 	  document.getElementById("viewKanban").style.display = "none";
 	  document.getElementById("viewAdmin").style.display = "none";
 	  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
-const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", analista: "Analista", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
-  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", analista: "navAnalista", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
+const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", analista: "Analista", aprendizado: "Aprendizado", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
+  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", analista: "navAnalista", aprendizado: "navAprendizado", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
 	  if (view === "chat") { clearInterval(kanbanTimer); kanbanTimer = null; document.getElementById("app").style.display = "block"; }
   if (view === "atrasos") loadDelayAlerts();
 	  else if (view === "pedidos") {
@@ -1797,9 +1850,9 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 	    if (kanbanTimer) clearInterval(kanbanTimer);
 	    kanbanTimer = setInterval(fetchKanban, 10000);
 	  }
-	  else if (["visao","stats","rel","audit","analista","transmissao","sac","usuarios","config"].includes(view)) {
+	  else if (["visao","stats","rel","audit","analista","aprendizado","transmissao","sac","usuarios","config"].includes(view)) {
 	    if (USER_ROLE !== "admin") { navTo("chat"); return; }
-	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", analista: "analista", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
+	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", analista: "analista", aprendizado: "aprendizado", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
 	    document.getElementById("viewAdmin").style.display = "flex";
 	    adminTab(tabMap[view]);
 	  }
@@ -3225,6 +3278,108 @@ function closeAdmin() {
   navTo("chat");
 }
 
+// ── APRENDIZADO ───────────────────────────────────────────────
+async function fetchAprendizado() {
+  if (USER_ROLE !== "admin") return;
+  const statsEl = document.getElementById("aprendizadoStats");
+  const faqEl = document.getElementById("aprendizadoFaq");
+  const corrEl = document.getElementById("aprendizadoCorrections");
+  const patEl = document.getElementById("aprendizadoPatterns");
+
+  if (faqEl) faqEl.innerHTML = '<div style="color:#aaa;padding:8px">Carregando...</div>';
+
+  const data = await api("/learning");
+  if (!data || data.error) {
+    if (faqEl) faqEl.innerHTML = '<div style="color:#e53935">Erro ao carregar aprendizados</div>';
+    return;
+  }
+
+  // Stats
+  if (statsEl) {
+    const cards = [
+      { val: data.stats.totalFaq, lbl: "FAQs aprendidas", icon: "💡", color: "#22c55e" },
+      { val: data.stats.totalCorrections, lbl: "Correções registradas", icon: "✏️", color: "#f59e0b" },
+      { val: data.stats.totalPatterns, lbl: "Perfis de clientes", icon: "👤", color: "#6366f1" },
+    ];
+    statsEl.innerHTML = cards.map(c => `
+      <div style="background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-top:3px solid ${c.color};text-align:center">
+        <div style="font-size:28px">${c.icon}</div>
+        <div style="font-size:28px;font-weight:800;color:${c.color};margin:4px 0">${c.val}</div>
+        <div style="font-size:12px;color:#888">${c.lbl}</div>
+      </div>
+    `).join("");
+  }
+
+  // FAQ
+  if (faqEl) {
+    faqEl.innerHTML = data.faq.length ? data.faq.map((f, i) => `
+      <div style="border-bottom:1px solid #f0f0f0;padding:10px 0;display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div style="color:#333"><strong>P:</strong> "${esc(f.q)}"</div>
+          <div style="color:#22c55e;margin-top:2px"><strong>R:</strong> ${esc(f.a)}</div>
+          <div style="font-size:10px;color:#aaa;margin-top:2px">Usado ${f.count || 1}x · ${f.updatedAt ? new Date(f.updatedAt).toLocaleDateString("pt-BR") : ""}</div>
+        </div>
+        <button onclick="deleteLearningFaq(${i})" style="background:#fee2e2;color:#ef4444;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;flex-shrink:0">🗑️</button>
+      </div>
+    `).join("") : '<div style="color:#aaa">Nenhuma FAQ aprendida ainda. Ensine ao bot usando o botão "➕ Ensinar FAQ" acima, ou ele aprenderá automaticamente quando atendentes responderem clientes.</div>';
+  }
+
+  // Correções
+  if (corrEl) {
+    corrEl.innerHTML = data.corrections.length ? data.corrections.map((c, i) => `
+      <div style="border-bottom:1px solid #f0f0f0;padding:10px 0;display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div style="color:#ef4444"><strong>❌ Bot disse:</strong> "${esc(c.bot.slice(0,150))}"</div>
+          <div style="color:#22c55e;margin-top:2px"><strong>✅ Humano corrigiu:</strong> "${esc(c.human.slice(0,150))}"</div>
+          ${c.context ? `<div style="font-size:10px;color:#888;margin-top:2px">Contexto: "${esc(c.context.slice(0,80))}"</div>` : ""}
+        </div>
+        <button onclick="deleteLearningCorrection(${i})" style="background:#fee2e2;color:#ef4444;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;flex-shrink:0">🗑️</button>
+      </div>
+    `).join("") : '<div style="color:#aaa">Nenhuma correção registrada. Quando um atendente responder diferente do bot, o sistema captura automaticamente.</div>';
+  }
+
+  // Patterns
+  if (patEl) {
+    patEl.innerHTML = data.patterns.length ? `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="border-bottom:2px solid #eee"><th style="text-align:left;padding:6px;color:#888">Cliente</th><th style="text-align:center;padding:6px;color:#888">Pedidos</th><th style="text-align:left;padding:6px;color:#888">Favoritos</th><th style="text-align:left;padding:6px;color:#888">Pagamento</th><th style="text-align:left;padding:6px;color:#888">Tipo</th></tr>
+        ${data.patterns.slice(0,20).map(p => `
+          <tr style="border-bottom:1px solid #f5f5f5">
+            <td style="padding:6px">${esc(p.phone)}</td>
+            <td style="padding:6px;text-align:center;font-weight:700;color:var(--purple)">${p.orderCount || 0}</td>
+            <td style="padding:6px;color:#555">${(p.favoriteItems||[]).slice(0,3).map(i=>i.name).join(", ")||"—"}</td>
+            <td style="padding:6px;color:#555">${p.paymentMethod||"—"}</td>
+            <td style="padding:6px;color:#555">${p.fulfillment||"—"}</td>
+          </tr>
+        `).join("")}
+      </table>
+    ` : '<div style="color:#aaa">Nenhum padrão de cliente capturado. O bot aprende as preferências a cada pedido confirmado.</div>';
+  }
+}
+
+async function submitFaq() {
+  const q = document.getElementById("faqQuestion")?.value?.trim();
+  const a = document.getElementById("faqAnswer")?.value?.trim();
+  if (!q || !a) { alert("Preencha pergunta e resposta"); return; }
+  await api("/learning/faq", "POST", { question: q, answer: a });
+  document.getElementById("faqQuestion").value = "";
+  document.getElementById("faqAnswer").value = "";
+  document.getElementById("addFaqForm").style.display = "none";
+  fetchAprendizado();
+}
+
+async function deleteLearningFaq(index) {
+  if (!confirm("Remover esta FAQ?")) return;
+  await fetch(`${BASE}/learning/faq/${index}?tenant=${TENANT}`, { method: "DELETE", headers: { "x-api-key": API_KEY } });
+  fetchAprendizado();
+}
+
+async function deleteLearningCorrection(index) {
+  if (!confirm("Remover esta correção?")) return;
+  await fetch(`${BASE}/learning/correction/${index}?tenant=${TENANT}`, { method: "DELETE", headers: { "x-api-key": API_KEY } });
+  fetchAprendizado();
+}
+
 function toggleAnaliseMenu() {
   const el = document.getElementById("analiseChecklist");
   if (el) el.style.display = el.style.display === "none" ? "block" : "none";
@@ -3244,8 +3399,8 @@ function adminTab(tab) {
   }
 
   currentAdminTab = tab;
-  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", analista:"Analista", sac:"Sac", broadcast:"Broadcast", atend:"Atend", cfg:"Cfg" };
-  const analiseTabs = ["dash","stats","rel","audit","analista"];
+  const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", analista:"Analista", aprendizado:"Aprendizado", sac:"Sac", broadcast:"Broadcast", atend:"Atend", cfg:"Cfg" };
+  const analiseTabs = ["dash","stats","rel","audit","analista","aprendizado"];
   Object.entries(tabIds).forEach(([k, v]) => {
     const btn = document.getElementById("at"+v);
     const panel = document.getElementById("adminPanel"+v);
@@ -3257,6 +3412,7 @@ function adminTab(tab) {
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
   if (tab === "analista") fetchAnalista();
+  if (tab === "aprendizado") fetchAprendizado();
   if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();
   if (tab === "broadcast") loadBroadcastPanel();
 }

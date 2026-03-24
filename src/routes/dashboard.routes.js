@@ -415,6 +415,19 @@ router.post("/queue/release", authDash, async (req, res) => {
   try {
     const { customerId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+
+    // Aprendizado: analisa conversa antes de liberar handoff
+    try {
+      const customer = await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { tenantId: true, phone: true },
+      });
+      if (customer) {
+        const learning = require("../services/bot-learning.service");
+        await learning.analyzeConversation(customer.tenantId, customerId, customer.phone);
+      }
+    } catch {}
+
     await releaseHandoff(customerId);
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
@@ -2159,6 +2172,56 @@ router.get("/analysis", authAdmin, async (req, res) => {
       })),
       insights,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/learning — Aprendizados do bot ─────────────────
+router.get("/learning", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    const data = await learning.getAll(tenantId);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/learning/faq — Adicionar FAQ manual ────────────
+router.post("/learning/faq", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const { question, answer } = req.body;
+    if (!question || !answer) return res.status(400).json({ error: "question e answer obrigatórios" });
+    const learning = require("../services/bot-learning.service");
+    await learning.addFaq(tenantId, question, answer);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /dash/learning/faq/:index ──────────────────────────
+router.delete("/learning/faq/:index", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    await learning.deleteFaq(tenantId, parseInt(req.params.index));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /dash/learning/correction/:index ───────────────────
+router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    await learning.deleteCorrection(tenantId, parseInt(req.params.index));
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
