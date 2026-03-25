@@ -483,6 +483,7 @@
         <a class="sidebar-item" href="#" onclick="openContacts();return false"><span>📒</span><span class="sidebar-text">Contatos</span></a>
         <div class="sidebar-sep admin-only" id="sidebarAnaliseSep" style="display:none"></div>
         <div class="sidebar-section admin-only" id="sidebarAnaliseSection" style="display:none">Análise</div>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('analise');return false" id="navAnalise" style="display:none"><span>📊</span><span class="sidebar-text">Análise</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('visao');return false" id="navVisao" style="display:none"><span>📊</span><span class="sidebar-text">Visão geral</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('stats');return false" id="navStats" style="display:none"><span>📈</span><span class="sidebar-text">Estatísticas</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('rel');return false" id="navRel" style="display:none"><span>📄</span><span class="sidebar-text">Relatórios</span></a>
@@ -641,17 +642,12 @@
   <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
     <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
     <div id="adminTabs" style="display:flex;gap:2px;align-items:center;flex-wrap:wrap">
-      <div class="admin-analise-wrap admin-only" id="adminAnaliseWrap" style="position:relative;display:none">
-        <button class="admin-tab active" id="atAnalise" onclick="toggleAnaliseMenu()">📊 Análise ▾</button>
-        <div id="analiseChecklist" class="analise-checklist" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;margin-top:4px;overflow:hidden">
-          <div class="analise-checklist-item" onclick="adminTab('dash');closeAnaliseMenu()">☐ 📊 Dashboard</div>
-          <div class="analise-checklist-item" onclick="adminTab('stats');closeAnaliseMenu()">☐ 📈 Estatísticas</div>
-          <div class="analise-checklist-item" onclick="adminTab('rel');closeAnaliseMenu()">☐ 📋 Relatórios</div>
-          <div class="analise-checklist-item" onclick="adminTab('audit');closeAnaliseMenu()">☐ 🔍 Auditoria</div>
-          <div class="analise-checklist-item" onclick="adminTab('analista');closeAnaliseMenu()">☐ 🤖 Analista</div>
-          <div class="analise-checklist-item" onclick="adminTab('aprendizado');closeAnaliseMenu()">☐ 🧠 Aprendizado</div>
-        </div>
-      </div>
+      <button class="admin-tab admin-only" id="atDash" onclick="adminTab('dash')" style="display:none">📊 Dashboard</button>
+      <button class="admin-tab admin-only" id="atStats" onclick="adminTab('stats')" style="display:none">📈 Estatísticas</button>
+      <button class="admin-tab admin-only" id="atRel" onclick="adminTab('rel')" style="display:none">📋 Relatórios</button>
+      <button class="admin-tab admin-only" id="atAudit" onclick="adminTab('audit')" style="display:none">🔍 Auditoria</button>
+      <button class="admin-tab admin-only" id="atAnalista" onclick="adminTab('analista')" style="display:none">🤖 Analista</button>
+      <button class="admin-tab admin-only" id="atAprendizado" onclick="adminTab('aprendizado')" style="display:none">🧠 Aprendizado</button>
       <button class="admin-tab admin-only" id="atSac" onclick="adminTab('sac')" style="display:none">📩 SAC</button>
       <button class="admin-tab admin-only" id="atBroadcast" onclick="adminTab('broadcast')" style="display:none">📤 Transmissão</button>
       <button class="admin-tab admin-only" id="atAtend" onclick="adminTab('atend')" style="display:none">👥 Usuários</button>
@@ -1866,13 +1862,13 @@ async function doLogin() {
 	}
 
 	function navTo(view) {
-	  const views = { chat: "app", pedidos: "viewKanban", atrasos: "viewAtrasos", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", analista: "viewAdmin", aprendizado: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
+	  const views = { chat: "app", pedidos: "viewKanban", atrasos: "viewAtrasos", analise: "viewAdmin", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", analista: "viewAdmin", aprendizado: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
 	  document.getElementById("app").style.display = "none";
 	  document.getElementById("viewKanban").style.display = "none";
 	  document.getElementById("viewAdmin").style.display = "none";
 	  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
-const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", analista: "Analista", aprendizado: "Aprendizado", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
-  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", analista: "navAnalista", aprendizado: "navAprendizado", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
+const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", analise: "Análise", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", analista: "Analista", aprendizado: "Aprendizado", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
+  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", analise: "navAnalise", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", analista: "navAnalista", aprendizado: "navAprendizado", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
 	  if (view === "chat") { clearInterval(kanbanTimer); kanbanTimer = null; document.getElementById("app").style.display = "block"; }
   if (view === "atrasos") loadDelayAlerts();
 	  else if (view === "pedidos") {
@@ -1883,9 +1879,9 @@ const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de A
 	    if (kanbanTimer) clearInterval(kanbanTimer);
 	    kanbanTimer = setInterval(fetchKanban, 10000);
 	  }
-	  else if (["visao","stats","rel","audit","analista","aprendizado","transmissao","sac","usuarios","config"].includes(view)) {
+	  else if (["analise","visao","stats","rel","audit","analista","aprendizado","transmissao","sac","usuarios","config"].includes(view)) {
 	    if (USER_ROLE !== "admin") { navTo("chat"); return; }
-	    const tabMap = { visao: "dash", stats: "stats", rel: "rel", audit: "audit", analista: "analista", aprendizado: "aprendizado", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
+	    const tabMap = { analise: "dash", visao: "dash", stats: "stats", rel: "rel", audit: "audit", analista: "analista", aprendizado: "aprendizado", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
 	    document.getElementById("viewAdmin").style.display = "flex";
 	    adminTab(tabMap[view]);
 	  }
@@ -2035,10 +2031,12 @@ function applyRole() {
   // Admin-only: attendant/manager não veem nada que dependa de authAdmin
   const adminOnlyIds = [
     "navConfig", "navTransmissao", "navSac", "navUsuarios",
-    "navVisao", "navStats", "navRel", "navAudit",
+    // Sidebar: manter 1 entrada para análise (abas ficam no topo do painel)
+    "navAnalise",
     "sidebarAnaliseSep", "sidebarAnaliseSection",
     "adminSep", "adminLabel",
-    "atBroadcast", "atSac", "atAtend", "atCfg", "atAnalise", "adminAnaliseWrap"
+    "atDash", "atStats", "atRel", "atAudit", "atAnalista", "atAprendizado",
+    "atBroadcast", "atSac", "atAtend", "atCfg"
   ];
   adminOnlyIds.forEach(id => {
     const el = document.getElementById(id);
@@ -3438,17 +3436,6 @@ async function deleteLearningCorrection(index) {
   fetchAprendizado();
 }
 
-function toggleAnaliseMenu() {
-  const el = document.getElementById("analiseChecklist");
-  if (el) el.style.display = el.style.display === "none" ? "block" : "none";
-}
-function closeAnaliseMenu() {
-  const el = document.getElementById("analiseChecklist");
-  if (el) el.style.display = "none";
-}
-document.addEventListener("click", function(e) {
-  if (!e.target.closest(".admin-analise-wrap")) closeAnaliseMenu();
-});
 function adminTab(tab) {
   const adminOnlyTabs = ["dash", "stats", "rel", "audit", "broadcast", "sac", "atend", "cfg"];
   if (USER_ROLE !== "admin" && adminOnlyTabs.includes(tab)) {
@@ -3458,15 +3445,12 @@ function adminTab(tab) {
 
   currentAdminTab = tab;
   const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", analista:"Analista", aprendizado:"Aprendizado", sac:"Sac", broadcast:"Broadcast", atend:"Atend", cfg:"Cfg" };
-  const analiseTabs = ["dash","stats","rel","audit","analista","aprendizado"];
   Object.entries(tabIds).forEach(([k, v]) => {
     const btn = document.getElementById("at"+v);
     const panel = document.getElementById("adminPanel"+v);
     if (panel) panel.style.display = k===tab ? "flex" : "none";
-    if (btn && !analiseTabs.includes(k)) btn.className = "admin-tab" + (k===tab?" active":"");
+    if (btn) btn.className = "admin-tab" + (k===tab?" active":"");
   });
-  const atAnalise = document.getElementById("atAnalise");
-  if (atAnalise) atAnalise.className = "admin-tab" + (analiseTabs.includes(tab)?" active":"");
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
   if (tab === "rel") fetchRelatorioRange();
