@@ -21,6 +21,7 @@ const aviseAbertura = require("../services/avise-abertura.service");
 const { needsDeescalation, detectHumanRequest } = require("../services/deescalation.service");
 const inboxTriage = require("../services/inbox-triage.service");
 const orderIntake = require("../services/order-intake.service");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
 async function handleHumanHandoff({ tenant, wa, customer, phone, session, message, clear = true } = {}) {
@@ -581,6 +582,7 @@ async function handleStatusQuery(wa, phone, customer, _tenant) {
     const lastOrder = await prisma.order.findFirst({
       where: { customerId: customer.id },
       orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, createdAt: true },
     });
 
     if (!lastOrder) {
@@ -619,6 +621,7 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
     const lastOrder = await prisma.order.findFirst({
       where: { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
       orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, cwOrderId: true, createdAt: true },
     });
 
     if (!lastOrder) {
@@ -1289,6 +1292,19 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   let pixTxid = null;
   let pixCopiaECola = null;
 
+  if (!isLead && isPix && !orderPixDbCompat.hasOrderPixColumns()) {
+    await wa.sendText(
+      phone,
+      "⚠️ O pagamento por *PIX* ainda não está ativo neste ambiente (banco sem as colunas necessárias). Use outra forma de pagamento ou fale com um atendente — a equipe já foi alertada.",
+    );
+    await baileys
+      .notify(
+        "⚠️ *PIX bloqueado*: aplique no PostgreSQL as colunas `pixTxid`, `pixE2eId`, `pixStatus` em `public.orders` (migration PIX) e faça deploy.",
+      )
+      .catch(() => {});
+    return;
+  }
+
   if (!isLead && isPix) {
     pixTxid = randomUUID().replace(/-/g, "").slice(0, 32);
     try {
@@ -1326,11 +1342,23 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
     status: isLead ? "lead" : isPix ? "pix_pending" : undefined,
   });
 
-  if (pixTxid) {
+  if (pixTxid && orderPixDbCompat.hasOrderPixColumns()) {
     await require("../lib/db").order.update({
       where: { id: order.id },
       data: { pixTxid, pixStatus: "pending" },
+      select: { id: true },
     });
+  } else if (pixTxid) {
+    const log = require("../lib/logger").child({ service: "bot" });
+    log.error(
+      { orderId: order.id },
+      "PIX: pedido criado mas banco sem colunas pixTxid/pixE2eId/pixStatus — migration PIX pendente; txid não persistido.",
+    );
+    baileys
+      .notify(
+        `⚠️ *PIX*: pedido #${order.id.slice(-6).toUpperCase()} sem persistir txid — rode migration em \`orders\` (pixTxid, pixE2eId, pixStatus).`,
+      )
+      .catch(() => {});
   }
 
   // Cartão/dinheiro: envia direto ao CW (como antes). PIX: só envia após webhook.

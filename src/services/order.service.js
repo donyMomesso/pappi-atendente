@@ -3,7 +3,10 @@
 // Req 5 — Snapshot completo dos itens do pedido
 
 const prisma = require("../lib/db");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const { validate: validateTotal } = require("../calculators/OrderCalculator");
+
+const selOrder = () => orderPixDbCompat.getOrderScalarSelect();
 
 async function createWithIdempotency(opts) {
   const {
@@ -26,6 +29,7 @@ async function createWithIdempotency(opts) {
 
   const existing = await prisma.order.findUnique({
     where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+    select: selOrder(),
   });
   if (existing) return { order: existing, created: false };
 
@@ -38,6 +42,7 @@ async function createWithIdempotency(opts) {
   const addressSnapshot = address ? JSON.stringify(address) : null;
 
   const order = await prisma.order.create({
+    select: selOrder(),
     data: {
       tenantId,
       customerId,
@@ -64,7 +69,7 @@ async function createWithIdempotency(opts) {
 
 async function updateStatus(orderId, status, source = "system", note = null) {
   const [order] = await prisma.$transaction([
-    prisma.order.update({ where: { id: orderId }, data: { status } }),
+    prisma.order.update({ where: { id: orderId }, data: { status }, select: selOrder() }),
     prisma.orderStatusLog.create({ data: { orderId, status, source, note } }),
   ]);
   return order;
@@ -86,6 +91,7 @@ async function updateCwStatus(orderId, cwStatus) {
   return prisma.order.update({
     where: { id: orderId },
     data,
+    select: selOrder(),
   });
 }
 
@@ -96,20 +102,21 @@ async function setCwOrderId(orderId, cwOrderId, cwResponse = null) {
       cwOrderId,
       cwResponse: cwResponse ? JSON.stringify(cwResponse) : undefined,
     },
+    select: selOrder(),
   });
 }
 
 async function findByCwOrderId(tenantId, cwOrderId) {
   return prisma.order.findFirst({
     where: { tenantId, cwOrderId },
-    include: { customer: true },
+    select: { ...selOrder(), customer: true },
   });
 }
 
 async function findOrderByCwOrderIdGlobal(cwOrderId) {
   return prisma.order.findFirst({
     where: { cwOrderId },
-    include: { customer: true },
+    select: { ...selOrder(), customer: true },
   });
 }
 
@@ -118,6 +125,7 @@ async function findByCustomer(customerId, limit = 5) {
     where: { customerId },
     orderBy: { createdAt: "desc" },
     take: limit,
+    select: selOrder(),
   });
 }
 
@@ -132,7 +140,7 @@ async function findFailedCwOrders(tenantId, limit = 20) {
     },
     orderBy: { createdAt: "asc" },
     take: limit,
-    include: { customer: true },
+    select: { ...selOrder(), customer: true },
   });
 }
 

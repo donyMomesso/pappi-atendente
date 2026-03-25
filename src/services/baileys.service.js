@@ -50,6 +50,13 @@ async function getBaileysVersion() {
   return version;
 }
 
+/** Tentativas de reconexão automática antes de exigir ação manual no painel. */
+const MAX_AUTO_RECONNECT_ATTEMPTS = 10;
+/** Cooldown entre avisos Socket.IO (painel) por queda — evita loop de overlay. */
+const DISCONNECT_NOTIFY_COOLDOWN_MS = 60_000;
+/** Backoff progressivo (ms); último valor repete após esgotar a lista. */
+const RECONNECT_BACKOFF_MS = [5000, 8000, 16_000, 32_000, 60_000, 120_000];
+
 function createInstanceData(id) {
   return {
     id,
@@ -66,6 +73,14 @@ function createInstanceData(id) {
     _genericDisconnectCount: 0,
     _lastDisconnectAt: 0,
     _heartbeatInterval: null,
+    /** Monótono: handlers de sockets antigos ignoram eventos quando !== inst._socketEpoch. */
+    _socketEpoch: 0,
+    /** Um único timer de reconexão por instância. */
+    _reconnectTimer: null,
+    /** Throttle de emitBaileysDisconnected (servidor). */
+    lastDisconnectNotifyAt: 0,
+    /** Após muitas falhas, não chamar start() até Conectar (force) no painel. */
+    manualReconnectRequired: false,
     counters: {
       hour: 0,
       day: 0,
@@ -74,6 +89,77 @@ function createInstanceData(id) {
       alerted: { hour: false, day: false },
     },
   };
+}
+
+/** Encerra socket antigo e remove listeners (evita múltiplos connection.update vivos). */
+function destroyLivingSocket(inst, reasonTag = "cleanup") {
+  const s = inst.socket;
+  if (!s) return;
+  inst.socket = null;
+  try {
+    s.end(new Error(`baileys:${reasonTag}`));
+  } catch (e) {
+    log.debug({ err: e?.message, instanceId: inst.id }, "socket.end (ok se já fechado)");
+  }
+  try {
+    if (s.ev && typeof s.ev.removeAllListeners === "function") s.ev.removeAllListeners();
+  } catch (e) {
+    log.debug({ err: e?.message }, "ev.removeAllListeners");
+  }
+}
+
+function backoffMsForAttempt(attemptIndex) {
+  const i = Math.max(0, attemptIndex - 1);
+  if (i >= RECONNECT_BACKOFF_MS.length) return RECONNECT_BACKOFF_MS[RECONNECT_BACKOFF_MS.length - 1];
+  return RECONNECT_BACKOFF_MS[i];
+}
+
+/** Agenda uma única reconexão; cancela timer anterior. */
+function scheduleReconnect(instanceId, delayMs) {
+  const inst = INSTANCES.get(instanceId);
+  if (!inst) return;
+  if (inst.manualReconnectRequired) {
+    log.warn({ instanceId }, "Baileys: auto-reconnect cancelado — manualReconnectRequired");
+    return;
+  }
+  if (inst._reconnectTimer) {
+    clearTimeout(inst._reconnectTimer);
+    inst._reconnectTimer = null;
+  }
+  inst._reconnectTimer = setTimeout(() => {
+    inst._reconnectTimer = null;
+    start(instanceId).catch((e) => log.error({ instanceId, err: e?.message }, "Baileys: start após backoff falhou"));
+  }, delayMs);
+}
+
+function maybeEmitBaileysDisconnected(inst, instanceId, reason, opts = {}) {
+  const force = opts.force === true;
+  const now = Date.now();
+  if (
+    !force &&
+    now - (inst.lastDisconnectNotifyAt || 0) < DISCONNECT_NOTIFY_COOLDOWN_MS
+  ) {
+    log.debug({ instanceId, reason: reason?.slice?.(0, 80) }, "Baileys: emit disconnect ignorado (cooldown servidor)");
+    return;
+  }
+  inst.lastDisconnectNotifyAt = now;
+  try {
+    require("./socket.service").emitBaileysDisconnected(instanceId, reason);
+  } catch (e) {
+    log.warn({ err: e }, "Falha ao emitir baileys_disconnected");
+  }
+}
+
+function resetReconnectStateOnOpen(inst) {
+  inst.manualReconnectRequired = false;
+  inst._genericDisconnectCount = 0;
+  inst._replaced440Count = 0;
+  inst._reconnectDelay = 8000;
+  inst.lastDisconnectNotifyAt = 0;
+  if (inst._reconnectTimer) {
+    clearTimeout(inst._reconnectTimer);
+    inst._reconnectTimer = null;
+  }
 }
 
 function resetCounters(inst) {
@@ -298,6 +384,19 @@ async function start(instanceId = "default", opts = {}) {
   await applyInstancePrefsFromDb(instanceId, inst);
 
   const force = opts.force === true;
+
+  if (inst.manualReconnectRequired && !force) {
+    log.warn(
+      { instanceId },
+      "Baileys: reconexão automática desativada após falhas repetidas — use Conectar no painel (WhatsApp Interno).",
+    );
+    return;
+  }
+  if (force) {
+    inst.manualReconnectRequired = false;
+    inst._genericDisconnectCount = 0;
+  }
+
   if (inst.status === "conflict" && !force) return;
   if (force && inst.status === "conflict") {
     inst.status = "disconnected";
@@ -305,7 +404,7 @@ async function start(instanceId = "default", opts = {}) {
     log.info({ instanceId }, "Reconexão manual após 440 — limpando estado");
   }
 
-  if (inst.starting || inst.status === "connected" || inst.status === "qr") return;
+  if (inst.starting || inst.status === "connected" || inst.status === "qr" || inst.status === "connecting") return;
   inst.starting = true;
 
   try {
@@ -328,6 +427,21 @@ async function start(instanceId = "default", opts = {}) {
       { instanceId, appEnv: ENV.APP_ENV, owner: baileysLock.ownerId() },
       "Lock adquirido — iniciando conexão Baileys",
     );
+
+    if (inst._heartbeatInterval) {
+      clearInterval(inst._heartbeatInterval);
+      inst._heartbeatInterval = null;
+    }
+
+    inst._socketEpoch = (inst._socketEpoch || 0) + 1;
+    const myEpoch = inst._socketEpoch;
+
+    destroyLivingSocket(inst, "new_session");
+
+    if (inst._reconnectTimer) {
+      clearTimeout(inst._reconnectTimer);
+      inst._reconnectTimer = null;
+    }
 
     // Pequena pausa após desconexão recente — evita 440 por "auto-substituição" em restarts rápidos (ex: Render wake)
     const sinceDisconnect = Date.now() - (inst._lastDisconnectAt || 0);
@@ -355,10 +469,18 @@ async function start(instanceId = "default", opts = {}) {
     inst.status = "connecting";
     inst.starting = false;
 
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", async () => {
+      if (myEpoch !== inst._socketEpoch) return;
+      try {
+        await saveCreds();
+      } catch (e) {
+        log.warn({ instanceId, err: e?.message }, "creds.update falhou");
+      }
+    });
 
     // Captura mensagens recebidas (notify = nova em tempo real, append = histórico após reconexão)
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (myEpoch !== inst._socketEpoch) return;
       if (type !== "notify" && type !== "append") return;
       const isAppend = type === "append";
 
@@ -641,6 +763,8 @@ async function start(instanceId = "default", opts = {}) {
     });
 
     sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
+      if (myEpoch !== inst._socketEpoch) return;
+
       try {
         if (qr) {
           inst.status = "qr";
@@ -655,9 +779,7 @@ async function start(instanceId = "default", opts = {}) {
           inst.status = "connected";
           inst.qrBase64 = null;
           inst.starting = false;
-          inst._reconnectDelay = 8000;
-          inst._replaced440Count = 0;
-          if (Date.now() - inst._lastDisconnectAt > 300_000) inst._genericDisconnectCount = 0;
+          resetReconnectStateOnOpen(inst);
           const user = sock.user;
           inst.account = {
             phone: user?.id?.split(":")[0] || user?.id || "?",
@@ -673,7 +795,6 @@ async function start(instanceId = "default", opts = {}) {
             },
             "Baileys connection open",
           );
-          // Heartbeat para manter lock vivo
           if (inst._heartbeatInterval) clearInterval(inst._heartbeatInterval);
           const ttl = ENV.BAILEYS_LOCK_TTL_MS || 60_000;
           inst._heartbeatInterval = setInterval(() => baileysLock.heartbeat(instanceId), Math.floor(ttl / 2));
@@ -684,10 +805,16 @@ async function start(instanceId = "default", opts = {}) {
           const errMsg = lastDisconnect?.error?.message || "";
           const loggedOut = code === DisconnectReason.loggedOut;
           const replaced = code === DisconnectReason.connectionReplaced;
+
+          if (inst.socket === sock) inst.socket = null;
           inst.status = "disconnected";
-          inst.socket = null;
           inst.starting = false;
           inst._lastDisconnectAt = Date.now();
+
+          if (inst._reconnectTimer) {
+            clearTimeout(inst._reconnectTimer);
+            inst._reconnectTimer = null;
+          }
 
           if (inst._heartbeatInterval) {
             clearInterval(inst._heartbeatInterval);
@@ -695,14 +822,16 @@ async function start(instanceId = "default", opts = {}) {
           }
           await baileysLock.releaseLock(instanceId);
 
-          if (!inst._intentionalDisconnect) {
-            const reason = loggedOut
-              ? "Logout (401)"
-              : replaced
-                ? "Sessão substituída (440)"
-                : code
-                  ? `Conexão fechada (code ${code})`
-                  : "Conexão fechada";
+          const reason = loggedOut
+            ? "Logout (401)"
+            : replaced
+              ? "Sessão substituída (440)"
+              : code
+                ? `Conexão fechada (code ${code})`
+                : "Conexão fechada";
+
+          const wasIntentional = inst._intentionalDisconnect;
+          if (!wasIntentional) {
             log.warn(
               {
                 instanceId,
@@ -714,11 +843,6 @@ async function start(instanceId = "default", opts = {}) {
               },
               `Baileys disconnect: ${reason}`,
             );
-            try {
-              require("./socket.service").emitBaileysDisconnected(instanceId, reason);
-            } catch (e) {
-              log.warn({ err: e }, "Falha ao emitir baileys_disconnected");
-            }
           }
           inst._intentionalDisconnect = false;
 
@@ -728,10 +852,12 @@ async function start(instanceId = "default", opts = {}) {
             inst.qrBase64 = null;
             inst._reconnectDelay = 8000;
             inst._genericDisconnectCount = 0;
+            inst.manualReconnectRequired = false;
+            if (!wasIntentional) maybeEmitBaileysDisconnected(inst, instanceId, reason);
           } else if (replaced) {
-            // 440 = sessão substituída — outro processo ou QR escaneado em outro lugar
             inst.status = "conflict";
             inst._replaced440Count = (inst._replaced440Count || 0) + 1;
+            inst.manualReconnectRequired = true;
             log.warn(
               {
                 instanceId,
@@ -753,20 +879,38 @@ async function start(instanceId = "default", opts = {}) {
                 "Auth mantido. Use Conectar no painel para retentar. Se 440 persiste: verifique APP_ENV, processos duplicados, ou BAILEYS_CLEAR_AUTH_ON_440=true.",
               );
             }
+            if (!wasIntentional) maybeEmitBaileysDisconnected(inst, instanceId, reason);
           } else {
             inst._replaced440Count = 0;
             inst._genericDisconnectCount = (inst._genericDisconnectCount || 0) + 1;
-            const backoffDelays = [8000, 16000, 32000, 60000, 120000];
-            const delayMs = Math.min(
-              backoffDelays[Math.min(inst._genericDisconnectCount - 1, backoffDelays.length - 1)],
-              120000,
-            );
+            if (inst._genericDisconnectCount > MAX_AUTO_RECONNECT_ATTEMPTS) {
+              inst.manualReconnectRequired = true;
+              log.error(
+                {
+                  instanceId,
+                  attempts: inst._genericDisconnectCount,
+                  code,
+                },
+                "Baileys: limite de reconexões automáticas excedido — exige Conectar manual no painel",
+              );
+              if (!wasIntentional) {
+                maybeEmitBaileysDisconnected(
+                  inst,
+                  instanceId,
+                  `${reason} — reconexão automática pausada após ${MAX_AUTO_RECONNECT_ATTEMPTS} tentativas. Use "Conectar" no painel.`,
+                  { force: true },
+                );
+              }
+              return;
+            }
+            if (!wasIntentional) maybeEmitBaileysDisconnected(inst, instanceId, reason);
+            const delayMs = backoffMsForAttempt(inst._genericDisconnectCount);
             inst._reconnectDelay = delayMs;
             log.info(
               { instanceId, code, attempt: inst._genericDisconnectCount, delaySec: delayMs / 1000 },
-              "Conexão fechada — reconectando com backoff",
+              "Conexão fechada — uma nova tentativa agendada (backoff)",
             );
-            setTimeout(() => start(instanceId), delayMs);
+            scheduleReconnect(instanceId, delayMs);
           }
         }
       } catch (err) {
@@ -775,8 +919,30 @@ async function start(instanceId = "default", opts = {}) {
     });
   } catch (err) {
     inst.starting = false;
-    console.error(`[Baileys:${instanceId}] Erro ao iniciar:`, err.message);
-    setTimeout(() => start(instanceId), 15000);
+    inst.status = "disconnected";
+    inst.socket = null;
+    log.error({ instanceId, err: err?.message }, "Baileys: erro ao iniciar socket");
+    try {
+      await baileysLock.releaseLock(instanceId);
+    } catch (e) {
+      log.warn({ instanceId, err: e?.message }, "releaseLock após falha no start");
+    }
+    if (!inst.manualReconnectRequired) {
+      inst._genericDisconnectCount = (inst._genericDisconnectCount || 0) + 1;
+      if (inst._genericDisconnectCount > MAX_AUTO_RECONNECT_ATTEMPTS) {
+        inst.manualReconnectRequired = true;
+        log.error({ instanceId }, "Baileys: limite de tentativas após erro no start — reconexão manual");
+        maybeEmitBaileysDisconnected(
+          inst,
+          instanceId,
+          `Falha ao iniciar Baileys (${err?.message || "erro"}). Reconexão manual necessária no painel.`,
+          { force: true },
+        );
+        return;
+      }
+      const delayMs = backoffMsForAttempt(inst._genericDisconnectCount);
+      scheduleReconnect(instanceId, delayMs);
+    }
   }
 }
 
@@ -962,6 +1128,8 @@ async function getStatus(instanceId = "default") {
     account: inst.account,
     botEnabled: inst.botEnabled !== false,
     instanceTenant: instanceTenant,
+    manualReconnectRequired: !!inst.manualReconnectRequired,
+    reconnectAttempts: inst._genericDisconnectCount || 0,
     usage: {
       hour: inst.counters.hour,
       hourMax: LIMITS.perHour,
@@ -998,15 +1166,17 @@ async function disconnect(instanceId = "default") {
   inst._intentionalDisconnect = true;
   inst._replaced440Count = 0;
   inst._genericDisconnectCount = 0;
+  inst.manualReconnectRequired = false;
+  inst._socketEpoch = (inst._socketEpoch || 0) + 1;
+  if (inst._reconnectTimer) {
+    clearTimeout(inst._reconnectTimer);
+    inst._reconnectTimer = null;
+  }
   if (inst._heartbeatInterval) {
     clearInterval(inst._heartbeatInterval);
     inst._heartbeatInterval = null;
   }
-  if (inst.socket) {
-    try {
-      inst.socket.end();
-    } catch (e) {}
-  }
+  destroyLivingSocket(inst, "intentional_disconnect");
   await baileysLock.releaseLock(instanceId);
   await clearDbAuth(instanceId).catch(() => {});
   inst.status = "disconnected";

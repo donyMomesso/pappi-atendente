@@ -17,6 +17,7 @@ const app = require("./src/app");
 const socketService = require("./src/services/socket.service");
 const { runStartup } = require("./src/startup");
 const messageDbCompat = require("./src/lib/message-db-compat");
+const orderPixDbCompat = require("./src/lib/order-pix-db-compat");
 
 const PORT = Number(ENV.PORT) || 10000;
 /** Render / Docker exigem bind em todas as interfaces; não bloquear listen com await ao DB (evita port scan timeout). */
@@ -60,6 +61,11 @@ server.listen(PORT, BIND_HOST, () => {
       await messageDbCompat.refreshMessageSenderEmailSupport();
     } catch (e) {
       console.warn("  [message-db-compat] falha ao sondar public.messages:", e.message);
+    }
+    try {
+      await orderPixDbCompat.refreshOrderPixColumnSupport();
+    } catch (e) {
+      console.warn("  [order-pix-db-compat] falha ao sondar orders PIX:", e.message);
     }
     runStartup();
   })();

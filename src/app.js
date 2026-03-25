@@ -87,14 +87,16 @@ app.use(express.static(path.join(__dirname, "../public")));
 app.get("/health", async (req, res) => {
   const env = require("./config/env");
   const messageDbCompat = require("./lib/message-db-compat");
+  const orderPixDbCompat = require("./lib/order-pix-db-compat");
   const status = {
     ok: true,
     version: "3.1.0",
     db: "ok",
     env: env.NODE_ENV,
     messagesTable: messageDbCompat.isMessagesTableAvailable() ? "ok" : "missing",
+    ordersPixColumns: orderPixDbCompat.getOrderPixColumnsHealth(),
   };
-  if (!messageDbCompat.isMessagesTableAvailable()) {
+  if (!messageDbCompat.isMessagesTableAvailable() || orderPixDbCompat.shouldDegradeForMissingOrderPixColumns()) {
     status.degraded = true;
   }
   try {

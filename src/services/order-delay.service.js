@@ -2,6 +2,7 @@
 // Cálculo de médias do dia e previsão recalculada para pedidos em atraso.
 
 const prisma = require("../lib/db");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 
 // Mapeamento de status CW para nosso modelo de status CW para nosso modelo
 const CW_PROD = ["em_producao", "in_production", "in_production"];
@@ -40,7 +41,8 @@ async function computeDailyAverages(tenantId) {
       createdAt: { gte: today },
       status: { notIn: ["cancelled", "lead"] },
     },
-    include: {
+    select: {
+      ...orderPixDbCompat.getOrderScalarSelect(),
       statusLogs: {
         where: { createdAt: { gte: today } },
         orderBy: { createdAt: "asc" },

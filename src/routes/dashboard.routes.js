@@ -11,6 +11,7 @@ const {
   isLikelyPlaceholderWaPhoneNumberId,
 } = require("../services/tenant.service");
 const messageDbCompat = require("../lib/message-db-compat");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const { setHandoff, releaseHandoff, claimFromQueue, closeConversation } = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
 const googleContacts = require("../services/google-contacts.service");
@@ -301,7 +302,13 @@ router.get("/conversations", authDash, async (req, res) => {
       },
       orderBy: { lastInteraction: "desc" },
       take: 200,
-      include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
+      include: {
+        orders: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: orderPixDbCompat.getOrderScalarSelect(),
+        },
+      },
     });
     const withState = await Promise.all(
       customers.map(async (c) => {
@@ -331,7 +338,13 @@ router.get("/queue", authDash, async (req, res) => {
     const customers = await prisma.customer.findMany({
       where: { tenantId, handoff: true },
       orderBy: { queuedAt: "asc" },
-      include: { orders: { orderBy: { createdAt: "desc" }, take: 1 } },
+      include: {
+        orders: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: orderPixDbCompat.getOrderScalarSelect(),
+        },
+      },
     });
     const withState = await Promise.all(
       customers.map(async (c) => {
@@ -460,7 +473,10 @@ router.get("/orders/failed", authAdmin, async (req, res) => {
       where: { tenantId, status: { in: ["cw_failed", "waiting_confirmation"] }, cwOrderId: null },
       orderBy: { createdAt: "desc" },
       take: 50,
-      include: { customer: { select: { name: true, phone: true } } },
+      select: {
+        ...orderPixDbCompat.getOrderScalarSelect(),
+        customer: { select: { name: true, phone: true } },
+      },
     });
     res.json(
       orders.map((o) => ({
@@ -488,7 +504,7 @@ router.post("/orders/retry", authAdmin, async (req, res) => {
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { tenant: true },
+      select: { ...orderPixDbCompat.getOrderScalarSelect(), tenant: true },
     });
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
     if (!order.cwPayload) return res.status(400).json({ error: "Pedido sem payload CW — não pode ser reenviado" });
@@ -502,6 +518,7 @@ router.post("/orders/retry", authAdmin, async (req, res) => {
     await prisma.order.update({
       where: { id: orderId },
       data: { cwOrderId, status: "waiting_confirmation", cwResponse: JSON.stringify(cwResponse) },
+      select: { id: true },
     });
     await prisma.orderStatusLog.create({
       data: { orderId, status: "cw_retry_success", source: "human", note: "Reenviado manualmente pelo painel" },
@@ -566,12 +583,16 @@ router.post("/orders/:id/watch", authDash, async (req, res) => {
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
 
-    const order = await prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+      select: { id: true },
+    });
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
 
     await prisma.order.update({
       where: { id: orderId },
       data: { watchedByAttendant: watchedBy || req.attendant?.name || "atendente" },
+      select: { id: true },
     });
     res.json({ ok: true, watchedBy: watchedBy || req.attendant?.name });
   } catch (err) {
@@ -589,7 +610,7 @@ router.post("/orders/:id/compensate", authDash, async (req, res) => {
 
     const order = await prisma.order.findFirst({
       where: { id: orderId, tenantId },
-      include: { customer: true },
+      select: { ...orderPixDbCompat.getOrderScalarSelect(), customer: true },
     });
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
 
@@ -1117,6 +1138,7 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
       where: { customerId },
       orderBy: { createdAt: "desc" },
       take: 30,
+      select: orderPixDbCompat.getOrderScalarSelect(),
     });
 
     const mapCwStatus = (s) => {
@@ -1205,7 +1227,10 @@ router.get("/orders/kanban", authDash, async (req, res) => {
     const orders = await prisma.order.findMany({
       where: { tenantId, createdAt: { gte: today } },
       orderBy: { createdAt: "desc" },
-      include: { customer: { select: { name: true, phone: true } } },
+      select: {
+        ...orderPixDbCompat.getOrderScalarSelect(),
+        customer: { select: { name: true, phone: true } },
+      },
     });
 
     const columns = {

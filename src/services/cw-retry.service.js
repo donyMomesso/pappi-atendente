@@ -4,6 +4,7 @@
 // Após 3 falhas, marca como failed e notifica operador via Baileys.
 
 const prisma = require("../lib/db");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 
 const MAX_ATTEMPTS = 3;
 const RETRY_INTERVAL = 5 * 60 * 1000; // 5 min
@@ -22,7 +23,11 @@ async function processQueue() {
       },
       orderBy: { createdAt: "asc" },
       take: 20,
-      include: { customer: true, tenant: true },
+      select: {
+        ...orderPixDbCompat.getOrderScalarSelect(),
+        customer: true,
+        tenant: true,
+      },
     });
 
     if (!failedOrders.length) return;
@@ -43,6 +48,7 @@ async function processQueue() {
         await prisma.order.update({
           where: { id: order.id },
           data: { status: "cw_failed" },
+          select: { id: true },
         });
         await prisma.orderStatusLog.create({
           data: {
@@ -84,6 +90,7 @@ async function processQueue() {
         await prisma.order.update({
           where: { id: order.id },
           data: { cwOrderId, cwResponse: JSON.stringify(cwResponse) },
+          select: { id: true },
         });
         await prisma.orderStatusLog.create({
           data: {

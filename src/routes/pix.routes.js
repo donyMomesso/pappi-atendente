@@ -3,6 +3,7 @@
 
 const express = require("express");
 const prisma = require("../lib/db");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const log = require("../lib/logger").child({ service: "pix-webhook" });
 
 const router = express.Router();
@@ -38,6 +39,13 @@ router.post("/pix/webhook", async (req, res) => {
       return;
     }
 
+    if (!orderPixDbCompat.hasOrderPixColumns()) {
+      log.error(
+        "PIX webhook ignorado: colunas orders.pixTxid/pixE2eId/pixStatus ausentes no banco. Aplique a migration PIX (prisma migrate deploy).",
+      );
+      return;
+    }
+
     const { getClients } = require("../services/tenant.service");
     const { setCwOrderId, updateStatus } = require("../services/order.service");
     const baileys = require("../services/baileys.service");
@@ -59,6 +67,7 @@ router.post("/pix/webhook", async (req, res) => {
         await prisma.order.update({
           where: { id: already.id },
           data: { pixStatus: "paid", pixE2eId: e2eId || null },
+          select: { id: true },
         });
         continue;
       }
@@ -87,6 +96,7 @@ router.post("/pix/webhook", async (req, res) => {
         await prisma.order.update({
           where: { id: order.id },
           data: { pixStatus: "paid", status: "cw_failed" },
+          select: { id: true },
         });
         continue;
       }
@@ -102,6 +112,7 @@ router.post("/pix/webhook", async (req, res) => {
         await prisma.order.update({
           where: { id: order.id },
           data: { pixStatus: "paid", pixE2eId: e2eId || null },
+          select: { id: true },
         });
         await updateStatus(order.id, "waiting_confirmation", "pix_webhook", "PIX confirmado — pedido enviado ao CW");
 
@@ -116,6 +127,7 @@ router.post("/pix/webhook", async (req, res) => {
           .update({
             where: { id: order.id },
             data: { pixStatus: "paid", status: "pix_paid", pixE2eId: e2eId || null },
+            select: { id: true },
           })
           .catch(() => {});
         await prisma.orderStatusLog

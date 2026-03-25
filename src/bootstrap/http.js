@@ -17,6 +17,7 @@ const socketService = require("../services/socket.service");
 const { runStartup } = require("../startup");
 const ENV = require("../config/env");
 const messageDbCompat = require("../lib/message-db-compat");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 
 const PORT = Number(ENV.PORT) || 10000;
 const BIND_HOST = process.env.BIND_HOST || "0.0.0.0";
@@ -43,6 +44,11 @@ server.listen(PORT, BIND_HOST, () => {
       await messageDbCompat.refreshMessageSenderEmailSupport();
     } catch (e) {
       console.warn("  [message-db-compat]", e.message);
+    }
+    try {
+      await orderPixDbCompat.refreshOrderPixColumnSupport();
+    } catch (e) {
+      console.warn("  [order-pix-db-compat]", e.message);
     }
     runStartup();
   })();

@@ -3,6 +3,7 @@
 
 const express = require("express");
 const prisma = require("../lib/db");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const { requireAdminKey } = require("../middleware/auth.middleware");
 const { invalidateCache, listActive } = require("../services/tenant.service");
 
@@ -145,7 +146,10 @@ router.get("/cw-failed", async (req, res) => {
       where,
       orderBy: { createdAt: "desc" },
       take: 50,
-      include: { customer: { select: { name: true, phone: true } } },
+      select: {
+        ...orderPixDbCompat.getOrderScalarSelect(),
+        customer: { select: { name: true, phone: true } },
+      },
     });
 
     res.json(

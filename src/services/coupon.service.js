@@ -33,6 +33,7 @@ async function generateCompensationCoupon({ orderId, type = "borda_gratis", reas
       compensationReason: reason,
       compensationEligible: true,
     },
+    select: { id: true },
   });
   log.info({ orderId, code, type }, "Cupom de compensação gerado");
   return { code };
@@ -45,6 +46,7 @@ async function markCouponSent(orderId) {
   await prisma.order.update({
     where: { id: orderId },
     data: { couponSentAt: new Date() },
+    select: { id: true },
   });
 }
 

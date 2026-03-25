@@ -2,6 +2,7 @@
 // Job que monitora pedidos em em_producao e dispara fluxo de atraso.
 
 const prisma = require("../lib/db");
+const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const log = require("../lib/logger").child({ service: "order-delay-monitor" });
 const { getClients, listActive } = require("./tenant.service");
 const {
@@ -39,7 +40,10 @@ async function processTenant(tenantId) {
       cwOrderId: { not: null },
       status: { in: CW_PROD_STATUSES },
     },
-    include: { customer: true },
+    select: {
+      ...orderPixDbCompat.getOrderScalarSelect(),
+      customer: true,
+    },
   });
 
   const now = Date.now();
@@ -79,6 +83,7 @@ async function processTenant(tenantId) {
         weatherDelayFactor: weatherFactor,
         deliveryRiskLevel: riskLevel,
       },
+      select: { id: true },
     });
 
     const delayAlertSentAt = order.delayAlertSentAt ? new Date(order.delayAlertSentAt).getTime() : 0;
@@ -90,6 +95,7 @@ async function processTenant(tenantId) {
       await prisma.order.update({
         where: { id: order.id },
         data: { delayAlertSentAt: new Date(), attendantAlertSentAt: new Date() },
+        select: { id: true },
       });
       await createAttendantAlert(tenantId, order, timeInProdMin, faixa, riskLevel, weather);
       socketService.emitDelayAlert(tenantId, {
@@ -110,7 +116,11 @@ async function processTenant(tenantId) {
     // 2º alerta: +15 ou 20 min
     if (!order.secondDelayAlertSentAt && now - delayAlertSentAt >= intervalMin * 60 * 1000) {
       await sendSecondAlert(tenantId, order, customerName, phone);
-      await prisma.order.update({ where: { id: order.id }, data: { secondDelayAlertSentAt: new Date() } });
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { secondDelayAlertSentAt: new Date() },
+        select: { id: true },
+      });
       log.info({ orderId: order.id }, "2º alerta de atraso enviado");
       continue;
     }
@@ -122,7 +132,11 @@ async function processTenant(tenantId) {
       now - secondDelayAlertSentAt >= intervalMin * 60 * 1000
     ) {
       await sendThirdAlert(tenantId, order, customerName, phone);
-      await prisma.order.update({ where: { id: order.id }, data: { thirdDelayAlertSentAt: new Date() } });
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { thirdDelayAlertSentAt: new Date() },
+        select: { id: true },
+      });
       log.info({ orderId: order.id }, "3º alerta de atraso enviado");
       continue;
     }
@@ -132,6 +146,7 @@ async function processTenant(tenantId) {
       await prisma.order.update({
         where: { id: order.id },
         data: { deliveryRiskLevel: "prioridade_maxima", watchedByAttendant: "system" },
+        select: { id: true },
       });
       await notifyAttendantPriority(tenantId, order, timeInProdMin, orderRef, customerName, phone);
       socketService.emitDelayAlert(tenantId, {
