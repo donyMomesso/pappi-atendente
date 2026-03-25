@@ -5,7 +5,11 @@
 const express = require("express");
 const prisma = require("../lib/db");
 const { authAdmin, authDash } = require("../middleware/auth.middleware");
-const { getClients, normalizeWaPhoneNumberId, isLikelyPlaceholderWaPhoneNumberId } = require("../services/tenant.service");
+const {
+  getClients,
+  normalizeWaPhoneNumberId,
+  isLikelyPlaceholderWaPhoneNumberId,
+} = require("../services/tenant.service");
 const messageDbCompat = require("../lib/message-db-compat");
 const { setHandoff, releaseHandoff, claimFromQueue, closeConversation } = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
@@ -95,13 +99,12 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
 
   const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
   const useBaileysInstance =
-    replyChannel && replyChannel.startsWith("baileys:")
-      ? replyChannel.replace("baileys:", "")
-      : null;
+    replyChannel && replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
 
   if (useBaileysInstance) {
     const r = await baileys.sendText(normalizedPhone, txt, useBaileysInstance, true);
-    if (!r?.ok) dashLog.warn({ tenantId, instanceId: useBaileysInstance, err: r?.error }, "Falha envio Baileys (painel)");
+    if (!r?.ok)
+      dashLog.warn({ tenantId, instanceId: useBaileysInstance, err: r?.error }, "Falha envio Baileys (painel)");
     return r;
   }
 
@@ -110,7 +113,10 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
   try {
     return await wa.sendText(normalizedPhone, txt);
   } catch (err) {
-    dashLog.warn({ tenantId, phone: normalizedPhone, err: err.message, code: err.code }, "Falha envio Cloud API (painel)");
+    dashLog.warn(
+      { tenantId, phone: normalizedPhone, err: err.message, code: err.code },
+      "Falha envio Cloud API (painel)",
+    );
     throw err;
   }
 }
@@ -409,6 +415,19 @@ router.post("/queue/release", authDash, async (req, res) => {
   try {
     const { customerId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
+
+    // Aprendizado: analisa conversa antes de liberar handoff
+    try {
+      const customer = await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { tenantId: true, phone: true },
+      });
+      if (customer) {
+        const learning = require("../services/bot-learning.service");
+        await learning.analyzeConversation(customer.tenantId, customerId, customer.phone);
+      }
+    } catch {}
+
     await releaseHandoff(customerId);
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
@@ -1037,12 +1056,7 @@ router.post("/send", authDash, async (req, res) => {
 
     if (result && typeof result === "object") {
       waMessageId =
-        result?.messages?.[0]?.id ||
-        result?.message_id ||
-        result?.messageId ||
-        result?.key?.id ||
-        result?.id ||
-        null;
+        result?.messages?.[0]?.id || result?.message_id || result?.messageId || result?.key?.id || result?.id || null;
     }
 
     if (customerId) {
@@ -1370,7 +1384,11 @@ router.get("/meta/status", authDash, async (req, res) => {
     const instagramPageId = map[`${tenantId}:instagram_page_id`] || ENV.INSTAGRAM_PAGE_ID || "";
     const facebookPageId = map[`${tenantId}:facebook_page_id`] || ENV.FACEBOOK_PAGE_ID || "";
     const instagramToken =
-      map[`${tenantId}:instagram_page_token`] || ENV.INSTAGRAM_PAGE_TOKEN || map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
+      map[`${tenantId}:instagram_page_token`] ||
+      ENV.INSTAGRAM_PAGE_TOKEN ||
+      map[`${tenantId}:facebook_page_token`] ||
+      ENV.FACEBOOK_PAGE_TOKEN ||
+      "";
     const facebookToken = map[`${tenantId}:facebook_page_token`] || ENV.FACEBOOK_PAGE_TOKEN || "";
 
     const instagramConnected = !!(instagramPageId && instagramToken);
@@ -1554,10 +1572,7 @@ router.get("/stats/report", authAdmin, async (req, res) => {
     const agg = new Map();
     for (const r of attendantMsgRows) {
       const name = (r.sender || "—").trim() || "—";
-      const email =
-        (r.senderEmail && String(r.senderEmail).trim()) ||
-        emailByName.get(name.toLowerCase()) ||
-        null;
+      const email = (r.senderEmail && String(r.senderEmail).trim()) || emailByName.get(name.toLowerCase()) || null;
       const key = `${name}\t${email || ""}`;
       agg.set(key, (agg.get(key) || 0) + 1);
     }
@@ -1861,10 +1876,11 @@ router.get("/debug", authAdmin, async (req, res) => {
         lastWebhookAt: waT.lastWebhookAt,
         lastResolution: waT.lastResolution,
         savedOnThisTenant: tenant?.waPhoneNumberId || null,
-        savedEqualsLastReceived:
-          !!(normalizeWaPhoneNumberId(tenant?.waPhoneNumberId) &&
-            normalizeWaPhoneNumberId(waT.lastPhoneNumberIdReceived) &&
-            normalizeWaPhoneNumberId(tenant?.waPhoneNumberId) === normalizeWaPhoneNumberId(waT.lastPhoneNumberIdReceived)),
+        savedEqualsLastReceived: !!(
+          normalizeWaPhoneNumberId(tenant?.waPhoneNumberId) &&
+          normalizeWaPhoneNumberId(waT.lastPhoneNumberIdReceived) &&
+          normalizeWaPhoneNumberId(tenant?.waPhoneNumberId) === normalizeWaPhoneNumberId(waT.lastPhoneNumberIdReceived)
+        ),
       },
       recentCustomers,
       baileysStatus: await baileys.getAllStatuses(),
@@ -1896,6 +1912,316 @@ router.post("/whatsapp/send-template", authDash, async (req, res) => {
       ok: true,
       result: await wa.sendTemplate(phone, templateName, languageCode || "pt_BR", components || []),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/analysis — Analista IA do negócio ──────────────
+router.get("/analysis", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const now = new Date();
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const twoWeeksAgo = new Date(today);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const monthAgo = new Date(today);
+    monthAgo.setDate(monthAgo.getDate() - 30);
+
+    const [
+      ordersToday,
+      ordersYesterday,
+      ordersWeek,
+      ordersPrevWeek,
+      ordersMonth,
+      cwFailed,
+      handoffActive,
+      customersTotal,
+      customersWeek,
+      customersMonth,
+      msgsSentWeek,
+      msgsReceivedWeek,
+      _msgsSentPrevWeek,
+      msgsReceivedPrevWeek,
+      topCustomers,
+      recentOrders,
+      hourlyDistribution,
+      paymentMethods,
+      fulfillmentTypes,
+      avgOrderValue,
+      avgOrderValuePrev,
+    ] = await Promise.all([
+      prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: yesterday, lt: today } } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: weekAgo } } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: twoWeeksAgo, lt: weekAgo } } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: monthAgo } } }),
+      prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+      prisma.customer.count({ where: { tenantId } }),
+      prisma.customer.count({ where: { tenantId, createdAt: { gte: weekAgo } } }),
+      prisma.customer.count({ where: { tenantId, createdAt: { gte: monthAgo } } }),
+      prisma.message.count({
+        where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: { gte: weekAgo } },
+      }),
+      prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: { gte: weekAgo } } }),
+      prisma.message.count({
+        where: {
+          customer: { tenantId },
+          role: { in: ["assistant", "attendant"] },
+          createdAt: { gte: twoWeeksAgo, lt: weekAgo },
+        },
+      }),
+      prisma.message.count({
+        where: { customer: { tenantId }, role: "customer", createdAt: { gte: twoWeeksAgo, lt: weekAgo } },
+      }),
+      prisma.customer.findMany({
+        where: { tenantId, visitCount: { gt: 0 } },
+        orderBy: { visitCount: "desc" },
+        take: 10,
+        select: { name: true, phone: true, visitCount: true, lastInteraction: true, preferredPayment: true },
+      }),
+      prisma.order.findMany({
+        where: { tenantId, createdAt: { gte: weekAgo } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          total: true,
+          deliveryFee: true,
+          fulfillment: true,
+          paymentMethodName: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+      prisma.order.findMany({
+        where: { tenantId, createdAt: { gte: weekAgo } },
+        select: { createdAt: true },
+      }),
+      prisma.order.groupBy({
+        by: ["paymentMethodName"],
+        where: { tenantId, createdAt: { gte: monthAgo } },
+        _count: true,
+        _sum: { total: true },
+      }),
+      prisma.order.groupBy({
+        by: ["fulfillment"],
+        where: { tenantId, createdAt: { gte: monthAgo } },
+        _count: true,
+      }),
+      prisma.order.aggregate({
+        where: { tenantId, createdAt: { gte: weekAgo } },
+        _avg: { total: true },
+        _sum: { total: true, deliveryFee: true },
+      }),
+      prisma.order.aggregate({
+        where: { tenantId, createdAt: { gte: twoWeeksAgo, lt: weekAgo } },
+        _avg: { total: true },
+        _sum: { total: true },
+      }),
+    ]);
+
+    // Distribuição por hora
+    const hourMap = new Array(24).fill(0);
+    hourlyDistribution.forEach((o) => {
+      const h = new Date(o.createdAt).getHours();
+      hourMap[h]++;
+    });
+    const peakHour = hourMap.indexOf(Math.max(...hourMap));
+
+    // Variações percentuais
+    const pct = (curr, prev) => (prev === 0 ? (curr > 0 ? 100 : 0) : Math.round(((curr - prev) / prev) * 100));
+    const ordersGrowth = pct(ordersWeek, ordersPrevWeek);
+    const msgsGrowth = pct(msgsReceivedWeek, msgsReceivedPrevWeek);
+    const ticketAvgCurr = avgOrderValue._avg?.total || 0;
+    const ticketAvgPrev = avgOrderValuePrev._avg?.total || 0;
+    const ticketGrowth = pct(ticketAvgCurr, ticketAvgPrev);
+
+    // Taxa de conversão (clientes que fizeram pedido / clientes que interagiram)
+    const activeCustomersWeek = await prisma.customer.count({
+      where: { tenantId, lastInteraction: { gte: weekAgo } },
+    });
+    const conversionRate = activeCustomersWeek > 0 ? Math.round((ordersWeek / activeCustomersWeek) * 100) : 0;
+
+    // Status dos pedidos da semana
+    const statusCounts = {};
+    recentOrders.forEach((o) => {
+      statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
+    });
+
+    // Gerar insights automáticos
+    const insights = [];
+
+    if (ordersGrowth > 20)
+      insights.push({ type: "success", icon: "📈", text: `Pedidos cresceram ${ordersGrowth}% vs semana anterior!` });
+    else if (ordersGrowth < -20)
+      insights.push({
+        type: "warning",
+        icon: "📉",
+        text: `Pedidos caíram ${Math.abs(ordersGrowth)}% vs semana anterior.`,
+      });
+    else
+      insights.push({
+        type: "info",
+        icon: "📊",
+        text: `Pedidos estáveis (${ordersGrowth >= 0 ? "+" : ""}${ordersGrowth}%) vs semana anterior.`,
+      });
+
+    if (ticketAvgCurr > 0) {
+      insights.push({
+        type: ticketGrowth > 0 ? "success" : ticketGrowth < -10 ? "warning" : "info",
+        icon: "💰",
+        text: `Ticket médio: R$ ${ticketAvgCurr.toFixed(2)} (${ticketGrowth >= 0 ? "+" : ""}${ticketGrowth}%).`,
+      });
+    }
+
+    if (cwFailed > 0)
+      insights.push({
+        type: "danger",
+        icon: "🚨",
+        text: `${cwFailed} pedido(s) com falha no CardápioWeb precisam de atenção.`,
+      });
+
+    if (handoffActive > 0)
+      insights.push({
+        type: "warning",
+        icon: "👨‍💼",
+        text: `${handoffActive} cliente(s) na fila esperando atendente humano.`,
+      });
+
+    if (customersWeek > 0)
+      insights.push({ type: "success", icon: "🆕", text: `${customersWeek} novos clientes nos últimos 7 dias.` });
+
+    if (peakHour >= 0)
+      insights.push({
+        type: "info",
+        icon: "⏰",
+        text: `Horário de pico: ${peakHour}h às ${peakHour + 1}h (${hourMap[peakHour]} pedidos na semana).`,
+      });
+
+    if (conversionRate > 0) {
+      insights.push({
+        type: conversionRate > 30 ? "success" : conversionRate < 10 ? "warning" : "info",
+        icon: "🎯",
+        text: `Taxa de conversão: ${conversionRate}% dos clientes ativos fizeram pedido.`,
+      });
+    }
+
+    const responseRate = msgsReceivedWeek > 0 ? Math.round((msgsSentWeek / msgsReceivedWeek) * 100) : 0;
+    insights.push({
+      type: "info",
+      icon: "💬",
+      text: `Taxa de resposta: ${responseRate}% (${msgsSentWeek} enviadas / ${msgsReceivedWeek} recebidas).`,
+    });
+
+    const deliveryPct = fulfillmentTypes.find((f) => f.fulfillment === "delivery");
+    const takeoutPct = fulfillmentTypes.find((f) => f.fulfillment === "takeout");
+    const totalFulfillment = (deliveryPct?._count || 0) + (takeoutPct?._count || 0);
+    if (totalFulfillment > 0) {
+      const dPct = Math.round(((deliveryPct?._count || 0) / totalFulfillment) * 100);
+      insights.push({ type: "info", icon: "🚗", text: `${dPct}% delivery / ${100 - dPct}% retirada no último mês.` });
+    }
+
+    res.json({
+      period: { from: weekAgo.toISOString(), to: now.toISOString() },
+      kpis: {
+        ordersToday,
+        ordersYesterday,
+        ordersWeek,
+        ordersMonth,
+        ordersGrowth,
+        revenueWeek: avgOrderValue._sum?.total || 0,
+        revenueMonth: ordersMonth > 0 ? (avgOrderValue._sum?.total || 0) * (ordersMonth / ordersWeek || 1) : 0,
+        ticketAvg: Math.round(ticketAvgCurr * 100) / 100,
+        ticketGrowth,
+        deliveryFeeTotal: avgOrderValue._sum?.deliveryFee || 0,
+        customersTotal,
+        customersNew7d: customersWeek,
+        customersNew30d: customersMonth,
+        conversionRate,
+        handoffActive,
+        cwFailed,
+        msgsReceived7d: msgsReceivedWeek,
+        msgsSent7d: msgsSentWeek,
+        msgsGrowth,
+        responseRate,
+        peakHour,
+      },
+      hourlyDistribution: hourMap,
+      paymentMethods: paymentMethods.map((p) => ({
+        method: p.paymentMethodName || "Não informado",
+        count: p._count,
+        total: p._sum?.total || 0,
+      })),
+      fulfillmentTypes: fulfillmentTypes.map((f) => ({
+        type: f.fulfillment,
+        count: f._count,
+      })),
+      statusBreakdown: statusCounts,
+      topCustomers: topCustomers.map((c) => ({
+        name: c.name || c.phone,
+        phone: c.phone,
+        orders: c.visitCount,
+        lastSeen: c.lastInteraction,
+        payment: c.preferredPayment,
+      })),
+      insights,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /dash/learning — Aprendizados do bot ─────────────────
+router.get("/learning", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    const data = await learning.getAll(tenantId);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dash/learning/faq — Adicionar FAQ manual ────────────
+router.post("/learning/faq", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
+    const { question, answer } = req.body;
+    if (!question || !answer) return res.status(400).json({ error: "question e answer obrigatórios" });
+    const learning = require("../services/bot-learning.service");
+    await learning.addFaq(tenantId, question, answer);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /dash/learning/faq/:index ──────────────────────────
+router.delete("/learning/faq/:index", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    await learning.deleteFaq(tenantId, parseInt(req.params.index));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /dash/learning/correction/:index ───────────────────
+router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    await learning.deleteCorrection(tenantId, parseInt(req.params.index));
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
