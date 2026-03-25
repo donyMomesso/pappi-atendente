@@ -508,6 +508,13 @@ async function start(instanceId = "default", opts = {}) {
             timer.mark("save_msg");
             require("./socket.service").emitConvUpdate(customer.id);
 
+            // Análise de sentimento automática
+            try {
+              const learning = require("./bot-learning.service");
+              await learning.analyzeMessage(tenantId, customer.phone, customer.name || pushName, text);
+            } catch {}
+            timer.mark("sentiment");
+
             if (isAppend && !recoverySent.has(customer.id)) {
               recoverySent.add(customer.id);
               const recovery = "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";

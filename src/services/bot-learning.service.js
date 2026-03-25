@@ -13,6 +13,7 @@ const KEYS = {
   faq: (tenantId) => `learn:${tenantId}:faq`,
   corrections: (tenantId) => `learn:${tenantId}:corrections`,
   patterns: (tenantId) => `learn:${tenantId}:patterns`,
+  complaints: (tenantId) => `learn:${tenantId}:complaints`,
 };
 
 const MAX_FAQ = 50;
@@ -193,6 +194,80 @@ async function getLearningContext(tenantId, phone) {
   return parts.length > 0 ? parts.join("\n\n") : "";
 }
 
+// ── 4. Reclamações: detectadas por sentimento ─────────────────
+const MAX_COMPLAINTS = 50;
+
+async function recordComplaint(tenantId, phone, customerName, text, tags) {
+  if (!text?.trim()) return;
+
+  const complaints = await _load(KEYS.complaints(tenantId));
+
+  complaints.push({
+    phone,
+    name: customerName || phone,
+    text: text.trim().slice(0, 300),
+    tags,
+    resolved: false,
+    createdAt: new Date().toISOString(),
+  });
+
+  if (complaints.length > MAX_COMPLAINTS) complaints.splice(0, complaints.length - MAX_COMPLAINTS);
+  await _save(KEYS.complaints(tenantId), complaints);
+}
+
+async function resolveComplaint(tenantId, index) {
+  const complaints = await _load(KEYS.complaints(tenantId));
+  if (index >= 0 && index < complaints.length) {
+    complaints[index].resolved = true;
+    complaints[index].resolvedAt = new Date().toISOString();
+    await _save(KEYS.complaints(tenantId), complaints);
+  }
+}
+
+// ── Análise automática em tempo real ──────────────────────────
+// Chamado a cada mensagem do cliente para detectar sentimento.
+
+async function analyzeMessage(tenantId, phone, customerName, text) {
+  try {
+    const sentiment = require("./sentiment.service");
+    const result = sentiment.analyze(text);
+
+    if (result.isComplaint) {
+      await recordComplaint(tenantId, phone, customerName, text, result.tags);
+
+      // Alerta em tempo real
+      try {
+        const socketService = require("./socket.service");
+        socketService.emitAlert({
+          type: "complaint",
+          phone,
+          name: customerName || phone,
+          text: text.slice(0, 100),
+          tags: result.tags,
+          score: result.score,
+          at: new Date().toISOString(),
+        });
+      } catch {}
+
+      try {
+        const baileys = require("./baileys.service");
+        baileys
+          .notify(
+            `🚨 *Reclamação detectada!*\n👤 ${customerName || phone}\n📞 ${phone}\n💬 "${text.slice(0, 80)}"\n🏷️ ${result.tags.join(", ")}`,
+          )
+          .catch(() => {});
+      } catch {}
+
+      console.log(`[Sentiment] ⚠️ Reclamação detectada: ${phone} — "${text.slice(0, 60)}" [${result.tags.join(",")}]`);
+    }
+
+    return result;
+  } catch (err) {
+    console.error("[Learning] analyzeMessage:", err.message);
+    return null;
+  }
+}
+
 // ── Análise automática de conversas para aprendizado ──────────
 // Chamado periodicamente ou no fim de cada conversa.
 
@@ -230,19 +305,23 @@ async function analyzeConversation(tenantId, customerId, _phone) {
 // ── CRUD para admin ───────────────────────────────────────────
 
 async function getAll(tenantId) {
-  const [faq, corrections, patterns] = await Promise.all([
+  const [faq, corrections, patterns, complaints] = await Promise.all([
     _load(KEYS.faq(tenantId)),
     _load(KEYS.corrections(tenantId)),
     _load(KEYS.patterns(tenantId)),
+    _load(KEYS.complaints(tenantId)),
   ]);
   return {
     faq: faq.sort((a, b) => (b.count || 0) - (a.count || 0)),
     corrections,
     patterns: patterns.sort((a, b) => (b.orderCount || 0) - (a.orderCount || 0)),
+    complaints: complaints.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     stats: {
       totalFaq: faq.length,
       totalCorrections: corrections.length,
       totalPatterns: patterns.length,
+      totalComplaints: complaints.filter((c) => !c.resolved).length,
+      totalComplaintsResolved: complaints.filter((c) => c.resolved).length,
     },
   };
 }
@@ -273,6 +352,9 @@ module.exports = {
   learnCustomerPattern,
   getLearningContext,
   analyzeConversation,
+  analyzeMessage,
+  recordComplaint,
+  resolveComplaint,
   getAll,
   deleteFaq,
   deleteCorrection,

@@ -205,6 +205,14 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   // Salva mensagem SEMPRE (mesmo rate limited) — para aparecer no painel
   if (!isEcho && (text || mediaUrl)) {
     await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
+
+    // Análise de sentimento automática
+    if (text) {
+      try {
+        const learning = require("../services/bot-learning.service");
+        await learning.analyzeMessage(tenant.id, phone, customer.name, text);
+      } catch {}
+    }
   }
 
   // Rate limit: bloqueia processamento do bot, mas mensagem já foi salva e aparece no painel
@@ -450,9 +458,7 @@ async function processSocialMessage({ platform, senderId, recipientId, senderNam
         if (r?.error) log.warn({ tenantId, code: r.code, message: r.message }, "Social handoff: falha Facebook");
       }
       baileys
-        .notify(
-          `🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${displayText.slice(0, 60)}`,
-        )
+        .notify(`🔔 *Nova mensagem ${platform}!*\n👤 ${senderName || senderId}\n💬 ${displayText.slice(0, 60)}`)
         .catch(() => {});
 
       const socketService = require("../services/socket.service");

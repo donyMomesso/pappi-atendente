@@ -851,6 +851,12 @@
         <div id="aprendizadoCorrections" style="font-size:13px"></div>
       </div>
 
+      <!-- Reclamações detectadas -->
+      <div style="background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px;border-left:4px solid #ef4444">
+        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:14px">🚨 Reclamações detectadas automaticamente</div>
+        <div id="aprendizadoComplaints" style="font-size:13px"></div>
+      </div>
+
       <!-- Preferências de clientes -->
       <div style="background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
         <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:14px">👤 Preferências de clientes</div>
@@ -1344,6 +1350,16 @@ function initSocket() {
     if (tenantId && tenantId !== TENANT) return;
     fetchStats();
     if (document.getElementById("viewAtrasos")?.style?.display !== "none") loadDelayAlerts();
+  });
+
+  _socket.on("alert", (alert) => {
+    if (alert.type === "complaint") {
+      const notif = document.createElement("div");
+      notif.style.cssText = "position:fixed;top:16px;right:16px;z-index:9999;background:#fee2e2;border:2px solid #ef4444;border-radius:12px;padding:14px 18px;max-width:360px;box-shadow:0 8px 24px rgba(0,0,0,.15);animation:slideIn .3s ease";
+      notif.innerHTML = `<div style="font-weight:700;color:#ef4444;margin-bottom:4px">🚨 Reclamação detectada!</div><div style="font-size:13px;color:#333"><strong>${esc(alert.name)}</strong> (${alert.phone})</div><div style="font-size:12px;color:#666;margin-top:4px">"${esc(alert.text)}"</div><div style="font-size:10px;color:#999;margin-top:4px">${(alert.tags||[]).join(", ")}</div>`;
+      document.body.appendChild(notif);
+      setTimeout(() => notif.remove(), 8000);
+    }
   });
 }
 
@@ -3299,6 +3315,7 @@ async function fetchAprendizado() {
     const cards = [
       { val: data.stats.totalFaq, lbl: "FAQs aprendidas", icon: "💡", color: "#22c55e" },
       { val: data.stats.totalCorrections, lbl: "Correções registradas", icon: "✏️", color: "#f59e0b" },
+      { val: data.stats.totalComplaints || 0, lbl: "Reclamações abertas", icon: "🚨", color: "#ef4444" },
       { val: data.stats.totalPatterns, lbl: "Perfis de clientes", icon: "👤", color: "#6366f1" },
     ];
     statsEl.innerHTML = cards.map(c => `
@@ -3338,6 +3355,25 @@ async function fetchAprendizado() {
     `).join("") : '<div style="color:#aaa">Nenhuma correção registrada. Quando um atendente responder diferente do bot, o sistema captura automaticamente.</div>';
   }
 
+  // Complaints
+  const compEl = document.getElementById("aprendizadoComplaints");
+  if (compEl && data.complaints) {
+    compEl.innerHTML = data.complaints.length ? data.complaints.map((c, i) => `
+      <div style="border-bottom:1px solid #f0f0f0;padding:10px 0;display:flex;align-items:flex-start;gap:10px;${c.resolved?"opacity:.5":""}">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <strong style="color:${c.resolved?"#888":"#333"}">${esc(c.name)}</strong>
+            <span style="font-size:10px;color:#888">${esc(c.phone)}</span>
+            ${c.resolved?'<span style="background:#dcfce7;color:#22c55e;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600">Resolvido</span>':'<span style="background:#fee2e2;color:#ef4444;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600">Aberta</span>'}
+          </div>
+          <div style="color:#ef4444">"${esc(c.text)}"</div>
+          <div style="font-size:10px;color:#aaa;margin-top:2px">${(c.tags||[]).map(t=>'<span style="background:#f5f5f5;padding:1px 5px;border-radius:4px;margin-right:4px">'+t+'</span>').join("")} · ${c.createdAt?new Date(c.createdAt).toLocaleString("pt-BR"):""}</div>
+        </div>
+        ${!c.resolved?`<button onclick="resolveComplaint(${i})" style="background:#dcfce7;color:#22c55e;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;flex-shrink:0;font-weight:600">✅ Resolver</button>`:""}
+      </div>
+    `).join("") : '<div style="color:#aaa">Nenhuma reclamação detectada. O sistema analisa automaticamente cada mensagem do cliente em busca de insatisfação.</div>';
+  }
+
   // Patterns
   if (patEl) {
     patEl.innerHTML = data.patterns.length ? `
@@ -3371,6 +3407,11 @@ async function submitFaq() {
 async function deleteLearningFaq(index) {
   if (!confirm("Remover esta FAQ?")) return;
   await fetch(`${BASE}/learning/faq/${index}?tenant=${TENANT}`, { method: "DELETE", headers: { "x-api-key": API_KEY } });
+  fetchAprendizado();
+}
+
+async function resolveComplaint(index) {
+  await fetch(`${BASE}/learning/complaint/${index}?tenant=${TENANT}`, { method: "PATCH", headers: { "x-api-key": API_KEY } });
   fetchAprendizado();
 }
 

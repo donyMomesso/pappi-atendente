@@ -61,6 +61,11 @@ function getIO() {
   return _io;
 }
 
+function emitAlert(alert) {
+  if (!_io) return;
+  _io.emit("alert", alert);
+}
+
 module.exports = {
   init,
   emitMessage,
@@ -69,5 +74,6 @@ module.exports = {
   emitQueueUpdate,
   emitBaileysDisconnected,
   emitDelayAlert,
+  emitAlert,
   getIO,
 };

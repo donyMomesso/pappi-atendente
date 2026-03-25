@@ -2227,4 +2227,16 @@ router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
   }
 });
 
+// ── PATCH /dash/learning/complaint/:index — resolver reclamação ─
+router.patch("/learning/complaint/:index", authAdmin, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    const learning = require("../services/bot-learning.service");
+    await learning.resolveComplaint(tenantId, parseInt(req.params.index));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
