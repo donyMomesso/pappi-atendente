@@ -72,12 +72,13 @@ async function getClients(tenantId) {
   const tenant = await getTenantById(tenantId);
   if (!tenant) throw new Error(`Tenant não encontrado: ${tenantId}`);
 
+  const ENV = require("../config/env");
   const cw = createCardapioClient({
     tenantId: tenant.id,
-    baseUrl: tenant.cwBaseUrl || "https://integracao.cardapioweb.com",
-    apiKey: tenant.cwApiKey,
-    partnerKey: tenant.cwPartnerKey,
-    storeId: tenant.cwStoreId,
+    baseUrl: tenant.cwBaseUrl || ENV.CARDAPIOWEB_BASE_URL || "https://integracao.cardapioweb.com",
+    apiKey: tenant.cwApiKey || ENV.CARDAPIOWEB_API_KEY || "",
+    partnerKey: tenant.cwPartnerKey || ENV.CARDAPIOWEB_PARTNER_KEY || "",
+    storeId: tenant.cwStoreId || ENV.CARDAPIOWEB_STORE_ID || "",
   });
 
   const token = (tenant.waToken || "").trim();
