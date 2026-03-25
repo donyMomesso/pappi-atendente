@@ -19,6 +19,139 @@ const metaCapi = require("../services/meta-capi.service");
 const { routeByTime } = require("../services/time-routing.service");
 const aviseAbertura = require("../services/avise-abertura.service");
 const { needsDeescalation, detectHumanRequest } = require("../services/deescalation.service");
+const inboxTriage = require("../services/inbox-triage.service");
+const orderIntake = require("../services/order-intake.service");
+
+// ── FASE 3: handlers dedicados (inbox real) ────────────────────
+async function handleHumanHandoff({ tenant, wa, customer, phone, session, message, clear = true } = {}) {
+  const { setHandoff } = require("../services/customer.service");
+  await setHandoff(customer.id, true);
+  await wa.sendText(phone, message || "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
+  await chatMemory.push(customer.id, "bot", message || "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
+  if (clear) await clearSession(tenant.id, phone);
+  require("../services/socket.service").emitQueueUpdate();
+}
+
+async function handleStatusFlow({ wa, phone, customer, tenant } = {}) {
+  // Reaproveita o handler existente (já consulta pedido e responde status)
+  await handleStatusQuery(wa, phone, customer, tenant);
+}
+
+async function handleComplaintFlow({ tenant, wa, customer, phone, session, text } = {}) {
+  session.mode = "COMPLAINT";
+  await saveSession(tenant.id, phone, session);
+  // Tenta localizar último pedido para dar contexto ao atendente
+  try {
+    const prisma = require("../lib/db");
+    const lastOrder = await prisma.order.findFirst({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, createdAt: true },
+    });
+    const ref = lastOrder?.id ? lastOrder.id.slice(-6).toUpperCase() : null;
+    const m =
+      "Sinto muito por isso. Vou chamar um atendente pra resolver com você agora. 👨‍💼" +
+      (ref ? `\n\n📦 Referência: #${ref}` : "");
+    await handleHumanHandoff({ tenant, wa, customer, phone, session, message: m, clear: false });
+    const baileys = require("../services/baileys.service");
+    baileys
+      .notify(
+        `🚨 *Reclamação*\n👤 ${customer.name || phone}\n📞 ${phone}\n` +
+          (ref ? `📦 Pedido: #${ref}\n` : "") +
+          `💬 ${String(text || "").slice(0, 200)}`,
+      )
+      .catch(() => {});
+  } catch {
+    await handleHumanHandoff({
+      tenant,
+      wa,
+      customer,
+      phone,
+      session,
+      message: "Sinto muito por isso. Vou chamar um atendente pra resolver com você agora. 👨‍💼",
+      clear: false,
+    });
+  }
+}
+
+async function handleFaqFlow({ tenant, wa, customer, phone, session, text, cw } = {}) {
+  session.mode = "FAQ";
+  await saveSession(tenant.id, phone, session);
+  const t = String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  // Cardápio
+  if (t.includes("cardapio") || t.includes("cardápio") || t.includes("menu")) {
+    const merchant = await cw.getMerchant().catch(() => null);
+    const url = merchant?.url || merchant?.website || "";
+    const m = url ? `📱 Cardápio: ${url}` : "Me diga o que deseja e eu te ajudo a montar o pedido! 😊";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
+  // Formas de pagamento
+  if (t.includes("pagamento") || t.includes("pix") || t.includes("cartao") || t.includes("cartão") || t.includes("dinheiro")) {
+    const m = `💳 Formas de pagamento:\n\n${listPayments(tenant.id)}`;
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
+  // Taxa / entrega (resposta informativa sem prometer valor exato sem endereço)
+  if (t.includes("taxa") || t.includes("entrega") || t.includes("delivery")) {
+    const m =
+      "🛵 Fazemos entrega sim.\n\nA *taxa* depende do endereço (CEP ou localização 📍). Se quiser, me envie seu CEP que eu calculo certinho.";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
+  // Horário (usa time-routing para responder “aberto/fechado” sem entrar no funil)
+  if (t.includes("horario") || t.includes("horário") || t.includes("aberto") || t.includes("fecha") || t.includes("funciona")) {
+    const slot = routeByTime();
+    const m = slot?.isOpen ? "✅ Estamos abertos agora." : (slot?.message || "No momento estamos fechados.");
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
+  // Fallback FAQ gentil
+  const m = "Claro! Me diz sua dúvida em uma frase (ex.: taxa, horário, pagamento, sabores, tamanho).";
+  await wa.sendText(phone, m);
+  await chatMemory.push(customer.id, "bot", m);
+}
+
+async function handleDriverFlow({ tenant, wa, customer, phone, session, text } = {}) {
+  session.mode = "DRIVER";
+  await saveSession(tenant.id, phone, session);
+  const m = "Recebido ✅ Obrigado! Se puder, me passe o número do pedido (#XXXXXX) ou o nome/telefone do cliente.";
+  await wa.sendText(phone, m);
+  await chatMemory.push(customer.id, "bot", m);
+  // Notifica interno (sem entrar no funil comercial)
+  try {
+    const baileys = require("../services/baileys.service");
+    baileys.notify(`🚗 *Operação/Motoboy*\n📞 ${phone}\n💬 ${String(text || "").slice(0, 200)}`).catch(() => {});
+  } catch {}
+}
+
+async function handleFallbackTriage({ tenant, wa, customer, phone, session } = {}) {
+  const now = Date.now();
+  const lastAt = session._lastTriagePromptAt || 0;
+  if (now - lastAt < 60 * 1000) return; // anti-repetição
+  session._lastTriagePromptAt = now;
+  const m = "Como posso te ajudar? Escolha uma opção 👇";
+  await wa.sendButtons(phone, m, [
+    { id: "TRIAGE_NEW_ORDER", title: "🍕 Fazer pedido" },
+    { id: "TRIAGE_STATUS", title: "📦 Status do pedido" },
+    { id: "TRIAGE_MENU", title: "📱 Cardápio" },
+    { id: "TRIAGE_HUMAN", title: "👩‍💼 Atendente" },
+  ]);
+  await chatMemory.push(customer.id, "bot", m);
+  await saveSession(tenant.id, phone, session);
+}
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
 async function getSession(tenantId, phone) {
@@ -72,6 +205,9 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
 
+  // FASE 1: mode (tipo de conversa) separado do step (etapa interna)
+  if (!session.mode) session.mode = "TRIAGE";
+
   const t = text
     .toLowerCase()
     .normalize("NFD")
@@ -79,12 +215,9 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
 
   // Atendente/humano: handoff imediato
   if (detectHumanRequest(text)) {
-    const { setHandoff } = require("../services/customer.service");
-    await setHandoff(customer.id, true);
-    await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
-    await chatMemory.push(customer.id, "bot", "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
-    await clearSession(tenant.id, phone);
-    require("../services/socket.service").emitQueueUpdate();
+    session.mode = "HUMAN";
+    await saveSession(tenant.id, phone, session);
+    await handleHumanHandoff({ tenant, wa, customer, phone, session });
     return;
   }
 
@@ -115,12 +248,9 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   // Resposta aos botões de deescalation
   if (session.step === "DEESCALATION") {
     if (text === "HELP_HUMAN" || t.includes("atendente")) {
-      const { setHandoff } = require("../services/customer.service");
-      await setHandoff(customer.id, true);
-      await wa.sendText(phone, "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
-      await chatMemory.push(customer.id, "bot", "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
-      await clearSession(tenant.id, phone);
-      require("../services/socket.service").emitQueueUpdate();
+      session.mode = "HUMAN";
+      await saveSession(tenant.id, phone, session);
+      await handleHumanHandoff({ tenant, wa, customer, phone, session });
       return;
     }
     if (text === "HELP_BOT" || t.includes("continuar")) {
@@ -191,7 +321,9 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
     t.includes("rastreio") ||
     t.includes("andamento")
   ) {
-    await handleStatusQuery(wa, phone, customer, tenant);
+    session.mode = "STATUS";
+    await saveSession(tenant.id, phone, session);
+    await handleStatusFlow({ wa, phone, customer, tenant, session });
     return;
   }
 
@@ -231,6 +363,109 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   }
   if (!storeOpen && closedAsLead) {
     session.isLeadOrder = true;
+  }
+
+  // ── TRIAGEM ANTES DO FUNIL ──────────────────────────────────
+  // Evita entrar cedo em "pizza ou lasanha" quando for status/reclamação/humano/etc.
+  try {
+    const tri = inboxTriage.triage({ text, session });
+    const now = Date.now();
+
+    if (tri.intent === "HUMAN") {
+      session.mode = "HUMAN";
+      await saveSession(tenant.id, phone, session);
+      await handleHumanHandoff({ tenant, wa, customer, phone, session });
+      return;
+    }
+    if (tri.intent === "ORDER_STATUS") {
+      session.mode = "STATUS";
+      await saveSession(tenant.id, phone, session);
+      await handleStatusFlow({ wa, phone, customer, tenant, session });
+      return;
+    }
+    if (tri.intent === "MENU") {
+      await handleFaqFlow({ tenant, wa, customer, phone, session, text, cw });
+      return;
+    }
+    if (tri.intent === "COMPLAINT") {
+      await handleComplaintFlow({ tenant, wa, customer, phone, session, text });
+      return;
+    }
+    if (tri.intent === "DRIVER") {
+      await handleDriverFlow({ tenant, wa, customer, phone, session, text });
+      return;
+    }
+
+    // Se está em triagem e a mensagem não parece pedido, evita disparar o funil.
+    const earlySteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"];
+    if (session.mode === "TRIAGE" && earlySteps.includes(session.step) && tri.intent === "OTHER") {
+      if (!tri.shouldWaitMore) {
+        await handleFallbackTriage({ tenant, wa, customer, phone, session });
+        return;
+      } // se shouldWaitMore, fica silencioso (buffer já consolida)
+    }
+
+    if (tri.intent === "NEW_ORDER") session.mode = "ORDER";
+  } catch {
+    // triagem falhou → segue fluxo atual
+  }
+
+  // ── FASE 2: Intake de pedido (pré-preenche sessão; não muda integração CW) ──
+  try {
+    if (session.mode === "ORDER") {
+      // Garante catálogo/tamanhos em sessão para detectar size no texto
+      if (!session.catalog || !session.sizeOptions) {
+        try {
+          const rawCatalog = await cw.getCatalog();
+          const fullCatalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
+          if (fullCatalog) {
+            session.catalog = fullCatalog;
+            const productType = session.productType || "pizza";
+            const { catalog: filteredCatalog, sizes } = filterCatalogByProductType(fullCatalog, productType);
+            session.filteredCatalog = filteredCatalog;
+            session.sizeOptions = sizes;
+          }
+        } catch {}
+      }
+
+      const intake = orderIntake.intake({ text, sizeOptions: session.sizeOptions || [] });
+      if (intake?.productType && !session.productType) session.productType = intake.productType;
+      if (intake?.fulfillment && !session.fulfillment) session.fulfillment = intake.fulfillment;
+      if (intake?.size && !session.chosenSize) session.chosenSize = intake.size;
+
+      // Se já identificou entrega/retirada no texto, reaproveita o handler atual (endereço / startOrdering)
+      if (intake?.fulfillment && session.step === "FULFILLMENT") {
+        await handleFulfillment(wa, cw, phone, intake.fulfillment === "delivery" ? "delivery" : "takeout", t, session, customer, tenant);
+        await saveSession(tenant.id, phone, session);
+        return;
+      }
+
+      // Se já estamos perguntando tamanho e ele veio no texto, não repete pergunta
+      if (session.step === "ASK_SIZE" && intake?.size) {
+        await handleAskSize(wa, cw, phone, `size_${intake.size}`, session, customer, tenant);
+        await saveSession(tenant.id, phone, session);
+        return;
+      }
+
+      // Se a mensagem já tem itens (pedido veio “de uma vez”), pula o prompt genérico e deixa o fluxo vencedor interpretar
+      const early = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT", "ASK_SIZE"];
+      if (intake?.isOrder && intake?.confidence >= 0.7 && intake?.missing && intake.missing.length <= 3) {
+        // Se ainda não entrou em ordering, tenta iniciar (sem repetir ASK_SIZE se chosenSize já foi detectado)
+        if (session.fulfillment && early.includes(session.step)) {
+          await startOrdering(wa, cw, phone, session, customer, tenant);
+          await saveSession(tenant.id, phone, session);
+          // Se já caiu em ORDERING, manda o texto direto para o interpretador existente (AI+catálogo)
+          if (session.step === "ORDERING" && intake?.isOrder) {
+            await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
+            await saveSession(tenant.id, phone, session);
+            return;
+          }
+          return;
+        }
+      }
+    }
+  } catch {
+    // intake falhou → segue fluxo atual
   }
 
   // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
@@ -276,28 +511,19 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       const intent = await ai.classifyIntent(text);
       timer?.mark("classifyIntent");
       if (intent === "STATUS") {
-        await handleStatusQuery(wa, phone, customer, tenant);
+        session.mode = "STATUS";
+        await saveSession(tenant.id, phone, session);
+        await handleStatusFlow({ wa, phone, customer, tenant, session });
         return;
       }
       if (intent === "CARDAPIO") {
-        const merchant = await cw.getMerchant().catch(() => null);
-        const url = merchant?.url || merchant?.website || "";
-        const m = url
-          ? `📱 Confira nosso cardápio completo: ${url}`
-          : "Me diga o que deseja e eu te ajudo a montar o pedido! 😊";
-        await wa.sendText(phone, m);
-        await chatMemory.push(customer.id, "bot", m);
+        await handleFaqFlow({ tenant, wa, customer, phone, session, text, cw });
         return;
       }
       if (intent === "HANDOFF") {
-        const { setHandoff } = require("../services/customer.service");
-        await setHandoff(customer.id, true);
-        const m = "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼";
-        await wa.sendText(phone, m);
-        await chatMemory.push(customer.id, "bot", m);
-        await clearSession(tenant.id, phone);
-        const socketService = require("../services/socket.service");
-        socketService.emitQueueUpdate();
+        session.mode = "HUMAN";
+        await saveSession(tenant.id, phone, session);
+        await handleHumanHandoff({ tenant, wa, customer, phone, session });
         return;
       }
     } catch {}
@@ -841,6 +1067,24 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
     return;
   }
 
+  // FASE 2: se já detectamos tamanho no intake, não perguntar novamente.
+  if (session.chosenSize && sizes.some((s) => String(s).toLowerCase() === String(session.chosenSize).toLowerCase())) {
+    session.step = "ORDERING";
+    session.orderHistory = [];
+    metaCapi.trackViewContent({ customer, tenantName: _tenant?.name }).catch(() => {});
+    const isVip = (customer.visitCount || 0) > 0;
+    const last = customer.lastOrderSummary;
+    const m =
+      isVip && last
+        ? `Me diz o sabor 🍕\n_(da última vez: ${last})_\n\nQuer o mesmo ou vai mudar?`
+        : productType === "lasanha"
+          ? `Qual sabor de lasanha? 🍝`
+          : `Me diz o sabor da pizza 🍕\n_(ou meia a meia: ex: meia Calabresa meia Frango)_`;
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
   session.step = "ASK_SIZE";
   const tipo = productType === "lasanha" ? "lasanha" : "pizza";
   const m = `${prefix}Qual tamanho de ${tipo}? Escolha uma opção 👇`;
@@ -980,7 +1224,8 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   const { calculate } = require("../calculators/OrderCalculator");
   const baileys = require("../services/baileys.service");
 
-  const calc = session.calc || calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
+  // Recalcula totais SEMPRE (itens + taxa + desconto)
+  let calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
   const isLead = !!session.isLeadOrder;
 
   let cwResponse = null,
@@ -988,8 +1233,108 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
     cwSuccess = false;
   let cwPayload = null;
 
+  // Delivery: valida pré-requisitos operacionais (não envia CW sem endereço completo + coords + CEP)
+  if (session.fulfillment === "delivery") {
+    const a = session.address || null;
+    const cep = (a?.zipCode || "").replace(/\D/g, "");
+    const hasCoords = Number.isFinite(a?.lat) && Number.isFinite(a?.lng) && !!a?.lat && !!a?.lng;
+    const ok =
+      cep.length === 8 &&
+      hasCoords &&
+      (a?.street || "").trim() &&
+      (a?.number || "").trim() &&
+      (a?.neighborhood || "").trim() &&
+      (a?.city || "").trim() &&
+      (a?.state || "").trim();
+
+    if (!ok) {
+      session.step = "ADDRESS";
+      await wa.sendText(
+        phone,
+        "⚠️ Pra entrega eu preciso do endereço completo (CEP + rua + número + bairro) e sua localização/coords pra calcular a taxa. Pode me mandar o endereço certinho? 📍",
+      );
+      await saveSession(tenant.id, phone, session);
+      return;
+    }
+
+    // Recalcular delivery_fee baseado em coords (fonte mestre: CW)
+    try {
+      const fee = await cw.getDeliveryFee({ lat: a.lat, lng: a.lng });
+      if (Number.isFinite(fee) && fee >= 0) {
+        session.deliveryFee = fee;
+        calc = calculate({ items: session.cart, deliveryFee: fee, discount: session.discount || 0 });
+      }
+    } catch {}
+  }
+
+  // Monta payload final CW (contrato preservado) e garante consistência totals/payments
   if (!isLead) {
     cwPayload = buildCwPayload({ session, customer, calc });
+    cwPayload.totals.order_amount = calc.expectedTotal;
+    cwPayload.totals.delivery_fee = calc.deliveryFee;
+    if (Array.isArray(cwPayload.payments) && cwPayload.payments[0]) cwPayload.payments[0].total = cwPayload.totals.order_amount;
+  } else {
+    // Pedido feito quando fechado (fluxo lead) — não envia ao CW, alerta operador
+    const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
+    baileys
+      .notify(
+        `📝 *Novo pedido LEAD* (loja fechada)\n👤 ${orderRef}\n${cartSummary(session.cart)}\n\nEntre em contato quando abrir!`,
+      )
+      .catch(() => {});
+  }
+
+  const idempotencyKey = `${customer.id}:${Date.now()}`;
+  // PIX: cria cobrança, salva pedido pendente, NÃO envia ao CW aqui
+  const isPix = /pix/i.test(String(session.paymentMethodName || "")) || /pix/i.test(String(session.paymentMethodId || ""));
+  let pixTxid = null;
+  let pixCopiaECola = null;
+
+  if (!isLead && isPix) {
+    pixTxid = randomUUID().replace(/-/g, "").slice(0, 32);
+    try {
+      const interPix = require("../services/inter-pix.service");
+      const r = await interPix.createCob({
+        txid: pixTxid,
+        amount: calc.expectedTotal,
+        payerName: customer.name || "Cliente",
+        message: `Pedido Pappi (${customer.phone || ""})`,
+      });
+      pixCopiaECola = r?.copiaECola || null;
+      // guarda raw no cwResponse (campo já existente) para debug — sem mudar contrato CW
+      cwResponse = { pix: { txid: pixTxid, copiaECola: pixCopiaECola, raw: r?.raw || null } };
+    } catch (err) {
+      console.error(`[${tenant.id}] Erro ao gerar PIX Inter:`, err.message);
+      // Fallback: mantém pedido pendente mesmo sem copia/cola (operador pode cobrar manualmente)
+      cwResponse = { pix: { txid: pixTxid, error: err.message } };
+    }
+  }
+
+  const { order } = await createWithIdempotency({
+    tenantId: tenant.id,
+    customerId: customer.id,
+    idempotencyKey,
+    items: session.cart,
+    total: calc.expectedTotal,
+    deliveryFee: calc.deliveryFee,
+    fulfillment: session.fulfillment,
+    address: session.address,
+    paymentMethodId: session.paymentMethodId,
+    paymentMethodName: session.paymentMethodName,
+    cwOrderId: isLead || isPix ? null : cwOrderId,
+    cwPayload: isLead ? null : cwPayload,
+    cwResponse: isLead ? null : cwResponse,
+    status: isLead ? "lead" : isPix ? "pix_pending" : undefined,
+  });
+
+  if (pixTxid) {
+    await require("../lib/db").order.update({
+      where: { id: order.id },
+      data: { pixTxid, pixStatus: "pending" },
+    });
+  }
+
+  // Cartão/dinheiro: envia direto ao CW (como antes). PIX: só envia após webhook.
+  if (!isLead && !isPix) {
     try {
       cwResponse = await cw.createOrder(cwPayload);
       cwOrderId = cwResponse?.id || cwResponse?.order_id;
@@ -1003,33 +1348,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
         )
         .catch(() => {});
     }
-  } else {
-    // Pedido feito quando fechado (fluxo lead) — não envia ao CW, alerta operador
-    const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
-    baileys
-      .notify(
-        `📝 *Novo pedido LEAD* (loja fechada)\n👤 ${orderRef}\n${cartSummary(session.cart)}\n\nEntre em contato quando abrir!`,
-      )
-      .catch(() => {});
   }
-
-  const idempotencyKey = `${customer.id}:${Date.now()}`;
-  const { order } = await createWithIdempotency({
-    tenantId: tenant.id,
-    customerId: customer.id,
-    idempotencyKey,
-    items: session.cart,
-    total: calc.expectedTotal,
-    deliveryFee: calc.deliveryFee,
-    fulfillment: session.fulfillment,
-    address: session.address,
-    paymentMethodId: session.paymentMethodId,
-    paymentMethodName: session.paymentMethodName,
-    cwOrderId: isLead ? null : cwOrderId,
-    cwPayload: isLead ? null : cwPayload,
-    cwResponse: isLead ? null : cwResponse,
-    status: isLead ? "lead" : undefined,
-  });
 
   if (cwOrderId) await setCwOrderId(order.id, cwOrderId, cwResponse);
   await recordOrder(customer.id, cartSummary(session.cart), session.paymentMethodName);
@@ -1065,6 +1384,14 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   let m;
   if (isLead) {
     m = `✅ *Pedido #${orderNum} anotado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n\nEntraremos em contato quando abrirmos. Obrigado! 🍕`;
+  } else if (isPix) {
+    m =
+      `💸 *PIX gerado — Pedido #${orderNum}*\n\n` +
+      `${cartSummary(session.cart)}\n` +
+      `Total: R$ ${calc.expectedTotal.toFixed(2)}\n\n` +
+      (pixCopiaECola
+        ? `📌 *Copia e cola:*\n${pixCopiaECola}\n\nAssim que confirmar o pagamento, seu pedido será enviado e você recebe a confirmação aqui. ✅`
+        : `Envie o PIX e responda aqui “pago” se precisar de ajuda. Assim que o webhook confirmar, enviamos ao sistema. ✅`);
   } else if (cwSuccess) {
     const previsao = session.fulfillment === "takeout" ? "30 a 40 min" : "60 min";
     m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: ${previsao}\n\nObrigado! 🍕`;

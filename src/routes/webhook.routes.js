@@ -18,6 +18,7 @@ const chatMemory = require("../services/chat-memory.service");
 const baileys = require("../services/baileys.service");
 const metaSocial = require("../services/meta-social.service");
 const metaTelemetry = require("../lib/meta-telemetry");
+const messageBuffer = require("../services/message-buffer.service");
 const { requireAdminKey } = require("../middleware/auth.middleware");
 const { checkWebhook } = require("../lib/rate-limiter");
 const { transcribeAudio } = require("../services/audio-transcribe.service");
@@ -276,7 +277,19 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   }
 
   const { handle } = require("./bot.handler");
-  await handle({ tenant, wa, customer, msg, text, phone });
+  const windowMs = messageBuffer.decideWindowMs({ kind: msg?.type });
+  messageBuffer.enqueue({
+    tenantId: tenant.id,
+    phone,
+    channel: "cloud",
+    text,
+    meta: { kind: msg?.type || "text" },
+    windowMs,
+    onFlush: async ({ combinedText }) => {
+      if (!combinedText) return;
+      await handle({ tenant, wa, customer, msg, text: combinedText, phone });
+    },
+  });
 }
 
 async function processStatus({ status }) {

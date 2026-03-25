@@ -16,7 +16,8 @@ async function processQueue() {
     const failedOrders = await prisma.order.findMany({
       where: {
         cwOrderId: null,
-        status: { notIn: ["cancelled", "delivered", "cw_failed", "lead"] },
+        // pix_pending: só deve enviar ao CW após confirmação do webhook PIX
+        status: { notIn: ["cancelled", "delivered", "cw_failed", "lead", "pix_pending"] },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: "asc" },

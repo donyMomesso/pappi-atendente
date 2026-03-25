@@ -128,6 +128,7 @@ app.get("/status", (_req, res) => res.sendFile(path.join(__dirname, "../public/s
 // Rotas
 app.use("/auth", require("./routes/auth.routes"));
 app.use("/", webhookRoutes);
+app.use("/", require("./routes/pix.routes"));
 app.use("/orders", ordersRoutes);
 app.use("/internal", internalRoutes);
 app.use("/admin/users", require("./routes/admin-users.routes"));

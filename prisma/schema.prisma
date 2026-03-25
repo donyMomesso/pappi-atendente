@@ -86,6 +86,9 @@ model Order {
   cwOrderId                  String?          @unique
   cwPayload                  String?
   cwResponse                 String?
+  pixTxid                    String?          @unique
+  pixE2eId                   String?
+  pixStatus                  String?
   createdAt                  DateTime         @default(now()) @db.Timestamptz(6)
   updatedAt                  DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
   cardapiowebStatus          String?

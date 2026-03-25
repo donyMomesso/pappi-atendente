@@ -13,6 +13,7 @@ const prisma = require("../lib/db");
 const messageDbCompat = require("../lib/message-db-compat");
 const ENV = require("../config/env");
 const log = require("../lib/logger").child({ service: "baileys" });
+const messageBuffer = require("./message-buffer.service");
 
 function instanceConfigKey(instanceId) {
   const env = ENV.APP_ENV || "local";
@@ -566,13 +567,29 @@ async function start(instanceId = "default", opts = {}) {
                 };
 
                 log.debug({ instanceId, phone }, "Chamando bot.handle");
-                await botHandler.handle({
-                  tenant,
-                  wa,
-                  customer,
-                  text,
+                const isFast =
+                  /^(delivery|takeout|confirm_addr|change_addr|confirmar|cancelar|avise_abertura)$/i.test(
+                    String(text || "").trim(),
+                  );
+                const windowMs = isFast ? messageBuffer.FAST_WINDOW_MS : messageBuffer.DEFAULT_WINDOW_MS;
+                messageBuffer.enqueue({
+                  tenantId,
                   phone: customer.phone,
-                  timer,
+                  channel: `baileys:${instanceId}`,
+                  text,
+                  meta: { kind: isFast ? "interactive" : "text" },
+                  windowMs,
+                  onFlush: async ({ combinedText }) => {
+                    if (!combinedText) return;
+                    await botHandler.handle({
+                      tenant,
+                      wa,
+                      customer,
+                      text: combinedText,
+                      phone: customer.phone,
+                      timer,
+                    });
+                  },
                 });
                 timer.mark("bot_handle");
                 require("./socket.service").emitConvUpdate(customer.id);
