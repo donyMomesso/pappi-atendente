@@ -1599,6 +1599,108 @@ router.get("/stats/report", authAdmin, async (req, res) => {
   }
 });
 
+// ── GET /dash/stats/report-range ───────────────────────────────
+// Relatório por intervalo de datas (YYYY-MM-DD). 'to' é inclusivo.
+router.get("/stats/report-range", authAdmin, async (req, res) => {
+  try {
+    const tenantId = resolveTenant(req);
+    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+
+    const fromRaw = String(req.query.from || "").trim();
+    const toRaw = String(req.query.to || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromRaw) || !/^\d{4}-\d{2}-\d{2}$/.test(toRaw)) {
+      return res.status(400).json({ error: "from/to inválidos (use YYYY-MM-DD)" });
+    }
+
+    const from = new Date(`${fromRaw}T00:00:00.000Z`);
+    const toInclusive = new Date(`${toRaw}T00:00:00.000Z`);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(toInclusive.getTime())) {
+      return res.status(400).json({ error: "from/to inválidos" });
+    }
+    // toExclusive = dia seguinte 00:00Z
+    const toExclusive = new Date(toInclusive.getTime() + 24 * 60 * 60 * 1000);
+    if (toExclusive < from) return res.status(400).json({ error: "intervalo inválido (to < from)" });
+
+    const msgOk = messageDbCompat.isMessagesTableAvailable();
+    const dateWhere = { gte: from, lt: toExclusive };
+
+    const [
+      msgSent,
+      msgReceived,
+      orders,
+      uniqueCustomers,
+      handoffs,
+      handoffsOpen,
+      topCustomers,
+      cwFailed,
+      attendantMsgRows,
+      attendantsCfg,
+    ] = await Promise.all([
+      msgOk
+        ? prisma.message.count({
+            where: { customer: { tenantId }, role: { in: ["assistant", "attendant"] }, createdAt: dateWhere },
+          })
+        : Promise.resolve(0),
+      msgOk
+        ? prisma.message.count({ where: { customer: { tenantId }, role: "customer", createdAt: dateWhere } })
+        : Promise.resolve(0),
+      prisma.order.count({ where: { tenantId, createdAt: dateWhere } }),
+      prisma.customer.count({ where: { tenantId, lastInteraction: dateWhere } }),
+      prisma.customer.count({ where: { tenantId, handoffAt: dateWhere } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+      prisma.customer.findMany({
+        where: { tenantId, visitCount: { gt: 0 } },
+        orderBy: { visitCount: "desc" },
+        take: 5,
+        select: { name: true, phone: true, visitCount: true },
+      }),
+      prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
+      msgOk
+        ? prisma.message.findMany({
+            where: { customer: { tenantId }, role: "attendant", createdAt: dateWhere },
+            select: {
+              sender: true,
+              ...(messageDbCompat.hasMessageSenderEmailColumn() ? { senderEmail: true } : {}),
+            },
+          })
+        : Promise.resolve([]),
+      prisma.config.findUnique({ where: { key: `${tenantId}:attendants` } }),
+    ]);
+
+    const emailByName = attendantsConfig.emailByNameMap(
+      attendantsConfig.normalizeAttendantsList(attendantsConfig.parseAttendantsJson(attendantsCfg?.value)),
+    );
+    const agg = new Map();
+    for (const r of attendantMsgRows) {
+      const name = (r.sender || "—").trim() || "—";
+      const email = (r.senderEmail && String(r.senderEmail).trim()) || emailByName.get(name.toLowerCase()) || null;
+      const key = `${name}\t${email || ""}`;
+      agg.set(key, (agg.get(key) || 0) + 1);
+    }
+    const attendantMessages = [...agg.entries()].map(([k, count]) => {
+      const [name, email] = k.split("\t");
+      return { name, email: email || null, count };
+    });
+    attendantMessages.sort((a, b) => b.count - a.count);
+
+    res.json({
+      range: { from: fromRaw, to: toRaw },
+      msgSent,
+      msgReceived,
+      orders,
+      uniqueCustomers,
+      handoffs,
+      handoffsClosed: handoffs - handoffsOpen,
+      handoffsOpen,
+      topCustomers,
+      cwFailed,
+      attendantMessages,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Demais rotas de Google Contacts, Baileys, Retention, etc. ─
 
 router.get("/google-contacts/auth-url", authAdmin, (_req, res) => res.json({ url: googleContacts.getAuthUrl() }));

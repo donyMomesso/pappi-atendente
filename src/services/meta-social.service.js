@@ -33,6 +33,34 @@ async function getTenantSocialConfig(tenantId) {
   };
 }
 
+function extractFirstAttachment(msg) {
+  const a = msg?.attachments?.[0] || null;
+  const type = a?.type && typeof a.type === "string" ? a.type : null;
+  const url = a?.payload?.url && typeof a.payload.url === "string" ? a.payload.url : null;
+  return { type, url };
+}
+
+async function resolveSenderName({ platform, senderId, tenantId }) {
+  try {
+    const cfg = await getTenantSocialConfig(tenantId);
+    const token =
+      platform === "instagram"
+        ? (cfg.instagramPageToken || cfg.facebookPageToken || "").trim()
+        : (cfg.facebookPageToken || "").trim();
+    if (!token) return null;
+
+    const res = await fetch(`${GRAPH}/${encodeURIComponent(String(senderId))}?fields=name`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const name = typeof data?.name === "string" ? data.name.trim() : "";
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveTenantId({ platform, recipientId, senderId }) {
   const socialId = `${platform}:${senderId}`;
 
@@ -237,8 +265,8 @@ function parseInstagramWebhook(body) {
         const rawText =
           msg?.text?.body ?? msg?.text ?? (typeof msg?.text === "string" ? msg.text : "") ?? "";
         const text = typeof rawText === "string" ? rawText.trim() : "";
-        const attachmentType = msg?.attachments?.[0]?.type || null;
-        const safeAttachment = attachmentType && typeof attachmentType === "string" ? attachmentType : null;
+        const att = extractFirstAttachment(msg);
+        const safeAttachment = att.type;
 
         const senderId = String(value.sender?.id || msg?.from?.id || msg?.from || "");
         if (!senderId) continue;
@@ -250,6 +278,7 @@ function parseInstagramWebhook(body) {
           senderName: value.contacts?.[0]?.profile?.name || null,
           text,
           attachmentType: safeAttachment,
+          attachmentUrl: att.url,
           timestamp: value.timestamp || msg?.timestamp || entry?.time || Date.now(),
         });
       }
@@ -259,8 +288,8 @@ function parseInstagramWebhook(body) {
     for (const event of entry.messaging || []) {
       const rawText = event.message?.text ?? "";
       const text = typeof rawText === "string" ? rawText.trim() : "";
-      const attachmentType = event.message?.attachments?.[0]?.type || null;
-      const safeAttachment = attachmentType && typeof attachmentType === "string" ? attachmentType : null;
+      const att = extractFirstAttachment(event.message);
+      const safeAttachment = att.type;
 
       const senderId = String(event.sender?.id || "");
       if (!senderId) continue;
@@ -272,12 +301,13 @@ function parseInstagramWebhook(body) {
         senderName: null,
         text,
         attachmentType: safeAttachment,
+        attachmentUrl: att.url,
         timestamp: event.timestamp || entry?.time || Date.now(),
       });
     }
   }
 
-  return out.filter((m) => m.senderId && (m.text || m.attachmentType));
+  return out.filter((m) => m.senderId && (m.text || m.attachmentType || m.attachmentUrl));
 }
 
 function parseFacebookWebhook(body) {
@@ -287,8 +317,8 @@ function parseFacebookWebhook(body) {
     for (const event of entry.messaging || []) {
       const rawText = event.message?.text ?? "";
       const text = typeof rawText === "string" ? rawText.trim() : "";
-      const attachmentType = event.message?.attachments?.[0]?.type || null;
-      const safeAttachment = attachmentType && typeof attachmentType === "string" ? attachmentType : null;
+      const att = extractFirstAttachment(event.message);
+      const safeAttachment = att.type;
 
       const senderId = String(event.sender?.id || "");
       if (!senderId) continue;
@@ -300,12 +330,13 @@ function parseFacebookWebhook(body) {
         senderName: null,
         text,
         attachmentType: safeAttachment,
+        attachmentUrl: att.url,
         timestamp: event.timestamp || entry?.time || Date.now(),
       });
     }
   }
 
-  return out.filter((m) => m.senderId && (m.text || m.attachmentType));
+  return out.filter((m) => m.senderId && (m.text || m.attachmentType || m.attachmentUrl));
 }
 
 function parseWebhook(body) {
@@ -325,4 +356,5 @@ module.exports = {
   parseWebhook,
   resolveTenantId,
   getTenantSocialConfig,
+  resolveSenderName,
 };

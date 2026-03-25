@@ -408,12 +408,12 @@ function isHandoffTrigger(text) {
 
 // ── Instagram / Facebook Messenger ───────────────────────────
 
-async function processSocialMessage({ platform, senderId, recipientId, senderName, text, attachmentType }) {
+async function processSocialMessage({ platform, senderId, recipientId, senderName, text, attachmentType, attachmentUrl }) {
   if (!senderId) return;
 
   const txt = text && typeof text === "string" ? text.trim() : "";
   const attachLabel = attachmentType && typeof attachmentType === "string" ? `📎 ${attachmentType}` : "";
-  const displayText = txt || attachLabel;
+  const displayText = txt || attachLabel || (attachmentUrl ? "📎 anexo" : "");
   if (!displayText) return;
 
   const log = require("../lib/logger").child({ service: "webhook" });
@@ -433,13 +433,31 @@ async function processSocialMessage({ platform, senderId, recipientId, senderNam
       where: { tenantId_phone: { tenantId, phone: socialId } },
     });
     if (!customer) {
+      const resolvedName = senderName || (await metaSocial.resolveSenderName({ platform, senderId, tenantId }));
       customer = await prisma.customer.create({
-        data: { tenantId, phone: socialId, name: senderName || null },
+        data: { tenantId, phone: socialId, name: resolvedName || null },
       });
+    } else if (!customer.name) {
+      const resolvedName = senderName || (await metaSocial.resolveSenderName({ platform, senderId, tenantId }));
+      if (resolvedName) {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: { name: resolvedName },
+        });
+      }
     }
 
     await touchInteraction(customer.id);
-    await chatMemory.push(customer.id, "customer", displayText, null, null, attachmentType || "text");
+    let mediaType = "text";
+    if (attachmentType) {
+      const t = String(attachmentType).toLowerCase();
+      if (t.includes("image") || t.includes("photo")) mediaType = "image";
+      else if (t.includes("audio")) mediaType = "audio";
+      else if (t.includes("video")) mediaType = "video";
+      else mediaType = "document";
+    }
+    const mediaUrl = typeof attachmentUrl === "string" ? attachmentUrl.trim() : null;
+    await chatMemory.push(customer.id, "customer", displayText, null, mediaUrl, mediaType, null);
 
     await convState.resetIfEncerrado(customer);
 

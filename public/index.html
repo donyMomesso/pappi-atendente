@@ -738,9 +738,26 @@
   <div id="adminPanelRel" class="admin-panel" style="display:none">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
       <div class="settings-title">📋 Relatórios</div>
-      <div class="settings-sub">Em breve — exportação de dados por período e atendente</div>
-      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">📊</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível em breve</div>
+      <div class="settings-sub">Selecione um período para ver métricas anteriores.</div>
+
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:14px 0 18px">
+        <div>
+          <div style="font-size:11px;color:#777;margin-bottom:4px">De</div>
+          <input id="relFrom" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:12px;background:#fff"/>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#777;margin-bottom:4px">Até</div>
+          <input id="relTo" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:12px;background:#fff"/>
+        </div>
+        <button onclick="fetchRelatorioRange()" style="background:var(--purple);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer">🔄 Atualizar</button>
+        <div id="relInfo" style="font-size:11px;color:#888;margin-left:auto"></div>
+      </div>
+
+      <div id="relCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px"></div>
+      <div style="background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+        <div style="font-size:13px;font-weight:800;color:#333;margin-bottom:10px">Mensagens do painel por atendente (no período)</div>
+        <div id="relAttendantMsgs"></div>
+      </div>
     </div>
   </div>
 
@@ -3452,10 +3469,91 @@ function adminTab(tab) {
   if (atAnalise) atAnalise.className = "admin-tab" + (analiseTabs.includes(tab)?" active":"");
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
+  if (tab === "rel") fetchRelatorioRange();
   if (tab === "analista") fetchAnalista();
   if (tab === "aprendizado") fetchAprendizado();
   if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();
   if (tab === "broadcast") loadBroadcastPanel();
+}
+
+// ── RELATÓRIOS (por período) ───────────────────────────────────
+function formatDateISO(d) {
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return "";
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function initRelDatesIfEmpty() {
+  const fromEl = document.getElementById("relFrom");
+  const toEl = document.getElementById("relTo");
+  if (!fromEl || !toEl) return;
+  if (fromEl.value && toEl.value) return;
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 7);
+  fromEl.value = formatDateISO(from);
+  toEl.value = formatDateISO(to);
+}
+
+async function fetchRelatorioRange() {
+  if (USER_ROLE !== "admin") return;
+  initRelDatesIfEmpty();
+  const from = document.getElementById("relFrom")?.value || "";
+  const to = document.getElementById("relTo")?.value || "";
+  if (!from || !to) return alert("Selecione De/Até.");
+  const info = document.getElementById("relInfo");
+  if (info) info.textContent = "Carregando...";
+  const data = await api(`/stats/report-range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  if (!data || data.error === "forbidden") return;
+  if (data.error) {
+    if (info) info.textContent = `Erro: ${data.error}`;
+    return;
+  }
+  if (info) info.textContent = `Período: ${from} → ${to}`;
+
+  const cards = [
+    { label: "Mensagens enviadas", value: data.msgSent, icon: "📤", color: "#2980b9" },
+    { label: "Mensagens recebidas", value: data.msgReceived, icon: "📥", color: "#27ae60" },
+    { label: "Pedidos", value: data.orders, icon: "📦", color: "#8e44ad" },
+    { label: "Clientes únicos", value: data.uniqueCustomers, icon: "👤", color: "#e67e22" },
+    { label: "Atendimentos", value: data.handoffs, icon: "🎧", color: "#e74c3c" },
+    { label: "CW failed", value: data.cwFailed, icon: "⚠️", color: "#b91c1c" },
+  ];
+  const cardsEl = document.getElementById("relCards");
+  if (cardsEl) {
+    cardsEl.innerHTML = cards
+      .map(
+        (c) => `
+      <div style="background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-left:4px solid ${c.color}">
+        <div style="font-size:22px;margin-bottom:6px">${c.icon}</div>
+        <div style="font-size:22px;font-weight:800;color:${c.color}">${c.value ?? 0}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px">${c.label}</div>
+      </div>`,
+      )
+      .join("");
+  }
+
+  const list = data.attendantMessages || [];
+  const el = document.getElementById("relAttendantMsgs");
+  if (el) {
+    el.innerHTML = list.length
+      ? list
+          .map(
+            (r) => `
+        <div style="display:flex;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid #f0f0f0">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:700;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name || "—")}</div>
+            <div style="font-size:11px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.email || "—")}</div>
+          </div>
+          <div style="font-size:12px;font-weight:800;color:#555">${r.count ?? 0}</div>
+        </div>`,
+          )
+          .join("")
+      : '<div style="color:#999;font-size:12px">Sem mensagens de atendente no período.</div>';
+  }
 }
 
 let broadcastContactsCache = [];
