@@ -1,9 +1,8 @@
-// src/services/avise-abertura.service.js
-// Lista "Me avise quando abrir" — Tarde e Pré-Abertura.
-// Limpa após disparo das 18h.
+// Lista "Me avise quando abrir" — itens podem ser telefone normalizado ou BSUID (objeto).
 
 const prisma = require("../lib/db");
 const { getClients, listActive } = require("./tenant.service");
+const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 
 const CONFIG_KEY_PREFIX = "avise_abertura:";
 
@@ -11,22 +10,49 @@ function configKey(tenantId) {
   return `${CONFIG_KEY_PREFIX}${tenantId}`;
 }
 
+function entryKey(entry) {
+  if (entry == null) return "";
+  if (typeof entry === "string") return entry;
+  if (entry.kind === "phone") return `p:${entry.value}`;
+  if (entry.kind === "wauser") return `u:${entry.value}`;
+  if (entry.kind === "cid") return `c:${entry.value}`;
+  return JSON.stringify(entry);
+}
+
+/** Monta entrada a partir do cliente (Cloud com BSUID ou telefone Baileys). */
+function entryFromCustomer(customer) {
+  if (!customer) return null;
+  const raw = customer.phone != null ? String(customer.phone).trim() : "";
+  if (raw && !raw.includes(":")) {
+    const n = PhoneNormalizer.normalize(raw) || raw.replace(/\D/g, "");
+    if (n && n.length >= 12) return { kind: "phone", value: n };
+    const d = raw.replace(/\D/g, "");
+    if (d.length >= 10) return { kind: "phone", value: d.startsWith("55") ? d : `55${d}` };
+  }
+  const uid = customer.waUserId != null ? String(customer.waUserId).trim() : "";
+  if (uid) return { kind: "wauser", value: uid };
+  return { kind: "cid", value: customer.id };
+}
+
 /**
- * Adiciona telefone à lista de aviso na abertura (evita duplicata).
  * @param {string} tenantId
- * @param {string} phone
- * @returns {Promise<boolean>} true se adicionado, false se já estava na lista
+ * @param {object} customer — modelo Customer (telefone e/ou waUserId)
  */
-async function addToAberturaList(tenantId, phone) {
+async function addToAberturaList(tenantId, customer) {
+  const entry = entryFromCustomer(customer);
+  if (!entry) return false;
+
   const key = configKey(tenantId);
-  const normalized = String(phone).replace(/\D/g, "");
-  const fullPhone = normalized.startsWith("55") ? normalized : "55" + normalized;
-
   const cfg = await prisma.config.findUnique({ where: { key } });
-  const list = cfg ? JSON.parse(cfg.value) : [];
-  if (list.includes(fullPhone)) return false;
+  let list = cfg ? JSON.parse(cfg.value) : [];
 
-  list.push(fullPhone);
+  if (!Array.isArray(list)) list = [];
+
+  const incoming = entryKey(entry);
+  const exists = list.some((e) => entryKey(e) === incoming);
+  if (exists) return false;
+
+  list.push(entry);
   await prisma.config.upsert({
     where: { key },
     create: { key, value: JSON.stringify(list) },
@@ -35,20 +61,17 @@ async function addToAberturaList(tenantId, phone) {
   return true;
 }
 
-/**
- * Retorna a lista de telefones que pediram aviso.
- * @param {string} tenantId
- * @returns {Promise<string[]>}
- */
 async function getAberturaList(tenantId) {
   const cfg = await prisma.config.findUnique({ where: { key: configKey(tenantId) } });
-  return cfg ? JSON.parse(cfg.value) : [];
+  if (!cfg) return [];
+  try {
+    const v = JSON.parse(cfg.value);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
 }
 
-/**
- * Limpa a lista após o disparo.
- * @param {string} tenantId
- */
 async function clearAberturaList(tenantId) {
   await prisma.config.upsert({
     where: { key: configKey(tenantId) },
@@ -57,12 +80,17 @@ async function clearAberturaList(tenantId) {
   });
 }
 
-/**
- * Envia "Estamos Abertos!" para todos da lista e limpa.
- * Chamar às 18h (cron) ou manualmente via POST /admin/avise-abertura
- * @param {string} [tenantId] - se omitido, processa todos os tenants ativos
- * @returns {Promise<{ tenantId: string, sent: number, total: number }[]>}
- */
+function destinationForWa(entry) {
+  if (entry == null) return null;
+  if (typeof entry === "string") {
+    const to = String(entry).replace(/\D/g, "");
+    return to || null;
+  }
+  if (entry.kind === "phone") return String(entry.value).replace(/\D/g, "");
+  if (entry.kind === "wauser") return { recipientUserId: String(entry.value) };
+  return null;
+}
+
 async function notificarClientesAbertura(tenantId) {
   const tenants = tenantId ? [{ id: tenantId }] : await listActive();
   const results = [];
@@ -83,13 +111,14 @@ async function notificarClientesAbertura(tenantId) {
         ? `Ei! Prometido é devido: o forno da Pappi Pizza já está a todo vapor! 🔥🍕\n\nQual vai ser a de hoje? Confira o cardápio: ${menuUrl}`
         : `Ei! Prometido é devido: o forno da Pappi Pizza já está a todo vapor! 🔥🍕\n\nQual vai ser a de hoje? É só mandar seu pedido!`;
 
-      for (const phone of list) {
+      for (const entry of list) {
         try {
-          const to = String(phone).replace(/\D/g, "");
-          await wa.sendText(to, msg);
+          const dest = destinationForWa(entry);
+          if (!dest) continue;
+          await wa.sendText(dest, msg);
           sent++;
         } catch (err) {
-          console.warn(`[AviseAbertura] Erro ao enviar para ${phone}:`, err.message);
+          console.warn(`[AviseAbertura] Erro ao enviar:`, err.message);
         }
       }
 

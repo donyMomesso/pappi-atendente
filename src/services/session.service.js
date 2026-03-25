@@ -87,8 +87,16 @@ function newSession() {
   return { step: "MENU", cart: [], orderHistory: [], _updatedAt: Date.now() };
 }
 
+/** Parte estável da chave de sessão: telefone (ou id social) ou cid interno. */
+function discriminatorFromCustomer(customer) {
+  if (!customer) return "unknown";
+  const p = customer.phone != null ? String(customer.phone).trim() : "";
+  if (p) return p;
+  return `cid:${customer.id}`;
+}
+
 // Exporta withLock para uso no bot.handler
-module.exports = { get, save, clear, withLock, sessionKey };
+module.exports = { get, save, clear, withLock, sessionKey, discriminatorFromCustomer };
 
 // ── Limpeza periódica de sessões expiradas ───────────────────
 // Só deleta chaves com prefixo "sess:" — nunca toca Baileys ou outras configs

@@ -10,7 +10,37 @@ const log = require("./logger").child({ module: "order-pix-db-compat" });
 /** @type {boolean | null} null = ainda não sondado */
 let orderPixColumnsPresent = null;
 
-const PIX_COLS = ["pixTxid", "pixE2eId", "pixStatus"];
+const PIX_COLS_LOWER = ["pixtxid", "pixe2eid", "pixstatus"];
+
+/** Campos escalares de Customer usados em listagens do painel (sem relations). */
+const CUSTOMER_LIST_SCALARS = {
+  id: true,
+  tenantId: true,
+  phone: true,
+  waId: true,
+  waUserId: true,
+  waParentUserId: true,
+  waUsername: true,
+  identityType: true,
+  name: true,
+  lastAddress: true,
+  lastStreet: true,
+  lastNumber: true,
+  lastNeighborhood: true,
+  lastComplement: true,
+  lastCity: true,
+  lastLat: true,
+  lastLng: true,
+  handoff: true,
+  handoffAt: true,
+  visitCount: true,
+  lastInteraction: true,
+  lastOrderSummary: true,
+  preferredPayment: true,
+  createdAt: true,
+  queuedAt: true,
+  claimedBy: true,
+};
 
 /** Campos escalares do model Order exceto os 3 PIX (espelha prisma/schema.prisma). */
 const ORDER_SCALAR_WITHOUT_PIX = {
@@ -64,10 +94,12 @@ async function refreshOrderPixColumnSupport() {
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'orders'
-        AND column_name IN ('pixTxid', 'pixE2eId', 'pixStatus')
+        AND LOWER(column_name) IN ('pixtxid', 'pixe2eid', 'pixstatus')
     `;
-    const set = new Set((Array.isArray(rows) ? rows : []).map((r) => r.column_name));
-    orderPixColumnsPresent = PIX_COLS.every((c) => set.has(c));
+    const set = new Set(
+      (Array.isArray(rows) ? rows : []).map((r) => String(r.column_name).toLowerCase()),
+    );
+    orderPixColumnsPresent = PIX_COLS_LOWER.every((c) => set.has(c));
   } catch (err) {
     orderPixColumnsPresent = false;
     log.warn(
@@ -117,6 +149,21 @@ function getOrderScalarSelect() {
   return s;
 }
 
+/**
+ * select para customer.findMany com último pedido — use no nível raiz (não `include`),
+ * para o Prisma não projetar colunas PIX inexistentes no join.
+ */
+function getCustomerWithLastOrderSelect() {
+  return {
+    ...CUSTOMER_LIST_SCALARS,
+    orders: {
+      orderBy: { createdAt: "desc" },
+      take: 1,
+      select: getOrderScalarSelect(),
+    },
+  };
+}
+
 /** Mescla um select parcial do usuário com regras PIX (não remove chaves já definidas). */
 function mergeOrderSelect(partial) {
   if (!partial || typeof partial !== "object") return getOrderScalarSelect();
@@ -146,6 +193,7 @@ module.exports = {
   getOrderPixColumnsHealth,
   shouldDegradeForMissingOrderPixColumns,
   getOrderScalarSelect,
+  getCustomerWithLastOrderSelect,
   mergeOrderSelect,
   omitPixFromOrderWriteData,
 };

@@ -15,6 +15,7 @@ const ai = require("../services/ai.service");
 const chatMemory = require("../services/chat-memory.service");
 const Maps = require("../services/maps.service");
 const sessionService = require("../services/session.service");
+const { learningKeyFromCustomer, waCloudDestination } = require("../services/customer.service");
 const metaCapi = require("../services/meta-capi.service");
 const { routeByTime } = require("../services/time-routing.service");
 const aviseAbertura = require("../services/avise-abertura.service");
@@ -24,12 +25,13 @@ const orderIntake = require("../services/order-intake.service");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
 
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
-async function handleHumanHandoff({ tenant, wa, customer, phone, session, message, clear = true } = {}) {
+async function handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session, message, clear = true } = {}) {
   const { setHandoff } = require("../services/customer.service");
+  const sk = sessionKey != null ? sessionKey : phone;
   await setHandoff(customer.id, true);
   await wa.sendText(phone, message || "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
   await chatMemory.push(customer.id, "bot", message || "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
-  if (clear) await clearSession(tenant.id, phone);
+  if (clear) await clearSession(tenant.id, sk);
   require("../services/socket.service").emitQueueUpdate();
 }
 
@@ -38,9 +40,10 @@ async function handleStatusFlow({ wa, phone, customer, tenant } = {}) {
   await handleStatusQuery(wa, phone, customer, tenant);
 }
 
-async function handleComplaintFlow({ tenant, wa, customer, phone, session, text } = {}) {
+async function handleComplaintFlow({ tenant, wa, customer, phone, sessionKey, session, text } = {}) {
+  const sk = sessionKey != null ? sessionKey : phone;
   session.mode = "COMPLAINT";
-  await saveSession(tenant.id, phone, session);
+  await saveSession(tenant.id, sk, session);
   // Tenta localizar último pedido para dar contexto ao atendente
   try {
     const prisma = require("../lib/db");
@@ -53,7 +56,7 @@ async function handleComplaintFlow({ tenant, wa, customer, phone, session, text 
     const m =
       "Sinto muito por isso. Vou chamar um atendente pra resolver com você agora. 👨‍💼" +
       (ref ? `\n\n📦 Referência: #${ref}` : "");
-    await handleHumanHandoff({ tenant, wa, customer, phone, session, message: m, clear: false });
+    await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey: sk, session, message: m, clear: false });
     const baileys = require("../services/baileys.service");
     baileys
       .notify(
@@ -68,6 +71,7 @@ async function handleComplaintFlow({ tenant, wa, customer, phone, session, text 
       wa,
       customer,
       phone,
+      sessionKey: sk,
       session,
       message: "Sinto muito por isso. Vou chamar um atendente pra resolver com você agora. 👨‍💼",
       clear: false,
@@ -75,9 +79,10 @@ async function handleComplaintFlow({ tenant, wa, customer, phone, session, text 
   }
 }
 
-async function handleFaqFlow({ tenant, wa, customer, phone, session, text, cw } = {}) {
+async function handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session, text, cw } = {}) {
+  const sk = sessionKey != null ? sessionKey : phone;
   session.mode = "FAQ";
-  await saveSession(tenant.id, phone, session);
+  await saveSession(tenant.id, sk, session);
   const t = String(text || "")
     .toLowerCase()
     .normalize("NFD")
@@ -125,9 +130,10 @@ async function handleFaqFlow({ tenant, wa, customer, phone, session, text, cw } 
   await chatMemory.push(customer.id, "bot", m);
 }
 
-async function handleDriverFlow({ tenant, wa, customer, phone, session, text } = {}) {
+async function handleDriverFlow({ tenant, wa, customer, phone, sessionKey, session, text } = {}) {
+  const sk = sessionKey != null ? sessionKey : phone;
   session.mode = "DRIVER";
-  await saveSession(tenant.id, phone, session);
+  await saveSession(tenant.id, sk, session);
   const m = "Recebido ✅ Obrigado! Se puder, me passe o número do pedido (#XXXXXX) ou o nome/telefone do cliente.";
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
@@ -138,7 +144,8 @@ async function handleDriverFlow({ tenant, wa, customer, phone, session, text } =
   } catch {}
 }
 
-async function handleFallbackTriage({ tenant, wa, customer, phone, session } = {}) {
+async function handleFallbackTriage({ tenant, wa, customer, phone, sessionKey, session } = {}) {
+  const sk = sessionKey != null ? sessionKey : phone;
   const now = Date.now();
   const lastAt = session._lastTriagePromptAt || 0;
   if (now - lastAt < 60 * 1000) return; // anti-repetição
@@ -151,7 +158,7 @@ async function handleFallbackTriage({ tenant, wa, customer, phone, session } = {
     { id: "TRIAGE_HUMAN", title: "👩‍💼 Atendente" },
   ]);
   await chatMemory.push(customer.id, "bot", m);
-  await saveSession(tenant.id, phone, session);
+  await saveSession(tenant.id, sk, session);
 }
 
 // ── Wrappers de sessão com mutex ──────────────────────────────
@@ -190,18 +197,19 @@ function isCep(text) {
 }
 
 // ── Ponto de entrada — com mutex por usuário ──────────────────
-async function handle({ tenant, wa, customer, text, phone, timer }) {
-  const lockKey = `${tenant.id}:${phone}`;
+async function handle({ tenant, wa, customer, text, phone, sessionKey, timer }) {
+  const sk = sessionKey != null ? sessionKey : sessionService.discriminatorFromCustomer(customer);
+  const lockKey = `${tenant.id}:${sk}`;
 
   // CORREÇÃO: mutex garante que dois webhooks simultâneos do mesmo usuário
   // não processem em paralelo, evitando race condition na sessão
   return sessionService.withLock(lockKey, async () => {
-    return _handle({ tenant, wa, customer, text, phone, timer });
+    return _handle({ tenant, wa, customer, text, phone, sessionKey: sk, timer });
   });
 }
 
-async function _handle({ tenant, wa, customer, text, phone, timer }) {
-  const session = await getSession(tenant.id, phone);
+async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer }) {
+  const session = await getSession(tenant.id, sessionKey);
   timer?.mark("session");
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
@@ -217,8 +225,8 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   // Atendente/humano: handoff imediato
   if (detectHumanRequest(text)) {
     session.mode = "HUMAN";
-    await saveSession(tenant.id, phone, session);
-    await handleHumanHandoff({ tenant, wa, customer, phone, session });
+    await saveSession(tenant.id, sessionKey, session);
+    await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session });
     return;
   }
 
@@ -242,7 +250,7 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       { id: "FULFILLMENT_RETIRADA", title: "🏪 Retirada" },
     ]);
     await chatMemory.push(customer.id, "bot", "Entendi 🙏 Vamos resolver agora. Como prefere?");
-    await saveSession(tenant.id, phone, session);
+    await saveSession(tenant.id, sessionKey, session);
     return;
   }
 
@@ -250,8 +258,8 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   if (session.step === "DEESCALATION") {
     if (text === "HELP_HUMAN" || t.includes("atendente")) {
       session.mode = "HUMAN";
-      await saveSession(tenant.id, phone, session);
-      await handleHumanHandoff({ tenant, wa, customer, phone, session });
+      await saveSession(tenant.id, sessionKey, session);
+      await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session });
       return;
     }
     if (text === "HELP_BOT" || t.includes("continuar")) {
@@ -292,13 +300,13 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
         ]);
       }
       await chatMemory.push(customer.id, "bot", m);
-      await saveSession(tenant.id, phone, session);
+      await saveSession(tenant.id, sessionKey, session);
       return;
     }
     if (text === "FULFILLMENT_RETIRADA" || t.includes("retirada")) {
       session.fulfillment = "takeout";
       await startOrdering(wa, cw, phone, session, customer, tenant);
-      await saveSession(tenant.id, phone, session);
+      await saveSession(tenant.id, sessionKey, session);
       return;
     }
     // Resposta não reconhecida — reenvia os botões
@@ -307,7 +315,7 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       { id: "HELP_BOT", title: "✅ Continuar" },
       { id: "FULFILLMENT_RETIRADA", title: "🏪 Retirada" },
     ]);
-    await saveSession(tenant.id, phone, session);
+    await saveSession(tenant.id, sessionKey, session);
     return;
   }
   // Status do pedido — comandos PT-BR (t já normalizado)
@@ -323,7 +331,7 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
     t.includes("andamento")
   ) {
     session.mode = "STATUS";
-    await saveSession(tenant.id, phone, session);
+    await saveSession(tenant.id, sessionKey, session);
     await handleStatusFlow({ wa, phone, customer, tenant, session });
     return;
   }
@@ -344,12 +352,12 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       t.includes("me avise quando abrir") ||
       (text || "").trim() === "AVISE_ABERTURA";
     if (timeSlot.hasAviseButton && isAviseIntent) {
-      await aviseAbertura.addToAberturaList(tenant.id, phone);
+      await aviseAbertura.addToAberturaList(tenant.id, customer);
       const m =
         "Perfeito! Assim que o forno atingir a temperatura ideal e abrirmos oficialmente, você será o primeiro a receber um toque aqui no Zap! 🍕🔥";
       await wa.sendText(phone, m);
       await chatMemory.push(customer.id, "bot", m);
-      await clearSession(tenant.id, phone);
+      await clearSession(tenant.id, sessionKey);
       return;
     }
     // Enviar mensagem do slot — com botão em Tarde e Pré-Abertura
@@ -359,7 +367,7 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       await wa.sendText(phone, timeSlot.message);
     }
     await chatMemory.push(customer.id, "bot", timeSlot.message);
-    await clearSession(tenant.id, phone);
+    await clearSession(tenant.id, sessionKey);
     return;
   }
   if (!storeOpen && closedAsLead) {
@@ -374,18 +382,18 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
 
     if (tri.intent === "HUMAN") {
       session.mode = "HUMAN";
-      await saveSession(tenant.id, phone, session);
-      await handleHumanHandoff({ tenant, wa, customer, phone, session });
+      await saveSession(tenant.id, sessionKey, session);
+      await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session });
       return;
     }
     if (tri.intent === "ORDER_STATUS") {
       session.mode = "STATUS";
-      await saveSession(tenant.id, phone, session);
+      await saveSession(tenant.id, sessionKey, session);
       await handleStatusFlow({ wa, phone, customer, tenant, session });
       return;
     }
     if (tri.intent === "MENU") {
-      await handleFaqFlow({ tenant, wa, customer, phone, session, text, cw });
+      await handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session, text, cw });
       return;
     }
     if (tri.intent === "COMPLAINT") {
@@ -393,7 +401,7 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       return;
     }
     if (tri.intent === "DRIVER") {
-      await handleDriverFlow({ tenant, wa, customer, phone, session, text });
+      await handleDriverFlow({ tenant, wa, customer, phone, sessionKey, session, text });
       return;
     }
 
@@ -401,7 +409,7 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
     const earlySteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"];
     if (session.mode === "TRIAGE" && earlySteps.includes(session.step) && tri.intent === "OTHER") {
       if (!tri.shouldWaitMore) {
-        await handleFallbackTriage({ tenant, wa, customer, phone, session });
+        await handleFallbackTriage({ tenant, wa, customer, phone, sessionKey, session });
         return;
       } // se shouldWaitMore, fica silencioso (buffer já consolida)
     }
@@ -437,14 +445,14 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       // Se já identificou entrega/retirada no texto, reaproveita o handler atual (endereço / startOrdering)
       if (intake?.fulfillment && session.step === "FULFILLMENT") {
         await handleFulfillment(wa, cw, phone, intake.fulfillment === "delivery" ? "delivery" : "takeout", t, session, customer, tenant);
-        await saveSession(tenant.id, phone, session);
+        await saveSession(tenant.id, sessionKey, session);
         return;
       }
 
       // Se já estamos perguntando tamanho e ele veio no texto, não repete pergunta
       if (session.step === "ASK_SIZE" && intake?.size) {
         await handleAskSize(wa, cw, phone, `size_${intake.size}`, session, customer, tenant);
-        await saveSession(tenant.id, phone, session);
+        await saveSession(tenant.id, sessionKey, session);
         return;
       }
 
@@ -454,11 +462,11 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
         // Se ainda não entrou em ordering, tenta iniciar (sem repetir ASK_SIZE se chosenSize já foi detectado)
         if (session.fulfillment && early.includes(session.step)) {
           await startOrdering(wa, cw, phone, session, customer, tenant);
-          await saveSession(tenant.id, phone, session);
+          await saveSession(tenant.id, sessionKey, session);
           // Se já caiu em ORDERING, manda o texto direto para o interpretador existente (AI+catálogo)
           if (session.step === "ORDERING" && intake?.isOrder) {
             await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
-            await saveSession(tenant.id, phone, session);
+            await saveSession(tenant.id, sessionKey, session);
             return;
           }
           return;
@@ -472,11 +480,11 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
   // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
   const menuTriggers = ["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "opa", "e ai", "fala"];
   if (menuTriggers.includes(t)) {
-    await clearSession(tenant.id, phone);
-    const fresh = await getSession(tenant.id, phone);
+    await clearSession(tenant.id, sessionKey);
+    const fresh = await getSession(tenant.id, sessionKey);
     if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
     await sendGreeting(wa, cw, phone, customer, tenant, fresh, timer);
-    await saveSession(tenant.id, phone, fresh);
+    await saveSession(tenant.id, sessionKey, fresh);
     return;
   }
 
@@ -513,18 +521,18 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       timer?.mark("classifyIntent");
       if (intent === "STATUS") {
         session.mode = "STATUS";
-        await saveSession(tenant.id, phone, session);
+        await saveSession(tenant.id, sessionKey, session);
         await handleStatusFlow({ wa, phone, customer, tenant, session });
         return;
       }
       if (intent === "CARDAPIO") {
-        await handleFaqFlow({ tenant, wa, customer, phone, session, text, cw });
+        await handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session, text, cw });
         return;
       }
       if (intent === "HANDOFF") {
         session.mode = "HUMAN";
-        await saveSession(tenant.id, phone, session);
-        await handleHumanHandoff({ tenant, wa, customer, phone, session });
+        await saveSession(tenant.id, sessionKey, session);
+        await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session });
         return;
       }
     } catch {}
@@ -562,16 +570,16 @@ async function _handle({ tenant, wa, customer, text, phone, timer }) {
       await handlePayment(wa, phone, text, session, customer, tenant);
       break;
     case "CONFIRM":
-      await handleConfirm(wa, cw, phone, text, t, session, customer, tenant);
+      await handleConfirm(wa, cw, phone, text, t, session, customer, tenant, sessionKey);
       break;
     default:
       await sendProductTypePrompt(wa, phone, customer, session);
   }
 
   if (session._cleared) {
-    await clearSession(tenant.id, phone);
+    await clearSession(tenant.id, sessionKey);
   } else {
-    await saveSession(tenant.id, phone, session);
+    await saveSession(tenant.id, sessionKey, session);
   }
 }
 
@@ -1162,7 +1170,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     chosenSize: session.chosenSize,
     sizeHint,
     tenantId: tenant.id,
-    phone,
+    phone: learningKeyFromCustomer(customer),
   });
   timer?.mark("chatOrder");
 
@@ -1213,7 +1221,7 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
 }
 
 // ── CONFIRM ───────────────────────────────────────────────────
-async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) {
+async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, sessionKey) {
   if (t.includes("cancel") || text === "CANCELAR") {
     session._cleared = true;
     await wa.sendText(phone, "Pedido cancelado. Quando quiser, é só chamar! 😊");
@@ -1256,7 +1264,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
         phone,
         "⚠️ Pra entrega eu preciso do endereço completo (CEP + rua + número + bairro) e sua localização/coords pra calcular a taxa. Pode me mandar o endereço certinho? 📍",
       );
-      await saveSession(tenant.id, phone, session);
+      await saveSession(tenant.id, sessionKey, session);
       return;
     }
 
@@ -1384,13 +1392,14 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant) 
   // ── Aprendizado: captura preferências do cliente ────────
   try {
     const learning = require("../services/bot-learning.service");
-    await learning.learnCustomerPattern(tenant.id, phone, {
+    const lk = learningKeyFromCustomer(customer);
+    await learning.learnCustomerPattern(tenant.id, lk, {
       favoriteItems: session.cart.map((i) => ({ name: i.name })),
       paymentMethod: session.paymentMethodName,
       fulfillment: session.fulfillment,
       orderHour: new Date().getHours(),
     });
-    await learning.analyzeConversation(tenant.id, customer.id, phone);
+    await learning.analyzeConversation(tenant.id, customer.id, lk);
   } catch {}
 
   // ── CAPI: Purchase ────────────────────────────────────────
@@ -1440,8 +1449,9 @@ function cartSummary(cart) {
 }
 
 function buildCwPayload({ session, customer, calc }) {
-  const localPhone = customer.phone.startsWith("55") ? customer.phone.slice(2) : customer.phone;
-  const phone11 = localPhone.replace(/\D/g, "").slice(-11);
+  const rawPhone = customer.phone != null ? String(customer.phone) : "";
+  const localPhone = rawPhone.startsWith("55") ? rawPhone.slice(2) : rawPhone;
+  const phone11 = (localPhone.replace(/\D/g, "").slice(-11) || "00000000000").slice(0, 11);
   const cwOrderId = randomUUID();
   const displayId = cwOrderId.slice(-6).toUpperCase();
 

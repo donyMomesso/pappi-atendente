@@ -3,31 +3,163 @@
 const prisma = require("../lib/db");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const convState = require("./conversation-state.service");
+const sessionService = require("./session.service");
 
+function inferIdentityType({ phone, waUserId, username }) {
+  const hasP = !!phone;
+  const hasU = !!waUserId;
+  const hasN = !!username;
+  if (hasP && hasU) return "mixed";
+  if (hasU) return "wa_user";
+  if (hasP) return "phone";
+  if (hasN) return "username";
+  return "unknown";
+}
+
+/** Chave estável para aprendizado / perfis em Config (não é só telefone). */
+function learningKeyFromCustomer(customer) {
+  if (!customer) return null;
+  const p = customer.phone != null ? String(customer.phone).trim() : "";
+  if (p) return p;
+  const uid = customer.waUserId != null ? String(customer.waUserId).trim() : "";
+  if (uid) return `wauser:${uid}`;
+  return `cid:${customer.id}`;
+}
+
+/**
+ * Destino para envio WhatsApp Cloud API: dígitos em `to` OU objeto com BSUID.
+ * @param {import("@prisma/client").Customer} customer
+ * @returns {string | { recipientUserId: string }}
+ */
+function waCloudDestination(customer) {
+  if (!customer) throw new Error("Cliente ausente — sem destino WhatsApp Cloud.");
+  const raw = customer.phone != null ? String(customer.phone).trim() : "";
+  if (raw && !raw.includes(":")) {
+    const digits = raw.replace(/\D/g, "");
+    const n = PhoneNormalizer.normalize(raw) || (digits.length >= 10 ? digits : "");
+    if (n && n.length >= 12) return n;
+    // Fallback: número BR sem normalização completa — força DDI 55 (Cloud API espera E.164 sem +)
+    if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith("55")) {
+      return `55${digits}`;
+    }
+    if (digits.length >= 12) return digits;
+  }
+  const uid = customer.waUserId != null ? String(customer.waUserId).trim() : "";
+  if (uid) return { recipientUserId: uid };
+  throw new Error(
+    "Cliente sem telefone (wa_id) nem wa_user_id — impossível enviar pela WhatsApp Cloud API. " +
+      "Associe um número ou aguarde BSUID no cadastro.",
+  );
+}
+
+/**
+ * @param {object} p
+ * @param {string} p.tenantId
+ * @param {string|null} [p.normalizedPhone]
+ * @param {string|null} [p.rawWaId]
+ * @param {string|null} [p.waUserId]
+ * @param {string|null} [p.parentUserId]
+ * @param {string|null} [p.username]
+ * @param {string|null} [p.profileName]
+ */
+async function findOrCreateContactByIdentity({
+  tenantId,
+  normalizedPhone = null,
+  rawWaId = null,
+  waUserId = null,
+  parentUserId = null,
+  username = null,
+  profileName = null,
+}) {
+  const uid = waUserId != null ? String(waUserId).trim() || null : null;
+  const wa = rawWaId != null ? String(rawWaId).trim() || null : null;
+  const uname = username != null ? String(username).trim() || null : null;
+  const phone = normalizedPhone != null ? String(normalizedPhone).trim() || null : null;
+
+  if (!tenantId) throw new Error("tenantId obrigatório");
+  if (!uid && !phone && !wa) {
+    throw new Error("Identidade WhatsApp ausente: informe wa_user_id, telefone ou wa_id.");
+  }
+
+  let customer = null;
+  if (uid) {
+    customer = await prisma.customer.findFirst({ where: { tenantId, waUserId: uid } });
+  }
+  if (!customer && phone) {
+    customer = await prisma.customer.findUnique({ where: { tenantId_phone: { tenantId, phone } } });
+  }
+  if (!customer && wa) {
+    customer = await prisma.customer.findFirst({ where: { tenantId, waId: wa } });
+  }
+
+  const identityType = inferIdentityType({ phone, waUserId: uid, username: uname });
+
+  if (customer) {
+    const data = {};
+    if (uid && customer.waUserId !== uid) data.waUserId = uid;
+    if (phone && !customer.phone) data.phone = phone;
+    if (phone && customer.phone && customer.phone !== phone) data.phone = phone;
+    if (wa && !customer.waId) data.waId = wa;
+    if (wa && customer.waId && customer.waId !== wa) data.waId = wa;
+    if (uname && !customer.waUsername) data.waUsername = uname;
+    if (parentUserId && !customer.waParentUserId) data.waParentUserId = parentUserId;
+    if (profileName?.trim() && !customer.name) data.name = profileName.trim();
+    if (identityType && customer.identityType !== identityType) data.identityType = identityType;
+    if (Object.keys(data).length) {
+      customer = await prisma.customer.update({ where: { id: customer.id }, data });
+    }
+    return customer;
+  }
+
+  const createData = {
+    tenantId,
+    phone: phone || null,
+    waId: wa || null,
+    waUserId: uid || null,
+    waParentUserId: parentUserId?.trim() || null,
+    waUsername: uname || null,
+    identityType: identityType || "unknown",
+    name: profileName?.trim() || null,
+  };
+
+  try {
+    customer = await prisma.customer.create({ data: createData });
+  } catch (e) {
+    if (e.code === "P2002") {
+      return findOrCreateContactByIdentity({
+        tenantId,
+        normalizedPhone: phone,
+        rawWaId: wa,
+        waUserId: uid,
+        parentUserId,
+        username: uname,
+        profileName,
+      });
+    }
+    throw e;
+  }
+
+  try {
+    if (phone) {
+      const gc = require("./google-contacts.service");
+      gc.createContact(createData.name || null, phone).catch(() => {});
+    }
+  } catch {}
+
+  return customer;
+}
+
+/** @deprecated use findOrCreateContactByIdentity; mantido p/ Baileys e chamadas antigas */
 async function findOrCreate(tenantId, rawPhone, name = null) {
   const phone = PhoneNormalizer.normalize(rawPhone);
   if (!phone) throw new Error(`Telefone inválido: ${rawPhone}`);
-
-  let customer = await prisma.customer.findUnique({
-    where: { tenantId_phone: { tenantId, phone } },
+  return findOrCreateContactByIdentity({
+    tenantId,
+    normalizedPhone: phone,
+    rawWaId: rawPhone != null ? String(rawPhone) : null,
+    waUserId: null,
+    profileName: name,
   });
-
-  if (!customer) {
-    customer = await prisma.customer.create({
-      data: { tenantId, phone, name: name || null },
-    });
-    try {
-      const gc = require("./google-contacts.service");
-      gc.createContact(name || null, phone).catch(() => {});
-    } catch {}
-  } else if (name && !customer.name) {
-    customer = await prisma.customer.update({
-      where: { id: customer.id },
-      data: { name },
-    });
-  }
-
-  return customer;
 }
 
 async function touchInteraction(customerId, addressData = null) {
@@ -86,8 +218,8 @@ async function closeConversation(customerId) {
     data: { handoff: false, handoffAt: null, queuedAt: null, claimedBy: null },
   });
   await convState.setState(customerId, convState.STATES.ENCERRADO);
-  const sessionService = require("./session.service");
-  await sessionService.clear(customer.tenantId, customer.phone);
+  const part = sessionService.discriminatorFromCustomer(customer);
+  await sessionService.clear(customer.tenantId, part);
   return customer;
 }
 
@@ -108,6 +240,12 @@ async function findByPhone(tenantId, rawPhone) {
   return prisma.customer.findUnique({
     where: { tenantId_phone: { tenantId, phone } },
   });
+}
+
+async function findByWaUserId(tenantId, waUserId) {
+  const uid = waUserId != null ? String(waUserId).trim() : "";
+  if (!uid) return null;
+  return prisma.customer.findFirst({ where: { tenantId, waUserId: uid } });
 }
 
 async function setName(customerId, name) {
@@ -155,6 +293,9 @@ async function incrementBotErrorAndCheckHandoff(customerId) {
 
 module.exports = {
   findOrCreate,
+  findOrCreateContactByIdentity,
+  waCloudDestination,
+  learningKeyFromCustomer,
   incrementBotErrorAndCheckHandoff,
   touchInteraction,
   setHandoff,
@@ -163,5 +304,6 @@ module.exports = {
   closeConversation,
   recordOrder,
   findByPhone,
+  findByWaUserId,
   setName,
 };

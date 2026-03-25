@@ -11,8 +11,16 @@ const {
   getClients,
   isLikelyPlaceholderWaPhoneNumberId,
 } = require("../services/tenant.service");
-const { findOrCreate, touchInteraction, setHandoff } = require("../services/customer.service");
+const {
+  findOrCreateContactByIdentity,
+  waCloudDestination,
+  learningKeyFromCustomer,
+  touchInteraction,
+  setHandoff,
+} = require("../services/customer.service");
 const convState = require("../services/conversation-state.service");
+const sessionService = require("../services/session.service");
+const waIdentity = require("../lib/wa-webhook-identity");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const chatMemory = require("../services/chat-memory.service");
 const baileys = require("../services/baileys.service");
@@ -168,6 +176,12 @@ router.post("/webhook", async (req, res) => {
 
         const { wa } = await getClients(tenant.id);
 
+        if (Array.isArray(value.contacts) && value.contacts.length) {
+          await syncWhatsAppContactCards(tenant.id, value.contacts).catch((err) => {
+            require("../lib/logger").child({ service: "webhook" }).warn({ err }, "Falha ao sincronizar contatos WhatsApp");
+          });
+        }
+
         for (const msg of value.messages || []) {
           await processMessage({ tenant, wa, msg, contacts: value.contacts || [] });
         }
@@ -183,20 +197,66 @@ router.post("/webhook", async (req, res) => {
 
 // ── Processamento de Mensagem ────────────────────────────────
 
+/** Atualiza cadastro quando a Meta envia cartões de contato (incl. evolução de user_id). */
+async function syncWhatsAppContactCards(tenantId, contacts) {
+  for (const c of contacts || []) {
+    const raw = c?.wa_id != null ? String(c.wa_id).trim() : null;
+    const uid = c?.user_id != null ? String(c.user_id).trim() : null;
+    const uname = c?.username != null ? String(c.username).trim() : null;
+    const parent = c?.parent_user_id != null ? String(c.parent_user_id).trim() : null;
+    const pname = c?.profile?.name != null ? String(c.profile.name).trim() : null;
+    const normalized = raw ? PhoneNormalizer.normalize(raw) : null;
+    if (!uid && !normalized && !raw) continue;
+    await findOrCreateContactByIdentity({
+      tenantId,
+      normalizedPhone: normalized || null,
+      rawWaId: raw,
+      waUserId: uid,
+      parentUserId: parent || null,
+      username: uname || null,
+      profileName: pname || null,
+    });
+  }
+}
+
 async function processMessage({ tenant, wa, msg, contacts }) {
   const isEcho = isMessageEcho(msg, tenant.waPhoneNumberId);
-  const rawPhone = isEcho ? msg.to || msg.recipient_id : msg.from;
-  const phone = PhoneNormalizer.normalize(rawPhone);
-  if (!phone) return;
+  const wlog = require("../lib/logger").child({ service: "webhook" });
+
+  const parsed = waIdentity.parseWhatsAppMessageIdentity({
+    msg,
+    contacts: contacts || [],
+    isEcho,
+  });
+
+  let customer;
+  try {
+    customer = await findOrCreateContactByIdentity({
+      tenantId: tenant.id,
+      normalizedPhone: parsed.normalizedPhone,
+      rawWaId: parsed.rawWaId,
+      waUserId: parsed.waUserId,
+      parentUserId: parsed.parentUserId,
+      username: parsed.username,
+      profileName: parsed.profileName,
+    });
+  } catch (err) {
+    wlog.warn({ err: err.message, msgId: msg?.id }, "Cloud: não foi possível resolver identidade do remetente");
+    return;
+  }
+
+  const sessionPart = sessionService.discriminatorFromCustomer(customer);
+  let waDest;
+  try {
+    waDest = waCloudDestination(customer);
+  } catch {
+    waDest = null;
+  }
 
   // Marca como lido (sem "digitando" — evita ficar travado quando não há resposta)
   if (!isEcho && msg.id) wa.markRead(msg.id, false).catch(() => {});
 
-  const rl = checkWebhook(phone);
-
-  const contact = contacts.find((c) => c.wa_id === rawPhone);
-  const name = contact?.profile?.name || null;
-  const customer = await findOrCreate(tenant.id, phone, name);
+  const rl = checkWebhook(`${tenant.id}:${sessionPart}`);
 
   await touchInteraction(customer.id);
   baileys.setReplyChannel(customer.id, "cloud").catch(() => {});
@@ -211,14 +271,17 @@ async function processMessage({ tenant, wa, msg, contacts }) {
     if (text) {
       try {
         const learning = require("../services/bot-learning.service");
-        await learning.analyzeMessage(tenant.id, phone, customer.name, text);
+        const lk = learningKeyFromCustomer(customer);
+        await learning.analyzeMessage(tenant.id, lk, customer.name, text);
       } catch {}
     }
   }
 
   // Rate limit: bloqueia processamento do bot, mas mensagem já foi salva e aparece no painel
   if (!rl.allowed) {
-    console.warn(`[RateLimit] ${phone} bloqueado — muitas mensagens (reset em ${Math.ceil(rl.resetIn / 1000)}s)`);
+    console.warn(
+      `[RateLimit] ${sessionPart} bloqueado — muitas mensagens (reset em ${Math.ceil(rl.resetIn / 1000)}s)`,
+    );
     return;
   }
 
@@ -242,35 +305,41 @@ async function processMessage({ tenant, wa, msg, contacts }) {
 
   const botMayRespond = await convState.shouldBotRespond(customer);
   if (!botMayRespond) {
-    console.log(`[${tenant.id}] Estado ${await convState.getState(customer)} para ${phone} — bot silencioso`);
+    console.log(`[${tenant.id}] Estado ${await convState.getState(customer)} para ${sessionPart} — bot silencioso`);
     return;
   }
 
   if (!text) return;
 
-  const log = require("../lib/logger").child({ service: "webhook" });
-  log.info({ tenantId: tenant.id, phone, text: text.slice(0, 80) }, "MSG Cloud recebida");
+  wlog.info({ tenantId: tenant.id, sessionPart, text: text.slice(0, 80) }, "MSG Cloud recebida");
 
   // ── Handoff apenas fora de fluxo ativo ───────────────────
-  const sessionService = require("../services/session.service");
-  const session = await sessionService.get(tenant.id, phone);
+  const session = await sessionService.get(tenant.id, sessionPart);
   const inActiveFlow = session && !["MENU", "ASK_NAME", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"].includes(session.step);
 
   if (!inActiveFlow && isHandoffTrigger(text)) {
     await setHandoff(customer.id, true);
     try {
-      await wa.sendText(phone, "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼");
+      const dest = waDest || waCloudDestination(customer);
+      await wa.sendText(dest, "Aguarde um momento, vou te transferir para um de nossos atendentes. 👨‍💼");
     } catch (e) {
-      log.warn(
-        { tenantId: tenant.id, phone, err: e.message, code: e.code },
+      wlog.warn(
+        { tenantId: tenant.id, sessionPart, err: e.message, code: e.code },
         "Handoff Cloud: falha ao enviar mensagem automática (token/phoneNumberId ou API)",
       );
     }
     const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
+    const who =
+      customer.name ||
+      customer.waUsername ||
+      customer.phone ||
+      customer.waUserId ||
+      sessionPart;
+    const linePhone = customer.phone ? `📞 ${customer.phone}\n` : customer.waUserId ? `🆔 ${customer.waUserId}\n` : "";
     baileys
       .notify(
-        `🔔 *Novo cliente na fila!*\n👤 ${customer.name || phone}\n📞 ${phone}\n⏰ ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
+        `🔔 *Novo cliente na fila!*\n👤 ${who}\n${linePhone}⏰ ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
       )
       .catch(() => {});
     return;
@@ -280,14 +349,25 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const windowMs = messageBuffer.decideWindowMs({ kind: msg?.type });
   messageBuffer.enqueue({
     tenantId: tenant.id,
-    phone,
+    phone: sessionPart,
     channel: "cloud",
     text,
     meta: { kind: msg?.type || "text" },
     windowMs,
     onFlush: async ({ combinedText }) => {
       if (!combinedText) return;
-      await handle({ tenant, wa, customer, msg, text: combinedText, phone });
+      let dest;
+      try {
+        dest = waCloudDestination(customer);
+      } catch (e) {
+        wlog.error({ err: e.message, customerId: customer.id, sessionPart }, "Cloud: sem destino para enviar resposta do bot");
+        return;
+      }
+      try {
+        await handle({ tenant, wa, customer, msg, text: combinedText, phone: dest, sessionKey: sessionPart });
+      } catch (err) {
+        wlog.error({ err: err.message, customerId: customer.id }, "Cloud: erro no processamento do bot");
+      }
     },
   });
 }

@@ -113,21 +113,24 @@ async function runCampaign(campaign, wa) {
       );
 
     try {
-      await wa.sendText(customer.phone, text);
+      const { waCloudDestination } = require("./customer.service");
+      const dest = waCloudDestination(customer);
+      await wa.sendText(dest, text);
+      const phoneLabel = customer.phone || customer.waUserId || customer.id;
       await prisma.retentionSend.create({
         data: {
           campaignId: campaign.id,
           customerId: customer.id,
-          phone: customer.phone,
+          phone: phoneLabel,
           customerName: customer.name,
           aiScore,
         },
       });
       sent++;
-      console.log(`[Retention] Enviado para ${customer.phone} (${aiScore || "sem IA"})`);
+      console.log(`[Retention] Enviado para ${phoneLabel} (${aiScore || "sem IA"})`);
       await new Promise((r) => setTimeout(r, 500));
     } catch (err) {
-      console.warn(`[Retention] Falha ao enviar para ${customer.phone}:`, err.message);
+      console.warn(`[Retention] Falha ao enviar para ${customer.phone || customer.waUserId}:`, err.message);
     }
   }
 

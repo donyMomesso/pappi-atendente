@@ -3,6 +3,25 @@
 const { withRetry } = require("./retry");
 const WA_BASE = "https://graph.facebook.com/v19.0";
 
+/**
+ * @param {string | { to?: string, recipientUserId?: string }} destination
+ * @returns {Record<string, unknown>}
+ */
+function recipientBlock(destination) {
+  if (destination != null && typeof destination === "object" && !Array.isArray(destination)) {
+    const uid = destination.recipientUserId != null ? String(destination.recipientUserId).trim() : "";
+    if (uid) return { recipient: { user_id: uid } };
+    const toObj = destination.to != null ? String(destination.to).replace(/\D/g, "") : "";
+    if (toObj) return { to: toObj };
+    throw new Error("WhatsApp Cloud: recipientUserId ou to ausente no objeto de destino.");
+  }
+  const to = destination != null ? String(destination).replace(/\D/g, "") : "";
+  if (to) return { to };
+  throw new Error(
+    "WhatsApp Cloud: sem destino válido — informe número (to) ou BSUID ({ recipientUserId: 'XX.yyy' }).",
+  );
+}
+
 function createClient({ token, phoneNumberId }) {
   if (!token) throw new Error("WhatsApp: token não configurado");
   if (!phoneNumberId) throw new Error("WhatsApp: phoneNumberId não configurado");
@@ -27,20 +46,22 @@ function createClient({ token, phoneNumberId }) {
   }
 
   return {
-    sendText(to, text, previewUrl = false) {
+    sendText(destination, text, previewUrl = false) {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to,
+        ...r,
         type: "text",
         text: { body: text, preview_url: previewUrl },
       });
     },
-    sendButtons(to, body, buttons) {
+    sendButtons(destination, body, buttons) {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to,
+        ...r,
         type: "interactive",
         interactive: {
           type: "button",
@@ -51,11 +72,12 @@ function createClient({ token, phoneNumberId }) {
         },
       });
     },
-    sendList(to, header, body, footer, sections) {
+    sendList(destination, header, body, footer, sections) {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to,
+        ...r,
         type: "interactive",
         interactive: {
           type: "list",
@@ -66,10 +88,11 @@ function createClient({ token, phoneNumberId }) {
         },
       });
     },
-    sendTemplate(to, name, language = "pt_BR", components = []) {
+    sendTemplate(destination, name, language = "pt_BR", components = []) {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
-        to,
+        ...r,
         type: "template",
         template: { name, language: { code: language }, components },
       });
@@ -99,29 +122,32 @@ function createClient({ token, phoneNumberId }) {
       const data = await res.json();
       return data.url;
     },
-    sendImage(to, url, caption = "") {
+    sendImage(destination, url, caption = "") {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to,
+        ...r,
         type: "image",
         image: { link: url, caption },
       });
     },
-    sendAudio(to, url) {
+    sendAudio(destination, url) {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to,
+        ...r,
         type: "audio",
         audio: { link: url },
       });
     },
-    sendDocument(to, url, filename = "documento.pdf") {
+    sendDocument(destination, url, filename = "documento.pdf") {
+      const r = recipientBlock(destination);
       return post({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to,
+        ...r,
         type: "document",
         document: { link: url, filename },
       });
@@ -136,4 +162,4 @@ async function getWabaId(token, phoneNumberId) {
   return data.whatsapp_business_account_id;
 }
 
-module.exports = { createClient };
+module.exports = { createClient, recipientBlock };

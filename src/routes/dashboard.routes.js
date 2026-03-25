@@ -12,7 +12,16 @@ const {
 } = require("../services/tenant.service");
 const messageDbCompat = require("../lib/message-db-compat");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
-const { setHandoff, releaseHandoff, claimFromQueue, closeConversation } = require("../services/customer.service");
+const {
+  setHandoff,
+  releaseHandoff,
+  claimFromQueue,
+  closeConversation,
+  waCloudDestination,
+  learningKeyFromCustomer,
+  findByWaUserId,
+} = require("../services/customer.service");
+const waIdentity = require("../lib/wa-webhook-identity");
 const convState = require("../services/conversation-state.service");
 const googleContacts = require("../services/google-contacts.service");
 const baileys = require("../services/baileys.service");
@@ -46,7 +55,7 @@ function parseSocialPhone(phone) {
 }
 
 function formatCustomerDisplay(customer) {
-  const social = parseSocialPhone(customer.phone);
+  const social = customer.phone ? parseSocialPhone(customer.phone) : null;
   const displayName = customer.name?.trim() || null;
   if (social) {
     const shortId = social.recipientId.slice(-6).replace(/^0+/, "") || social.recipientId.slice(-5);
@@ -57,14 +66,29 @@ function formatCustomerDisplay(customer) {
       displayName: displayName || friendlyLabel,
       phoneFormatted: friendlyLabel,
       phoneSubtitle: customer.phone,
+      waUsername: customer.waUsername || null,
+      waUserId: customer.waUserId || null,
     };
   }
+  const rawPhone = customer.phone != null ? String(customer.phone) : "";
+  const phoneFmt = rawPhone
+    ? rawPhone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3")
+    : customer.waUsername
+      ? `@${customer.waUsername}`
+      : customer.waUserId || "—";
   return {
     isSocial: false,
     socialPlatform: null,
-    displayName: displayName || customer.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
-    phoneFormatted: customer.phone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3"),
-    phoneSubtitle: null,
+    displayName:
+      displayName ||
+      (customer.waUsername ? `@${customer.waUsername}` : null) ||
+      (rawPhone ? rawPhone.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3") : null) ||
+      customer.waUserId ||
+      "Cliente",
+    phoneFormatted: phoneFmt,
+    phoneSubtitle: customer.waUserId && !rawPhone ? customer.waUserId : null,
+    waUsername: customer.waUsername || null,
+    waUserId: customer.waUserId || null,
   };
 }
 
@@ -93,16 +117,16 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
 
   const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
   const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
-  if (!normalizedPhone || normalizedPhone.length < 10) {
-    dashLog.warn({ tenantId, phone }, "Envio: telefone inválido após normalização");
-    return { error: true, code: "invalid_phone", message: "Telefone inválido para envio" };
-  }
 
   const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
   const useBaileysInstance =
     replyChannel && replyChannel.startsWith("baileys:") ? replyChannel.replace("baileys:", "") : null;
 
   if (useBaileysInstance) {
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      dashLog.warn({ tenantId, phone }, "Envio Baileys: telefone inválido após normalização");
+      return { error: true, code: "invalid_phone", message: "Telefone inválido para envio" };
+    }
     const r = await baileys.sendText(normalizedPhone, txt, useBaileysInstance, true);
     if (!r?.ok)
       dashLog.warn({ tenantId, instanceId: useBaileysInstance, err: r?.error }, "Falha envio Baileys (painel)");
@@ -111,8 +135,29 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
 
   dashLog.debug({ tenantId }, "Envio outbound via WhatsApp Cloud API");
   const { wa } = await getClients(tenantId);
+  let dest = null;
+  if (customerId) {
+    const cust = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { phone: true, waUserId: true },
+    });
+    if (cust) {
+      try {
+        dest = waCloudDestination(cust);
+      } catch {
+        dest = null;
+      }
+    }
+  }
+  if (!dest) {
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      dashLog.warn({ tenantId, phone }, "Envio: sem destino Cloud (telefone/BSUID)");
+      return { error: true, code: "invalid_destination", message: "Destino inválido para WhatsApp Cloud" };
+    }
+    dest = normalizedPhone;
+  }
   try {
-    return await wa.sendText(normalizedPhone, txt);
+    return await wa.sendText(dest, txt);
   } catch (err) {
     dashLog.warn(
       { tenantId, phone: normalizedPhone, err: err.message, code: err.code },
@@ -302,13 +347,7 @@ router.get("/conversations", authDash, async (req, res) => {
       },
       orderBy: { lastInteraction: "desc" },
       take: 200,
-      include: {
-        orders: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: orderPixDbCompat.getOrderScalarSelect(),
-        },
-      },
+      select: orderPixDbCompat.getCustomerWithLastOrderSelect(),
     });
     const withState = await Promise.all(
       customers.map(async (c) => {
@@ -338,13 +377,7 @@ router.get("/queue", authDash, async (req, res) => {
     const customers = await prisma.customer.findMany({
       where: { tenantId, handoff: true },
       orderBy: { queuedAt: "asc" },
-      include: {
-        orders: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: orderPixDbCompat.getOrderScalarSelect(),
-        },
-      },
+      select: orderPixDbCompat.getCustomerWithLastOrderSelect(),
     });
     const withState = await Promise.all(
       customers.map(async (c) => {
@@ -375,6 +408,7 @@ router.put("/handoff", authDash, async (req, res) => {
     if (!customerId && phone) {
       const { findByPhone } = require("../services/customer.service");
       let c = await findByPhone(tenantId, phone);
+      if (!c && waIdentity.looksLikeBsuid(phone)) c = await findByWaUserId(tenantId, phone);
       if (!c && parseSocialPhone(phone)) {
         c = await prisma.customer.findUnique({ where: { tenantId_phone: { tenantId, phone } } });
       }
@@ -433,11 +467,11 @@ router.post("/queue/release", authDash, async (req, res) => {
     try {
       const customer = await prisma.customer.findUnique({
         where: { id: customerId },
-        select: { tenantId: true, phone: true },
+        select: { tenantId: true, phone: true, waUserId: true, id: true },
       });
       if (customer) {
         const learning = require("../services/bot-learning.service");
-        await learning.analyzeConversation(customer.tenantId, customerId, customer.phone);
+        await learning.analyzeConversation(customer.tenantId, customerId, learningKeyFromCustomer(customer));
       }
     } catch {}
 
@@ -857,7 +891,7 @@ router.patch("/baileys/instances/:id/tenant", authDash, async (req, res) => {
   }
 });
 router.delete("/baileys/instances/:id", authAdmin, async (req, res) => {
-  await baileys.disconnect(req.params.id);
+  await baileys.removeInstance(req.params.id);
   res.json({ ok: true });
 });
 
@@ -1751,16 +1785,27 @@ router.get("/customers/search", authDash, async (req, res) => {
     if (!q || q.length < 2) return res.json([]);
     const digits = q.replace(/\D/g, "");
     const orCond = [];
-    if (q.length >= 2) orCond.push({ name: { contains: q, mode: "insensitive" } });
+    if (q.length >= 2) {
+      orCond.push({ name: { contains: q, mode: "insensitive" } });
+      orCond.push({ waUsername: { contains: q, mode: "insensitive" } });
+      orCond.push({ waUserId: { contains: q, mode: "insensitive" } });
+    }
     if (digits.length >= 2) orCond.push({ phone: { contains: digits } });
     if (!orCond.length) return res.json([]);
     const customers = await prisma.customer.findMany({
       where: { tenantId, OR: orCond },
-      select: { name: true, phone: true },
+      select: { name: true, phone: true, waUsername: true, waUserId: true },
       orderBy: { lastInteraction: "desc" },
       take: 20,
     });
-    res.json(customers.map((c) => ({ name: c.name || null, phone: c.phone })));
+    res.json(
+      customers.map((c) => ({
+        name: c.name || null,
+        phone: c.phone,
+        waUsername: c.waUsername || null,
+        waUserId: c.waUserId || null,
+      })),
+    );
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -881,6 +881,15 @@ async function start(instanceId = "default", opts = {}) {
             }
             if (!wasIntentional) maybeEmitBaileysDisconnected(inst, instanceId, reason);
           } else {
+            if (wasIntentional) {
+              inst._replaced440Count = 0;
+              inst._genericDisconnectCount = 0;
+              log.info(
+                { instanceId, code },
+                "Baileys: desconexão intencional — sem reconexão automática",
+              );
+              return;
+            }
             inst._replaced440Count = 0;
             inst._genericDisconnectCount = (inst._genericDisconnectCount || 0) + 1;
             if (inst._genericDisconnectCount > MAX_AUTO_RECONNECT_ATTEMPTS) {
@@ -1185,6 +1194,20 @@ async function disconnect(instanceId = "default") {
   if (instanceId !== "default") INSTANCES.delete(instanceId);
 }
 
+/** Remove a instância do registro (config + memória). Usado pelo botão Excluir no painel. */
+async function removeInstance(instanceId = "default") {
+  if (instanceId === "default") {
+    await disconnect("default");
+    return;
+  }
+  await disconnect(instanceId);
+  try {
+    await prisma.config.deleteMany({ where: { key: instanceConfigKey(instanceId) } });
+  } catch (e) {
+    log.warn({ instanceId, err: e?.message }, "removeInstance: falha ao apagar config da instância");
+  }
+}
+
 async function getProfilePicture(phone) {
   for (const inst of INSTANCES.values()) {
     if (inst.socket && inst.status === "connected") {
@@ -1236,6 +1259,7 @@ module.exports = {
   setBotEnabled,
   setInstanceTenant,
   disconnect,
+  removeInstance,
   getProfilePicture,
   getReplyChannel,
   setReplyChannel,

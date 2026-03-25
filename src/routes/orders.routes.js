@@ -4,7 +4,7 @@ const express = require("express");
 const { requireAttendantKey } = require("../middleware/auth.middleware");
 const { requireTenant } = require("../middleware/tenant.middleware");
 const { updateStatus, updateCwStatus, findOrderByCwOrderIdGlobal } = require("../services/order.service");
-const { setHandoff, findByPhone } = require("../services/customer.service");
+const { setHandoff, findByPhone, waCloudDestination } = require("../services/customer.service");
 const { getClients } = require("../services/tenant.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 
@@ -25,19 +25,27 @@ router.post("/cw-status", async (req, res) => {
 
     const statusKey = String(status).toLowerCase().replace(/\s/g, "_");
     const msg = STATUS_MESSAGES[statusKey] || STATUS_MESSAGES[status];
-    if (msg && order.customer?.phone) {
+    if (msg && order.customer) {
       const { getClients } = require("../services/tenant.service");
       const { wa } = await getClients(order.tenantId);
-      await wa.sendText(order.customer.phone, msg).catch(() => {});
+      let dest;
+      try {
+        dest = waCloudDestination(order.customer);
+      } catch {
+        dest = null;
+      }
+      if (dest) {
+        await wa.sendText(dest, msg).catch(() => {});
 
-      if (["delivered", "pedido_concluido"].includes(statusKey)) {
-        setTimeout(async () => {
-          try {
-            const survey =
-              "🌟 Como foi sua experiência? Responda com uma nota de *1 a 5*:\n\n1 = Ruim  |  5 = Excelente\n\nSua opinião nos ajuda a melhorar! 😊";
-            await wa.sendText(order.customer.phone, survey).catch(() => {});
-          } catch {}
-        }, 30_000);
+        if (["delivered", "pedido_concluido"].includes(statusKey)) {
+          setTimeout(async () => {
+            try {
+              const survey =
+                "🌟 Como foi sua experiência? Responda com uma nota de *1 a 5*:\n\n1 = Ruim  |  5 = Excelente\n\nSua opinião nos ajuda a melhorar! 😊";
+              await wa.sendText(dest, survey).catch(() => {});
+            } catch {}
+          }, 30_000);
+        }
       }
     }
   } catch (err) {

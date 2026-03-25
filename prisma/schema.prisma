@@ -38,7 +38,12 @@ model Tenant {
 model Customer {
   id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId         String
-  phone            String
+  phone            String?
+  waId             String?   @map("wa_id")
+  waUserId         String?   @map("wa_user_id")
+  waParentUserId   String?   @map("wa_parent_user_id")
+  waUsername       String?   @map("wa_username")
+  identityType     String?   @map("identity_type")
   name             String?
   lastAddress      String?
   lastStreet       String?

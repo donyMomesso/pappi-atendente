@@ -30,9 +30,7 @@ function normalizePhone(phone) {
 // ── Monta dados do usuário (sempre hasheados) ─────────────────
 function buildUserData(customer, ipAddress = null) {
   const phone = normalizePhone(customer.phone);
-  return {
-    // Telefone hasheado — campo mais importante para matching
-    ph: [hash(phone)],
+  const out = {
     // Nome hasheado se disponível
     ...(customer.name ? { fn: [hash(customer.name.split(" ")[0])] } : {}),
     // País
@@ -42,6 +40,13 @@ function buildUserData(customer, ipAddress = null) {
     // External ID = ID do customer no banco (não precisa ser hasheado)
     external_id: [hash(customer.id)],
   };
+  if (phone) {
+    out.ph = [hash(phone)];
+  }
+  if (customer.waUserId) {
+    out.external_id = [...(out.external_id || []), hash(`wauser:${customer.waUserId}`)];
+  }
+  return out;
 }
 
 // ── Envia evento para a CAPI ──────────────────────────────────
@@ -99,7 +104,9 @@ async function trackPurchase({ customer, order, items }) {
     event_name: "Purchase",
     event_time: eventTime,
     action_source: "other", // WhatsApp não é web nem app
-    event_source_url: `https://wa.me/${normalizePhone(customer.phone)}`,
+    event_source_url: customer.phone
+      ? `https://wa.me/${normalizePhone(customer.phone)}`
+      : `https://pappiatendente.com.br/customer/${customer.id}`,
     user_data: buildUserData(customer),
     custom_data: {
       currency: "BRL",
