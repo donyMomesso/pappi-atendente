@@ -22,6 +22,7 @@ const aviseAbertura = require("../services/avise-abertura.service");
 const { needsDeescalation, detectHumanRequest } = require("../services/deescalation.service");
 const inboxTriage = require("../services/inbox-triage.service");
 const orderIntake = require("../services/order-intake.service");
+const aiOrchestrator = require("../services/ai-orchestrator.service");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
 
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
@@ -437,7 +438,7 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
         } catch {}
       }
 
-      const intake = orderIntake.intake({ text, sizeOptions: session.sizeOptions || [] });
+      intake = orderIntake.intake({ text, sizeOptions: session.sizeOptions || [] });
       if (intake?.productType && !session.productType) session.productType = intake.productType;
       if (intake?.fulfillment && !session.fulfillment) session.fulfillment = intake.fulfillment;
       if (intake?.size && !session.chosenSize) session.chosenSize = intake.size;
@@ -475,6 +476,33 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
     }
   } catch {
     // intake falhou → segue fluxo atual
+  }
+
+  // ── FASE 1: Orquestrador consultivo (não altera CW, preços nem payment_method_id) ──
+  try {
+    const recent = await chatMemory.get(customer.id);
+    const history = (recent || []).slice(-16).map((m) => ({
+      role: m.role,
+      text: String(m.text || "").slice(0, 500),
+      at: m.at,
+    }));
+    session._orchestration = await aiOrchestrator.decideOrchestration({
+      tenantId: tenant.id,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        visitCount: customer.visitCount,
+        preferredPayment: customer.preferredPayment,
+        handoff: customer.handoff,
+      },
+      session,
+      text,
+      history,
+      triageResult: tri,
+      intakeResult: intake,
+    });
+  } catch {
+    // orquestrador é best-effort
   }
 
   // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
