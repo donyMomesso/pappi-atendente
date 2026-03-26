@@ -1476,15 +1476,7 @@ async function initAll() {
   });
   const cfgIds = cfgs.map((c) => c.key.replace(instancePrefix, ""));
 
-  const includeDefault = authIds.includes("default") || cfgIds.includes("default");
-  const ids = [...new Set([...authIds, ...cfgIds, ...(includeDefault ? ["default"] : [])])];
-
-  if (!includeDefault) {
-    log.info(
-      { reason: "default_without_auth_or_config" },
-      "Instância default não será iniciada automaticamente (sem auth/config explícitos)",
-    );
-  }
+  const ids = [...new Set([...authIds, ...cfgIds, "default"])];
 
   for (const id of ids) {
     try {
