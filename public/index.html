@@ -1282,6 +1282,7 @@ let INVITE_TOKEN_ACTIVE = null;
 let SUPABASE_CLIENT = null;
 let SESSION_ACCESS_TOKEN = null;
 let selectedCustomer = null;
+let selectedOrdersReqSeq = 0;
 let catalog = null;
 let payments = [];
 let cart = [];
@@ -1350,7 +1351,10 @@ function initSocket() {
 
   _socket.on("conv_update", ({ customerId }) => {
     fetchConvs();
-    if (selectedCustomer?.id === customerId) fetchQueue();
+    if (selectedCustomer?.id === customerId) {
+      fetchQueue();
+      loadCustomerOrders(customerId, true);
+    }
   });
 
   // WhatsApp Interno desconectou inesperadamente
@@ -2182,6 +2186,10 @@ async function fetchConvs() {
   const d = await api("/conversations");
   if (!d || d.error) return;
   allConvs = d;
+  if (selectedCustomer?.id) {
+    const refreshed = d.find(x => x.id === selectedCustomer.id);
+    if (refreshed) selectedCustomer = { ...selectedCustomer, ...refreshed };
+  }
   renderConvs(d);
 }
 
@@ -2259,12 +2267,31 @@ async function selectCustomer(c) {
   renderConvs(allConvs);
   renderCenter(c);
   renderRight(c);
-  const orders = await api(`/customer/${c.id}/orders`);
-  if (orders) renderOrders(orders);
+  await loadCustomerOrders(c.id, true);
   // Carrega histórico e inicia polling
   clearInterval(chatPollTimer);
   await loadChatHistory(c.id);
   chatPollTimer = setInterval(() => loadChatHistory(c.id), 5000); // fallback — socket cuida do tempo real
+}
+
+async function loadCustomerOrders(customerId, force = false) {
+  if (!customerId) return;
+  if (!force && (!selectedCustomer || selectedCustomer.id !== customerId)) return;
+  const metaEl = document.getElementById("ordersSyncMeta");
+  if (metaEl) metaEl.textContent = `Sincronizando pedidos de ${customerId.slice(-6).toUpperCase()}...`;
+  const reqSeq = ++selectedOrdersReqSeq;
+  const orders = await api(`/customer/${customerId}/orders`);
+  if (!orders) {
+    if (metaEl) metaEl.textContent = "Falha ao carregar pedidos";
+    return;
+  }
+  if (reqSeq !== selectedOrdersReqSeq) return; // evita render de resposta antiga
+  if (!selectedCustomer || selectedCustomer.id !== customerId) return;
+  if (metaEl) {
+    const count = Array.isArray(orders) ? orders.length : 0;
+    metaEl.textContent = `Cliente ${customerId.slice(-6).toUpperCase()} · ${count} pedido(s)`;
+  }
+  renderOrders(orders);
 }
 
 async function loadChatHistory(customerId) {
@@ -2426,10 +2453,18 @@ function renderRight(c) {
           <h3>Pedidos</h3>
           <button class="btn-new-order" onclick="openOrder()">+ Adicionar</button>
         </div>
+        <div id="ordersSyncMeta" style="padding:6px 12px;border-bottom:1px solid var(--border);font-size:11px;color:#888;background:#fafafa">
+          Carregando pedidos do cliente...
+        </div>
         <div id="ordersList"><div class="no-orders">Carregando...</div></div>
       </div>
     </div>
   `;
+  if (c?.id) {
+    setTimeout(() => {
+      if (selectedCustomer?.id === c.id) loadCustomerOrders(c.id, true);
+    }, 0);
+  }
 }
 
 function renderOrders(orders) {
@@ -2963,8 +2998,7 @@ async function confirmOrder() {
     closeOrder();
     alert("✅ Pedido criado!" + (result.cwOrderId ? ` CW #${result.cwOrderId}` : ""));
     // Recarrega pedidos
-    const orders = await api(`/customer/${selectedCustomer.id}/orders`);
-    if (orders) renderOrders(orders);
+    await loadCustomerOrders(selectedCustomer.id, true);
     fetchStats();
   } else {
     btn.textContent = "✅ Confirmar Pedido";
@@ -3142,7 +3176,13 @@ async function doCompensateOrder(orderId) {
 
 function selectCustomerById(customerId) {
   const c = allConvs.find(x => x.id === customerId);
-  if (c) selectedCustomer = c; renderConvs(allConvs); renderCenter(selectedCustomer); renderRight(selectedCustomer); loadChatHistory(selectedCustomer?.id);
+  if (!c) return;
+  selectedCustomer = c;
+  renderConvs(allConvs);
+  renderCenter(selectedCustomer);
+  renderRight(selectedCustomer);
+  loadChatHistory(selectedCustomer.id);
+  loadCustomerOrders(selectedCustomer.id, true);
 }
 
 async function fetchKanban() {

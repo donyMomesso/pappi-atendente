@@ -610,7 +610,8 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
 
       // Se já estamos perguntando tamanho e ele veio no texto, não repete pergunta
       if (session.step === "ASK_SIZE" && intake?.size) {
-        await handleAskSize(wa, cw, phone, `size_${intake.size}`, session, customer, tenant);
+        // Mantém o texto original para aproveitar sabor/complementos na mesma mensagem.
+        await handleAskSize(wa, cw, phone, text, session, customer, tenant);
         await saveSession(tenant.id, sessionKey, session);
         return;
       }
