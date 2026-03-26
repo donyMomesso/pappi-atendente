@@ -7,6 +7,7 @@ const { updateStatus, updateCwStatus, findOrderByCwOrderIdGlobal } = require("..
 const { setHandoff, findByPhone, waCloudDestination } = require("../services/customer.service");
 const { getClients } = require("../services/tenant.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+const prisma = require("../lib/db");
 
 const router = express.Router();
 
@@ -65,6 +66,18 @@ const STATUS_MESSAGES = {
   cancelled: "❌ Seu pedido foi *cancelado*. Entre em contato se tiver dúvidas.",
 };
 
+function normalizeStatusKey(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+}
+
+function isConcludeLikeStatus(s) {
+  const k = normalizeStatusKey(s);
+  return ["concluded", "delivered", "pedido_concluido"].includes(k);
+}
+
 router.use(requireAttendantKey, requireTenant);
 
 router.put("/handoff", async (req, res) => {
@@ -88,6 +101,31 @@ router.put("/handoff", async (req, res) => {
 router.post("/:id/status", async (req, res) => {
   try {
     const { status, note } = req.body;
+    const orderDb = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, tenantId: true, cwOrderId: true, status: true },
+    });
+    if (!orderDb || orderDb.tenantId !== req.tenant.id) {
+      return res.status(404).json({ error: "Pedido não encontrado" });
+    }
+
+    if (orderDb.cwOrderId && isConcludeLikeStatus(status)) {
+      const { cw } = await getClients(orderDb.tenantId);
+      const cwOrder = await cw.getOrderById(orderDb.cwOrderId).catch(() => null);
+      const cwStatus = normalizeStatusKey(cwOrder?.status);
+      const cwAlreadyDone = ["concluded", "delivered", "pedido_concluido"].includes(cwStatus);
+      if (!cwAlreadyDone) {
+        return res.status(409).json({
+          ok: false,
+          error:
+            "Conclusão bloqueada: o CardápioWeb ainda não permite finalizar este pedido. Atualize o status no CW primeiro.",
+          cwStatus: cwOrder?.status || null,
+          code: "cw_transition_not_allowed",
+        });
+      }
+      await updateCwStatus(orderDb.id, cwOrder.status);
+    }
+
     const order = await updateStatus(req.params.id, status, "human", note);
     res.json({ ok: true, order });
   } catch (err) {
