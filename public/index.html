@@ -4867,8 +4867,9 @@ function getSocialAvatarLabel(c) { if (c.isSocial&&c.socialPlatform) return c.so
 function statusLabel(s) {
   return {
     waiting_confirmation:"⏳ Aguardando",confirmed:"✅ Confirmado",
-    preparing:"👨‍🍳 Preparando",ready:"✅ Pronto",dispatched:"🛵 A caminho",
-    delivered:"🏠 Entregue",cancelled:"❌ Cancelado",
+    preparing:"👨‍🍳 Preparando",in_preparation:"👨‍🍳 Preparando",em_producao:"👨‍🍳 Preparando",
+    ready:"✅ Pronto",dispatched:"🛵 A caminho",saiu_para_entrega:"🛵 A caminho",
+    delivered:"🏠 Entregue",concluded:"🏠 Entregue",pedido_concluido:"🏠 Entregue",cancelled:"❌ Cancelado",
     lead:"📝 Lead (fechado)",cw_failed:"⚠️ Falha CW"
   }[s]||s;
 }

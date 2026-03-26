@@ -8,6 +8,24 @@ const { validate: validateTotal } = require("../calculators/OrderCalculator");
 
 const selOrder = () => orderPixDbCompat.getOrderScalarSelect();
 
+function mapCwStatusToInternal(status) {
+  const s = String(status || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+  const map = {
+    em_producao: "in_preparation",
+    in_production: "in_preparation",
+    preparando: "in_preparation",
+    saiu_para_entrega: "dispatched",
+    out_for_delivery: "dispatched",
+    pedido_concluido: "concluded",
+    delivered: "concluded",
+    pronto_para_retirada: "confirmed",
+  };
+  return map[s] || s || "waiting_confirmation";
+}
+
 async function createWithIdempotency(opts) {
   const {
     tenantId,
@@ -80,11 +98,15 @@ async function updateStatus(orderId, status, source = "system", note = null) {
 
 /** Atualiza status vindo do CardápioWeb e campos de monitoramento de atraso */
 async function updateCwStatus(orderId, cwStatus) {
-  const normalized = String(cwStatus || "").toLowerCase();
-  const isDone = ["pedido_concluido", "delivered", "concluded"].includes(normalized);
+  const normalizedRaw = String(cwStatus || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+  const internalStatus = mapCwStatusToInternal(cwStatus);
+  const isDone = ["concluded"].includes(internalStatus);
   const data = {
-    status: cwStatus,
-    cardapiowebStatus: cwStatus,
+    status: internalStatus,
+    cardapiowebStatus: normalizedRaw,
     statusChangedAt: new Date(),
   };
   if (isDone) {
