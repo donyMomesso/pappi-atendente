@@ -99,10 +99,11 @@ async function updateCwStatus(orderId, cwStatus) {
 }
 
 async function setCwOrderId(orderId, cwOrderId, cwResponse = null) {
+  const cwOrderIdNormalized = cwOrderId === undefined || cwOrderId === null || cwOrderId === "" ? null : String(cwOrderId);
   return prisma.order.update({
     where: { id: orderId },
     data: {
-      cwOrderId,
+      cwOrderId: cwOrderIdNormalized,
       cwResponse: cwResponse ? JSON.stringify(cwResponse) : undefined,
     },
     select: selOrder(),
