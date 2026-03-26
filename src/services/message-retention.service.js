@@ -13,15 +13,18 @@ async function cleanupOldMessages() {
   if (!messageDbCompat.isMessagesTableAvailable()) return;
   const cutoff = new Date(Date.now() - RETAIN_MS);
   try {
+    const hasOriginalTs = messageDbCompat.hasMessageOriginalTimestampColumn();
     const res = await prisma.message.deleteMany({
-      where: {
-        OR: [
-          { originalTimestamp: { lt: cutoff } },
-          {
-            AND: [{ originalTimestamp: null }, { createdAt: { lt: cutoff } }],
-          },
-        ],
-      },
+      where: hasOriginalTs
+        ? {
+            OR: [
+              { originalTimestamp: { lt: cutoff } },
+              {
+                AND: [{ originalTimestamp: null }, { createdAt: { lt: cutoff } }],
+              },
+            ],
+          }
+        : { createdAt: { lt: cutoff } },
     });
     if (res?.count) {
       log.info({ removed: res.count, cutoff: cutoff.toISOString() }, "Limpeza 24h de mensagens concluída");

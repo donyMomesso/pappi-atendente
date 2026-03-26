@@ -647,15 +647,22 @@ async function start(instanceId = "default", opts = {}) {
     const lockAcquired = await baileysLock.acquireLock(instanceId);
     if (!lockAcquired) {
       inst.starting = false;
+      inst.status = "disconnected";
+      const ttl = ENV.BAILEYS_LOCK_TTL_MS || 60_000;
+      const retryMs = Math.max(8000, Math.floor(ttl / 2));
       log.warn(
         {
           instanceId,
           appEnv: ENV.APP_ENV,
           hostname: ENV.BAILEYS_HOSTNAME || require("os").hostname(),
           pid: process.pid,
+          retryInMs: retryMs,
         },
         "Boot recusado — outro processo detém o lock da instância",
       );
+      // Importante em deploy/rolling restart: quando o owner anterior cair, este processo volta
+      // a tentar automaticamente e reassume a sessão sem intervenção manual.
+      scheduleReconnect(instanceId, retryMs);
       return;
     }
     log.info(
