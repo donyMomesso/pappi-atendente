@@ -10,6 +10,8 @@ const log = require("./logger").child({ module: "message-db-compat" });
 let messagesTablePresent = null;
 /** @type {boolean | null} */
 let senderEmailColumnPresent = null;
+/** @type {boolean | null} */
+let originalTimestampColumnPresent = null;
 
 const MESSAGE_ROW_SELECT_WITHOUT_EMAIL = {
   id: true,
@@ -18,6 +20,7 @@ const MESSAGE_ROW_SELECT_WITHOUT_EMAIL = {
   text: true,
   sender: true,
   createdAt: true,
+  originalTimestamp: true,
   mediaUrl: true,
   mediaType: true,
   waMessageId: true,
@@ -31,6 +34,7 @@ const MESSAGE_ROW_SELECT_WITHOUT_EMAIL = {
 async function refreshMessageSenderEmailSupport() {
   messagesTablePresent = false;
   senderEmailColumnPresent = false;
+  originalTimestampColumnPresent = false;
 
   try {
     const tbl = await prisma.$queryRaw`
@@ -46,6 +50,24 @@ async function refreshMessageSenderEmailSupport() {
     log.warn(
       { err: err.message },
       "messages: falha ao verificar tabela em information_schema; assumindo tabela presente",
+    );
+  }
+
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT 1 AS ok
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'messages'
+        AND column_name = 'original_timestamp'
+      LIMIT 1
+    `;
+    originalTimestampColumnPresent = Array.isArray(rows) && rows.length > 0;
+  } catch (err) {
+    originalTimestampColumnPresent = true;
+    log.warn(
+      { err: err.message },
+      "messages.original_timestamp: falha ao consultar information_schema; assumindo coluna presente",
     );
   }
 
@@ -77,7 +99,7 @@ async function refreshMessageSenderEmailSupport() {
   }
 
   log.info(
-    { messagesTablePresent, senderEmailColumnPresent },
+    { messagesTablePresent, senderEmailColumnPresent, originalTimestampColumnPresent },
     "message-db-compat: sondagem public.messages",
   );
 }
@@ -90,10 +112,15 @@ function hasMessageSenderEmailColumn() {
   return messagesTablePresent === true && senderEmailColumnPresent === true;
 }
 
+function hasMessageOriginalTimestampColumn() {
+  return messagesTablePresent === true && originalTimestampColumnPresent === true;
+}
+
 /** Select estável para findMany/findFirst/create return — evita senderEmail se a coluna não existir. */
 function getMessageRowSelect() {
   const s = { ...MESSAGE_ROW_SELECT_WITHOUT_EMAIL };
   if (hasMessageSenderEmailColumn()) s.senderEmail = true;
+  if (!hasMessageOriginalTimestampColumn()) delete s.originalTimestamp;
   return s;
 }
 
@@ -101,6 +128,7 @@ function getMessageRowSelect() {
 function buildMessageCreateData(data) {
   const out = { ...data };
   if (!hasMessageSenderEmailColumn()) delete out.senderEmail;
+  if (!hasMessageOriginalTimestampColumn()) delete out.originalTimestamp;
   return out;
 }
 
@@ -116,7 +144,9 @@ function mapRowToClientMessage(r) {
     mediaType: r.mediaType,
     status: r.status,
     waMessageId: r.waMessageId,
-    at: r.createdAt ? r.createdAt.toISOString() : undefined,
+    originalTimestamp: r.originalTimestamp ? r.originalTimestamp.toISOString() : null,
+    createdAt: r.createdAt ? r.createdAt.toISOString() : undefined,
+    at: (r.originalTimestamp || r.createdAt) ? (r.originalTimestamp || r.createdAt).toISOString() : undefined,
   };
 }
 
@@ -124,6 +154,7 @@ module.exports = {
   refreshMessageSenderEmailSupport,
   isMessagesTableAvailable,
   hasMessageSenderEmailColumn,
+  hasMessageOriginalTimestampColumn,
   getMessageRowSelect,
   buildMessageCreateData,
   mapRowToClientMessage,

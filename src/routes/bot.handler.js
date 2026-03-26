@@ -1552,7 +1552,7 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waM
     const prisma = require("../lib/db");
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
     const log = require("../lib/logger").child({ service: "bot.baileys-msg" });
-    const { customerId, mediaType } = opts || {};
+    const { customerId, mediaType, originalTimestamp } = opts || {};
 
     let customer = null;
     if (customerId) {
@@ -1566,7 +1566,17 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waM
     }
     if (customer) {
       const sender = role === "customer" ? null : role === "human" ? "WhatsApp App" : "WhatsApp Auxiliar";
-      await chatMemory.push(customer.id, role, text, sender, null, mediaType || "text", waMessageId);
+      await chatMemory.push(
+        customer.id,
+        role,
+        text,
+        sender,
+        null,
+        mediaType || "text",
+        waMessageId,
+        null,
+        originalTimestamp || null,
+      );
       log.info(
         { pipeline: "message_saved", customerId: customer.id, role, mediaType: mediaType || "text", waMessageId },
         "message_saved",

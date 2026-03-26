@@ -68,6 +68,10 @@ model Customer {
 
   @@unique([tenantId, phone], name: "tenantId_phone", map: "tenantId_phone")
   @@index([tenantId], map: "idx_customers_tenantid")
+  @@index([tenantId, waId], map: "idx_customers_tenant_wa_id")
+  @@index([tenantId, waUserId], map: "idx_customers_tenant_wa_user_id")
+  @@index([tenantId, waUsername], map: "idx_customers_tenant_wa_username")
+  @@index([tenantId, waParentUserId], map: "idx_customers_tenant_wa_parent_user_id")
   @@map("customers")
   @@schema("public")
 }
@@ -150,6 +154,7 @@ model Message {
   sender      String?
   senderEmail String?
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  originalTimestamp DateTime? @map("original_timestamp") @db.Timestamptz(6)
   mediaUrl    String?
   mediaType   String?  @default("text")
   waMessageId String?
@@ -157,6 +162,7 @@ model Message {
   customer    Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([customerId, createdAt], map: "messages_customer_created")
+  @@index([customerId, originalTimestamp], map: "messages_customer_original_ts")
   @@index([waMessageId], map: "idx_messages_wa_message_id")
   @@map("messages")
   @@schema("public")

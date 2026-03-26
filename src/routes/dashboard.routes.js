@@ -92,6 +92,27 @@ function formatCustomerDisplay(customer) {
   };
 }
 
+function buildOutboundError(err, fallbackMessage = "Falha ao enviar mensagem") {
+  const waCloudClass = err?.waCloudClass || null;
+  const waCloudMeta = err?.waCloudMeta || null;
+  if (waCloudClass === "window_closed") {
+    return {
+      error: true,
+      code: "window_closed",
+      waCloudClass,
+      waCloudMeta,
+      message: "Janela de 24h encerrada. Envie um template para reengajar o cliente.",
+    };
+  }
+  return {
+    error: true,
+    code: err?.code || "send_failed",
+    waCloudClass,
+    waCloudMeta,
+    message: err?.message || fallbackMessage,
+  };
+}
+
 async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
   const txt = typeof text === "string" ? text.trim() : "";
   if (!txt) return null;
@@ -160,10 +181,17 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
     return await wa.sendText(dest, txt);
   } catch (err) {
     dashLog.warn(
-      { tenantId, phone: normalizedPhone, err: err.message, code: err.code },
+      {
+        tenantId,
+        phone: normalizedPhone,
+        err: err.message,
+        code: err.code,
+        waCloudClass: err?.waCloudClass || null,
+        waCloudMeta: err?.waCloudMeta || null,
+      },
       "Falha envio Cloud API (painel)",
     );
-    throw err;
+    return buildOutboundError(err);
   }
 }
 
@@ -1104,7 +1132,13 @@ router.post("/send", authDash, async (req, res) => {
         (typeof result === "object" && typeof result?.error === "string" ? result.error : null) ||
         (typeof result === "object" && result?.body?.error?.message) ||
         "Falha ao enviar mensagem";
-      throw new Error(detail);
+      return res.status(200).json({
+        ok: false,
+        error: detail,
+        code: result?.code || "send_failed",
+        waCloudClass: result?.waCloudClass || null,
+        waCloudMeta: result?.waCloudMeta || null,
+      });
     }
 
     let waMessageId = null;
@@ -1129,7 +1163,8 @@ router.post("/send", authDash, async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const built = buildOutboundError(err);
+    res.status(500).json({ ok: false, ...built });
   }
 });
 

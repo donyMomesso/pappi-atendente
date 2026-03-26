@@ -1415,6 +1415,16 @@ function showWaDisconnectAlert(instanceId, reason) {
   }
 }
 
+function resolveMessageDate(m) {
+  const candidates = [m?.originalTimestamp, m?.at, m?.createdAt];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
 function appendMsgToChat(body, m) {
   const placeholder = body.querySelector("div[style*='Nenhuma mensagem']") || body.querySelector("div[style*='aguardando']");
   if (placeholder) placeholder.remove();
@@ -1430,7 +1440,7 @@ function appendMsgToChat(body, m) {
     ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>`
     : "";
 
-  const time = new Date(m.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const time = resolveMessageDate(m).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
   let statusIcon = "";
   if (isOut || isBot) {
@@ -2267,7 +2277,7 @@ async function loadChatHistory(customerId) {
 
   // Verifica janela de 24h
   const lastCustomerMsg = msgs.filter(m => m.role === 'customer').pop();
-  const isExpired = lastCustomerMsg ? (new Date() - new Date(lastCustomerMsg.at)) > (24 * 60 * 60 * 1000) : false;
+  const isExpired = lastCustomerMsg ? (new Date() - resolveMessageDate(lastCustomerMsg)) > (24 * 60 * 60 * 1000) : false;
   const inputArea = document.getElementById("chatInputArea");
   if (inputArea) {
     if (isExpired) {
@@ -2297,7 +2307,7 @@ async function loadChatHistory(customerId) {
     const isBot = m.role === "bot" || m.role === "assistant";
     const cls = isOut ? "msg out" : "msg in";
     const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isOut ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
-    const time = new Date(m.at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    const time = resolveMessageDate(m).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
     // Lógica de Mídia
     let content = `<p style="margin:0">${esc(m.text)}</p>`;
     if (m.mediaUrl) {
@@ -2321,6 +2331,7 @@ async function loadChatHistory(customerId) {
     return `<div class="${cls}" data-wa-message-id="${esc(m.waMessageId || "")}">${senderTag}${content}<div class="time" style="display:flex;align-items:center;justify-content:flex-end">${time}${statusIcon}</div></div>`;
   }).join("");
   body.scrollTop = body.scrollHeight;
+  console.debug("ui_rendered", { customerId, messages: msgs.length });
 }
 
 function appendLastOrder(body, order) {
@@ -2484,10 +2495,17 @@ async function sendMsg() {
   const text = el?.value?.trim();
   if (!text || !selectedCustomer) return;
   el.value = "";
-  await api("/send", {
+  const sendRes = await api("/send", {
     method: "POST",
     body: JSON.stringify({ phone: selectedCustomer.phone, text, customerId: selectedCustomer.id, tenantId: TENANT })
   });
+  if (sendRes?.ok === false || sendRes?.error) {
+    const isWindowClosed = sendRes?.waCloudClass === "window_closed" || sendRes?.code === "window_closed";
+    const msg = isWindowClosed
+      ? "Janela de 24h encerrada. Use um template para reengajar o cliente."
+      : (sendRes?.message || sendRes?.error || "Falha ao enviar mensagem.");
+    alert(msg);
+  }
   // Recarrega o histórico imediatamente
   await loadChatHistory(selectedCustomer.id);
 }

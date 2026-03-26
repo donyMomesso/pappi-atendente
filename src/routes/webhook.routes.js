@@ -262,10 +262,11 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   baileys.setReplyChannel(customer.id, "cloud").catch(() => {});
 
   const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
+  const originalTimestamp = resolveCloudOriginalTimestamp(msg);
 
   // Salva mensagem SEMPRE (mesmo rate limited) — para aparecer no painel
   if (!isEcho && (text || mediaUrl)) {
-    await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id);
+    await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id, null, originalTimestamp);
 
     // Análise de sentimento automática
     if (text) {
@@ -288,13 +289,23 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   if (isEcho) {
     const echoText = extractEchoContent(msg) || text;
     if (echoText) {
-      await chatMemory.push(customer.id, "human", echoText, "WhatsApp App", null, "text", msg.id);
+      await chatMemory.push(
+        customer.id,
+        "human",
+        echoText,
+        "WhatsApp App",
+        null,
+        "text",
+        msg.id,
+        null,
+        originalTimestamp,
+      );
       const socketService = require("../services/socket.service");
       socketService.emitMessage(customer.id, {
         role: "human",
         text: echoText,
         sender: "WhatsApp App",
-        at: new Date().toISOString(),
+        at: (originalTimestamp || new Date()).toISOString(),
       });
     }
     return;
@@ -459,6 +470,15 @@ function extractEchoContent(msg) {
   if (msg?.text?.body) return msg.text.body.trim();
   if (msg?.caption) return msg.caption.trim();
   return null;
+}
+
+function resolveCloudOriginalTimestamp(msg) {
+  const raw = msg?.timestamp;
+  if (raw == null) return null;
+  const sec = Number(raw);
+  if (!Number.isFinite(sec) || sec <= 0) return null;
+  const d = new Date(Math.floor(sec) * 1000);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 // Comandos PT-BR que ativam handoff (falar com humano) — SEM "cancelar"/"errado" (conflitam com pedidos)

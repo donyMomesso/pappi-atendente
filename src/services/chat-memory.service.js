@@ -31,9 +31,23 @@ async function push(
   mediaType = "text",
   waMessageId = null,
   senderEmail = null,
+  originalTimestamp = null,
 ) {
-  const at = new Date().toISOString();
-  const msg = { role, text, sender, senderEmail, mediaUrl, mediaType, waMessageId, at };
+  const normalizedOriginalTs = originalTimestamp ? new Date(originalTimestamp) : null;
+  const safeOriginalTs =
+    normalizedOriginalTs && !Number.isNaN(normalizedOriginalTs.getTime()) ? normalizedOriginalTs : null;
+  const at = (safeOriginalTs || new Date()).toISOString();
+  const msg = {
+    role,
+    text,
+    sender,
+    senderEmail,
+    mediaUrl,
+    mediaType,
+    waMessageId,
+    originalTimestamp: safeOriginalTs ? safeOriginalTs.toISOString() : null,
+    at,
+  };
 
   // Memória
   const entry = getEntry(customerId);
@@ -53,6 +67,7 @@ async function push(
           mediaUrl,
           mediaType,
           waMessageId,
+          originalTimestamp: safeOriginalTs,
         }),
         select: messageDbCompat.getMessageRowSelect(),
       });

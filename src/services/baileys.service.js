@@ -259,6 +259,25 @@ function resolveInboundSender(msg) {
   return null;
 }
 
+function resolveBaileysOriginalTimestamp(msg) {
+  const raw = msg?.messageTimestamp;
+  if (raw == null) return null;
+  let seconds = null;
+  if (typeof raw === "number") seconds = raw;
+  else if (typeof raw === "string") seconds = Number(raw);
+  else if (typeof raw === "object") {
+    if (typeof raw.low === "number") seconds = raw.low;
+    else if (typeof raw.toNumber === "function") {
+      try {
+        seconds = Number(raw.toNumber());
+      } catch {}
+    }
+  }
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const d = new Date(Math.floor(seconds) * 1000);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 // ── Detecta tenantId a partir do número do remetente ──────────
 // Busca o customer no banco pelo telefone e retorna o tenantId dele.
 // instanceId: se informado e número for novo, usa tenant do Config baileys:instance:{id}
@@ -309,18 +328,41 @@ async function detectTenantByPhone(phone, instanceId = null) {
   }
 }
 
-async function resolveTenantForNewChat(instanceId) {
-  if (instanceId) {
-    const cfg = await prisma.config.findUnique({
-      where: { key: instanceConfigKey(instanceId) },
-    });
-    if (cfg?.value) {
-      try {
-        const { tenantId } = JSON.parse(cfg.value);
-        if (tenantId) return tenantId;
-      } catch {}
-    }
+async function getInstanceTenantBinding(instanceId) {
+  if (!instanceId) return null;
+  const cfg = await prisma.config.findUnique({
+    where: { key: instanceConfigKey(instanceId) },
+  });
+  if (!cfg?.value) return null;
+  try {
+    const { tenantId } = JSON.parse(cfg.value);
+    return tenantId || null;
+  } catch {
+    return null;
   }
+}
+
+async function bindInstanceTenant(instanceId, tenantId) {
+  if (!instanceId || !tenantId) return;
+  const key = instanceConfigKey(instanceId);
+  let base = { tenantId: null };
+  const row = await prisma.config.findUnique({ where: { key } });
+  if (row?.value) {
+    try {
+      base = { ...base, ...JSON.parse(row.value) };
+    } catch {}
+  }
+  const next = { ...base, tenantId };
+  await prisma.config.upsert({
+    where: { key },
+    create: { key, value: JSON.stringify(next) },
+    update: { value: JSON.stringify(next) },
+  });
+}
+
+async function resolveTenantForNewChat(instanceId) {
+  const explicit = await getInstanceTenantBinding(instanceId);
+  if (explicit) return explicit;
   const fallbackTenant = await prisma.tenant.findFirst({
     where: { active: true },
     select: { id: true },
@@ -346,6 +388,145 @@ async function detectTenantForInbound({ phoneDigits, remoteJid }, instanceId) {
     } catch {}
   }
   return resolveTenantForNewChat(instanceId);
+}
+
+async function detectTenantViaReplyChannel(instanceId) {
+  try {
+    const rows = await prisma.config.findMany({
+      where: { key: { startsWith: "reply_channel:" }, value: `baileys:${instanceId}` },
+      select: { key: true },
+      take: 500,
+    });
+    if (!rows.length) return null;
+    const customerIds = rows
+      .map((r) => String(r.key || "").replace("reply_channel:", ""))
+      .filter(Boolean);
+    if (!customerIds.length) return null;
+    const hit = await prisma.customer.findFirst({
+      where: { id: { in: customerIds } },
+      orderBy: { lastInteraction: "desc" },
+      select: { tenantId: true, id: true },
+    });
+    if (!hit?.tenantId) return null;
+    return { tenantId: hit.tenantId, customerId: hit.id, criterion: "reply_channel_instance" };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTenantContextForInbound({ phoneDigits, remoteJid, instanceId, jid, waMessageId }) {
+  const attempts = [];
+
+  const explicitInstanceTenant = await getInstanceTenantBinding(instanceId);
+  attempts.push({ criterion: "instance_binding", tenantId: explicitInstanceTenant || null });
+  if (explicitInstanceTenant) {
+    return { tenantId: explicitInstanceTenant, criterion: "instance_binding", attempts };
+  }
+
+  const byReplyChannel = await detectTenantViaReplyChannel(instanceId);
+  attempts.push({
+    criterion: "reply_channel_instance",
+    tenantId: byReplyChannel?.tenantId || null,
+    customerId: byReplyChannel?.customerId || null,
+  });
+  if (byReplyChannel?.tenantId) {
+    return { tenantId: byReplyChannel.tenantId, criterion: byReplyChannel.criterion, attempts };
+  }
+
+  // 3) Tenta pelo número da sessão conectada nesta instância (quando disponível)
+  try {
+    const inst = INSTANCES.get(instanceId);
+    const connectedPhone = inst?.account?.phone ? String(inst.account.phone).replace(/\D/g, "") : "";
+    if (connectedPhone.length >= 10) {
+      const byConnectedSession = await detectTenantByPhone(connectedPhone, instanceId);
+      attempts.push({
+        criterion: "connected_session_number",
+        sessionPhone: connectedPhone,
+        tenantId: byConnectedSession || null,
+      });
+      if (byConnectedSession) {
+        return { tenantId: byConnectedSession, criterion: "connected_session_number", attempts };
+      }
+    } else {
+      attempts.push({
+        criterion: "connected_session_number",
+        sessionPhone: connectedPhone || null,
+        tenantId: null,
+      });
+    }
+  } catch {
+    attempts.push({ criterion: "connected_session_number", tenantId: null, reason: "lookup_error" });
+  }
+
+  // 4) Identidade da mensagem inbound (phone/jid/waId)
+  const byIdentity = await detectTenantForInbound({ phoneDigits, remoteJid }, instanceId);
+  attempts.push({ criterion: "inbound_identity", tenantId: byIdentity || null });
+  if (byIdentity) {
+    return { tenantId: byIdentity, criterion: "inbound_identity", attempts };
+  }
+
+  // 5) Fallback seguro da arquitetura: se houver apenas 1 tenant ativo, vincula automaticamente a instância.
+  const activeTenants = await prisma.tenant.findMany({
+    where: { active: true },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+    take: 2,
+  });
+  attempts.push({ criterion: "active_tenants_count", count: activeTenants.length });
+  if (activeTenants.length === 1) {
+    const tid = activeTenants[0].id;
+    await bindInstanceTenant(instanceId, tid).catch(() => {});
+    attempts.push({ criterion: "auto_bind_single_active_tenant", tenantId: tid });
+    return {
+      tenantId: tid,
+      criterion: "auto_bind_single_active_tenant",
+      attempts,
+    };
+  }
+
+  const byAnyTenant = await prisma.tenant.findFirst({
+    where: {},
+    select: { id: true, active: true },
+    orderBy: { createdAt: "asc" },
+  });
+  attempts.push({
+    criterion: "any_tenant_last_resort",
+    tenantId: byAnyTenant?.id || null,
+    tenantActive: byAnyTenant?.active ?? null,
+  });
+  if (byAnyTenant?.id) {
+    return { tenantId: byAnyTenant.id, criterion: "any_tenant_last_resort", attempts };
+  }
+
+  return {
+    tenantId: null,
+    criterion: "not_found",
+    attempts,
+    context: { instanceId, jid: jid || null, remoteJid: remoteJid || null, waMessageId: waMessageId || null },
+  };
+}
+
+async function appendUnresolvedInboundAudit(payload) {
+  try {
+    const env = ENV.APP_ENV || "local";
+    const key = `baileys:unresolved_tenant:${env}`;
+    const row = await prisma.config.findUnique({ where: { key } });
+    let items = [];
+    if (row?.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (Array.isArray(parsed)) items = parsed;
+      } catch {}
+    }
+    items.push({ ...payload, at: new Date().toISOString() });
+    const max = 200;
+    if (items.length > max) items = items.slice(items.length - max);
+    await prisma.config.upsert({
+      where: { key },
+      create: { key, value: JSON.stringify(items) },
+      update: { value: JSON.stringify(items) },
+    });
+  } catch {}
 }
 
 // Salva o canal de resposta para o customer (cloud ou baileys:instanceId)
@@ -405,6 +586,7 @@ async function start(instanceId = "default", opts = {}) {
   }
 
   if (inst.starting || inst.status === "connected" || inst.status === "qr" || inst.status === "connecting") return;
+
   inst.starting = true;
 
   try {
@@ -514,11 +696,40 @@ async function start(instanceId = "default", opts = {}) {
               );
               continue;
             }
-            const echoTenantId = await detectTenantForInbound(
-              { phoneDigits: echoIdentity.phoneDigits, remoteJid: echoIdentity.remoteJid },
+            const echoTenantCtx = await resolveTenantContextForInbound({
+              phoneDigits: echoIdentity.phoneDigits,
+              remoteJid: echoIdentity.remoteJid,
               instanceId,
-            );
-            if (!echoTenantId) continue;
+              jid,
+              waMessageId: msg?.key?.id || null,
+            });
+            const echoTenantId = echoTenantCtx?.tenantId || null;
+            if (!echoTenantId) {
+              log.warn(
+                {
+                  pipeline: "tenant_resolve_failed",
+                  instanceId,
+                  jid,
+                  remoteJid: echoIdentity.remoteJid || null,
+                  sessionIdentifier: `baileys:${instanceId}`,
+                  criterion: echoTenantCtx?.criterion || "not_found",
+                  attempts: echoTenantCtx?.attempts || [],
+                  keyId: msg?.key?.id || null,
+                },
+                "Echo fromMe sem tenant resolvido — evento auditado",
+              );
+              await appendUnresolvedInboundAudit({
+                instanceId,
+                jid,
+                remoteJid: echoIdentity.remoteJid || null,
+                waMessageId: msg?.key?.id || null,
+                criterion: echoTenantCtx?.criterion || "not_found",
+                attempts: echoTenantCtx?.attempts || [],
+                direction: "from_me",
+                textPreview: String(echoParsed?.displayText || "").slice(0, 120),
+              });
+              continue;
+            }
 
             const { findOrCreate, findOrCreateContactByIdentity } = require("../services/customer.service");
             const echoCustomer =
@@ -537,7 +748,11 @@ async function start(instanceId = "default", opts = {}) {
               echoTenantId,
               "human",
               msg?.key?.id,
-              { customerId: echoCustomer.id, mediaType: echoParsed.mediaType },
+              {
+                customerId: echoCustomer.id,
+                mediaType: echoParsed.mediaType,
+                originalTimestamp: resolveBaileysOriginalTimestamp(msg),
+              },
             );
             log.info(
               {
@@ -678,17 +893,51 @@ async function start(instanceId = "default", opts = {}) {
           timer.mark("read_composing");
 
           try {
-            const tenantId = await detectTenantForInbound(
-              { phoneDigits: sender.phoneDigits, remoteJid: sender.remoteJid },
+            const tenantCtx = await resolveTenantContextForInbound({
+              phoneDigits: sender.phoneDigits,
+              remoteJid: sender.remoteJid,
               instanceId,
-            );
+              jid,
+              waMessageId: waId || null,
+            });
+            const tenantId = tenantCtx?.tenantId || null;
             if (!tenantId) {
-              log.warn(
-                { instanceId, traceKey, jid, pipeline: "tenant_resolve_failed" },
-                "Tenant não encontrado — msg ignorada",
-              );
+              const unresolved = {
+                instanceId,
+                traceKey,
+                jid,
+                remoteJid: sender.remoteJid || null,
+                sessionIdentifier: `baileys:${instanceId}`,
+                criterion: tenantCtx?.criterion || "not_found",
+                attempts: tenantCtx?.attempts || [],
+                keyId: waId || null,
+                pipeline: "tenant_resolve_failed",
+                tenantTried: (tenantCtx?.attempts || []).map((a) => a.tenantId).filter(Boolean),
+                fallbackAttempted: (tenantCtx?.attempts || []).length > 1,
+                reason: tenantCtx?.criterion || "tenant_not_resolved",
+              };
+              log.warn(unresolved, "Tenant não encontrado — msg ignorada");
+              await appendUnresolvedInboundAudit({
+                ...unresolved,
+                textPreview: String(text || "").slice(0, 160),
+                mediaType: parsed?.mediaType || null,
+                parseNote: parsed?.parseNote || null,
+                direction: "inbound",
+              });
               continue;
             }
+            log.info(
+              {
+                instanceId,
+                jid,
+                remoteJid: sender.remoteJid || null,
+                sessionIdentifier: `baileys:${instanceId}`,
+                tenantId,
+                criterion: tenantCtx?.criterion || "unknown",
+                attempts: tenantCtx?.attempts || [],
+              },
+              "tenant_resolved",
+            );
 
             const {
               findOrCreate,
@@ -699,7 +948,19 @@ async function start(instanceId = "default", opts = {}) {
             } = require("../services/customer.service");
             const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
             if (!tenant) {
-              log.warn({ instanceId, tenantId, pipeline: "tenant_resolve_failed" }, "Tenant não existe — msg ignorada");
+              log.warn(
+                {
+                  instanceId,
+                  jid,
+                  remoteJid: sender.remoteJid || null,
+                  sessionIdentifier: `baileys:${instanceId}`,
+                  tenantId,
+                  criterion: tenantCtx?.criterion || "unknown",
+                  reason: "tenant_not_found_in_database",
+                  pipeline: "tenant_resolve_failed",
+                },
+                "Tenant não existe — msg ignorada",
+              );
               continue;
             }
             timer.mark("tenant");
@@ -750,7 +1011,11 @@ async function start(instanceId = "default", opts = {}) {
               tenantId,
               "customer",
               waId || undefined,
-              { customerId: customer.id, mediaType: parsed.mediaType },
+              {
+                customerId: customer.id,
+                mediaType: parsed.mediaType,
+                originalTimestamp: resolveBaileysOriginalTimestamp(msg),
+              },
             );
             if (waId) markMessageProcessed(waId);
             timer.mark("save_msg");
@@ -1160,7 +1425,15 @@ async function initAll() {
   });
   const cfgIds = cfgs.map((c) => c.key.replace(instancePrefix, ""));
 
-  const ids = [...new Set([...authIds, ...cfgIds, "default"])];
+  const includeDefault = authIds.includes("default") || cfgIds.includes("default");
+  const ids = [...new Set([...authIds, ...cfgIds, ...(includeDefault ? ["default"] : [])])];
+
+  if (!includeDefault) {
+    log.info(
+      { reason: "default_without_auth_or_config" },
+      "Instância default não será iniciada automaticamente (sem auth/config explícitos)",
+    );
+  }
 
   for (const id of ids) {
     try {
