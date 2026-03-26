@@ -1214,12 +1214,12 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
-      select: { phone: true },
+      select: { phone: true, tenantId: true },
     });
-    if (!customer) return res.json([]);
+    if (!customer || customer.tenantId !== tenantId) return res.json([]);
 
     const dbOrders = await prisma.order.findMany({
-      where: { customerId },
+      where: { customerId, tenantId },
       orderBy: { createdAt: "desc" },
       take: 30,
       select: orderPixDbCompat.getOrderScalarSelect(),
@@ -1278,8 +1278,9 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
       }
     }
 
+    const normalizedCustomerPhone = String(customer.phone || "").replace(/\D/g, "");
     let cwOrders = [];
-    if (!parseSocialPhone(customer.phone)) {
+    if (!parseSocialPhone(customer.phone) && normalizedCustomerPhone.length >= 10) {
       try {
         const { cw } = await getClients(tenantId);
         cwOrders = (await cw.listOrdersByPhone(customer.phone, 30)) || [];
@@ -1289,6 +1290,8 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
     }
 
     for (const o of cwOrders) {
+      const cwCustomerPhone = String(o?.customer?.phone || "").replace(/\D/g, "");
+      if (cwCustomerPhone && normalizedCustomerPhone && cwCustomerPhone !== normalizedCustomerPhone) continue;
       const cwId = o.id || o.order_id;
       if (cwId && !seen.has(cwId)) {
         seen.add(cwId);
