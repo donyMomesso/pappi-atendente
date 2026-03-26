@@ -264,9 +264,35 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
   const originalTimestamp = resolveCloudOriginalTimestamp(msg);
 
+  function fallbackTextForCloudMsg(m) {
+    const t = String(m?.type || "").toLowerCase();
+    if (t === "text") return "Mensagem de texto";
+    if (t === "interactive") return "Resposta interativa";
+    if (t === "image") return "📷 Imagem";
+    if (t === "video") return "🎥 Vídeo";
+    if (t === "audio") return "🎵 Áudio";
+    if (t === "document") return "📄 Documento";
+    if (t === "location") return "📍 Localização";
+    if (t === "sticker") return "🧩 Sticker";
+    if (t === "contacts") return "📇 Contato";
+    return "Mensagem recebida";
+  }
+
   // Salva mensagem SEMPRE (mesmo rate limited) — para aparecer no painel
-  if (!isEcho && (text || mediaUrl)) {
-    await chatMemory.push(customer.id, "customer", text || "", null, mediaUrl, mediaType, msg.id, null, originalTimestamp);
+  if (!isEcho && msg?.id) {
+    const displayText = (text || "").trim() || fallbackTextForCloudMsg(msg);
+    const safeMediaType = mediaType || (msg?.type ? String(msg.type) : "text");
+    await chatMemory.push(
+      customer.id,
+      "customer",
+      displayText,
+      null,
+      mediaUrl,
+      safeMediaType,
+      msg.id,
+      null,
+      originalTimestamp,
+    );
 
     // Análise de sentimento automática
     if (text) {
@@ -454,6 +480,16 @@ async function extractContent(wa, msg, waToken) {
     mediaType = "location";
     const { latitude, longitude, name: locName, address: locAddr } = msg.location;
     text = `📍 Localização: ${locName || ""} ${locAddr || ""} (${latitude},${longitude})`.trim();
+  } else if (msg.type === "sticker") {
+    mediaType = "sticker";
+    text = "🧩 Sticker";
+    // Cloud sticker geralmente não tem URL pública simples; mantemos placeholder (sem mediaUrl).
+  } else if (msg.type === "contacts") {
+    mediaType = "contacts";
+    const c = (msg.contacts || [])[0];
+    const name = c?.name?.formatted_name || c?.name?.first_name || "";
+    const phone = (c?.phones || [])[0]?.phone || "";
+    text = `📇 Contato: ${name || ""} ${phone || ""}`.trim();
   }
 
   return { text, mediaUrl, mediaType };
