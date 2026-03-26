@@ -29,6 +29,7 @@ const INSTANCES = new Map();
 // Cache de waMessageIds já vistos — evita query no banco para duplicatas rápidas
 const SEEN_MSG_IDS = new Set();
 const SEEN_MSG_MAX = 2000;
+const RECONNECT_NOTICE_BY_CUSTOMER = new Map();
 function markMessageProcessed(waId) {
   if (!waId) return;
   if (SEEN_MSG_IDS.size >= SEEN_MSG_MAX) {
@@ -57,6 +58,9 @@ const MAX_AUTO_RECONNECT_ATTEMPTS = 10;
 const DISCONNECT_NOTIFY_COOLDOWN_MS = 60_000;
 /** Backoff progressivo (ms); último valor repete após esgotar a lista. */
 const RECONNECT_BACKOFF_MS = [5000, 8000, 16_000, 32_000, 60_000, 120_000];
+const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const BOT_FRESH_WINDOW_MS = 2 * 60 * 1000;
+const RECONNECT_NOTICE_COOLDOWN_MS = 5 * 60 * 1000;
 
 function createInstanceData(id) {
   return {
@@ -276,6 +280,32 @@ function resolveBaileysOriginalTimestamp(msg) {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   const d = new Date(Math.floor(seconds) * 1000);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function isMessageWithinLast24h(msg) {
+  const ts = resolveBaileysOriginalTimestamp(msg);
+  if (!ts) return false;
+  return Date.now() - ts.getTime() <= HISTORY_WINDOW_MS;
+}
+
+function isFreshForBot(msg) {
+  const ts = resolveBaileysOriginalTimestamp(msg);
+  if (!ts) return false;
+  return Date.now() - ts.getTime() <= BOT_FRESH_WINDOW_MS;
+}
+
+function shouldSendReconnectNotice(customerId) {
+  if (!customerId) return false;
+  const now = Date.now();
+  const prev = RECONNECT_NOTICE_BY_CUSTOMER.get(customerId) || 0;
+  if (now - prev < RECONNECT_NOTICE_COOLDOWN_MS) return false;
+  RECONNECT_NOTICE_BY_CUSTOMER.set(customerId, now);
+  if (RECONNECT_NOTICE_BY_CUSTOMER.size > 5000) {
+    for (const [cid, at] of RECONNECT_NOTICE_BY_CUSTOMER.entries()) {
+      if (now - at > RECONNECT_NOTICE_COOLDOWN_MS * 6) RECONNECT_NOTICE_BY_CUSTOMER.delete(cid);
+    }
+  }
+  return true;
 }
 
 // ── Detecta tenantId a partir do número do remetente ──────────
@@ -693,9 +723,24 @@ async function start(instanceId = "default", opts = {}) {
 
       for (const msg of messages) {
         const jid = msg?.key?.remoteJid;
+        const originalTs = resolveBaileysOriginalTimestamp(msg);
 
         if (!jid || jid.endsWith("@g.us")) continue; // ignora grupos
         if (jid === "status@broadcast" || jid.endsWith("@broadcast")) continue; // ignora status/stories
+        if (isAppend && !isMessageWithinLast24h(msg)) {
+          log.debug(
+            {
+              pipeline: "history_skip_old",
+              source: "upsert_append",
+              instanceId,
+              jid,
+              keyId: msg?.key?.id || null,
+              originalTimestamp: originalTs ? originalTs.toISOString() : null,
+            },
+            "Mensagem append fora da janela de 24h — ignorada",
+          );
+          continue;
+        }
 
         // Mensagens enviadas pelo próprio número (respondidas pelo app/celular)
         // → salva no histórico como "human" para aparecer no painel
@@ -1090,7 +1135,7 @@ async function start(instanceId = "default", opts = {}) {
 
             const baileysTo = baileysChatTarget(customer);
 
-            if (isAppend && !recoverySent.has(customer.id)) {
+            if (isAppend && !recoverySent.has(customer.id) && shouldSendReconnectNotice(customer.id)) {
               recoverySent.add(customer.id);
               const recovery = "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
               try {
@@ -1107,7 +1152,8 @@ async function start(instanceId = "default", opts = {}) {
               }
             }
 
-            if (inst.botEnabled !== false && parsed.shouldInvokeBot) {
+            const canInvokeBot = parsed.shouldInvokeBot && !isAppend && isFreshForBot(msg);
+            if (inst.botEnabled !== false && canInvokeBot) {
               try {
                 const convState = require("./conversation-state.service");
                 const { botMayRespond, state } = await convState.resetIfEncerradoAndShouldBotRespond(customer);
@@ -1214,10 +1260,18 @@ async function start(instanceId = "default", opts = {}) {
                   log.error({ instanceId, err: f }, "Falha ao enviar mensagem de fallback");
                 }
               }
-            } else if (inst.botEnabled !== false && !parsed.shouldInvokeBot) {
+            } else if (inst.botEnabled !== false && !canInvokeBot) {
               log.debug(
-                { instanceId, customerId: customer.id, mediaType: parsed.mediaType, parseNote: parsed.parseNote },
-                "Bot não invocado (mídia sem legenda / tipo sem fluxo de pedido)",
+                {
+                  instanceId,
+                  customerId: customer.id,
+                  mediaType: parsed.mediaType,
+                  parseNote: parsed.parseNote,
+                  isAppend,
+                  freshForBot: isFreshForBot(msg),
+                  shouldInvokeBot: parsed.shouldInvokeBot,
+                },
+                "Bot não invocado (backlog/replay ou tipo sem fluxo de pedido)",
               );
             }
           } finally {
@@ -1233,6 +1287,98 @@ async function start(instanceId = "default", opts = {}) {
           } catch {}
         }
       }
+    });
+
+    // Histórico inicial após login/reconexão: persistir somente últimas 24h, sem invocar bot.
+    sock.ev.on("messaging-history.set", async ({ messages }) => {
+      if (myEpoch !== inst._socketEpoch) return;
+      if (!Array.isArray(messages) || !messages.length) return;
+      log.info({ instanceId, total: messages.length, pipeline: "history_sync_started" }, "messaging-history.set recebido");
+
+      for (const msg of messages) {
+        const jid = msg?.key?.remoteJid;
+        if (!jid || jid.endsWith("@g.us")) continue;
+        if (jid === "status@broadcast" || jid.endsWith("@broadcast")) continue;
+        if (!isMessageWithinLast24h(msg)) continue;
+
+        try {
+          const parsed = parseBaileysMessageContent(msg);
+          if (parsed.mediaType === "empty" || parsed.mediaType === "protocol") continue;
+
+          const identity = resolveInboundSender(msg);
+          if (!identity) continue;
+          const tenantCtx = await resolveTenantContextForInbound({
+            phoneDigits: identity.phoneDigits,
+            remoteJid: identity.remoteJid,
+            instanceId,
+            jid,
+            waMessageId: msg?.key?.id || null,
+          });
+          const tenantId = tenantCtx?.tenantId || null;
+          if (!tenantId) {
+            await appendUnresolvedInboundAudit({
+              pipeline: "tenant_resolve_failed",
+              source: "history_set",
+              instanceId,
+              jid,
+              remoteJid: identity.remoteJid || null,
+              criterion: tenantCtx?.criterion || "not_found",
+              attempts: tenantCtx?.attempts || [],
+              keyId: msg?.key?.id || null,
+              textPreview: String(parsed.displayText || "").slice(0, 120),
+            });
+            continue;
+          }
+
+          const waId = msg?.key?.id || null;
+          if (waId) {
+            if (SEEN_MSG_IDS.has(waId)) continue;
+            let existing = null;
+            if (messageDbCompat.isMessagesTableAvailable()) {
+              existing = await prisma.message.findFirst({
+                where: { waMessageId: waId },
+                select: { id: true },
+              });
+            }
+            if (existing) {
+              markMessageProcessed(waId);
+              continue;
+            }
+          }
+
+          const { findOrCreate, findOrCreateContactByIdentity } = require("../services/customer.service");
+          const customer =
+            identity.kind === "phone"
+              ? await findOrCreate(tenantId, identity.phoneDigits, msg.pushName || msg.verifiedBizName || null)
+              : await findOrCreateContactByIdentity({
+                  tenantId,
+                  normalizedPhone: null,
+                  rawWaId: identity.remoteJid,
+                  profileName: msg.pushName || msg.verifiedBizName || null,
+                });
+
+          await setReplyChannel(customer.id, `baileys:${instanceId}`);
+          const botHandler = require("../routes/bot.handler");
+          const role = msg?.key?.fromMe ? "human" : "customer";
+          await botHandler.saveBaileysMessage(
+            customer.phone || identity.remoteJid,
+            parsed.displayText,
+            tenantId,
+            role,
+            waId,
+            {
+              customerId: customer.id,
+              mediaType: parsed.mediaType,
+              originalTimestamp: resolveBaileysOriginalTimestamp(msg),
+            },
+          );
+          if (waId) markMessageProcessed(waId);
+          require("./socket.service").emitConvUpdate(customer.id);
+        } catch (e) {
+          log.warn({ instanceId, jid, err: e?.message }, "Falha ao processar item de messaging-history.set");
+        }
+      }
+      log.info({ instanceId, pipeline: "history_sync_completed" }, "messaging-history.set processado (janela 24h)");
     });
 
     sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {

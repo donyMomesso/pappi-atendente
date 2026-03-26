@@ -24,6 +24,8 @@ const inboxTriage = require("../services/inbox-triage.service");
 const orderIntake = require("../services/order-intake.service");
 const aiOrchestrator = require("../services/ai-orchestrator.service");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
+const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
+const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
 async function handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session, message, clear = true } = {}) {
@@ -508,8 +510,12 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
   // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
   const menuTriggers = ["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "opa", "e ai", "fala"];
   if (menuTriggers.includes(t)) {
+    const prevGreetingAt = Number(session?._lastGreetingAt || 0);
+    const prevMenuAt = Number(session?._lastMenuPromptAt || 0);
     await clearSession(tenant.id, sessionKey);
     const fresh = await getSession(tenant.id, sessionKey);
+    if (prevGreetingAt) fresh._lastGreetingAt = prevGreetingAt;
+    if (prevMenuAt) fresh._lastMenuPromptAt = prevMenuAt;
     if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
     await sendGreeting(wa, cw, phone, customer, tenant, fresh, timer);
     await saveSession(tenant.id, sessionKey, fresh);
@@ -689,6 +695,13 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
 // ── Saudação ──────────────────────────────────────────────────
 async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
   const storeName = tenant.name || "Pappi Pizza";
+  const now = Date.now();
+  const lastGreetingAt = Number(session?._lastGreetingAt || 0);
+  if (lastGreetingAt > 0 && now - lastGreetingAt < GREETING_COOLDOWN_MS) {
+    const waitSec = Math.max(1, Math.ceil((GREETING_COOLDOWN_MS - (now - lastGreetingAt)) / 1000));
+    console.log(`[Bot] Saudação suprimida por cooldown (${waitSec}s restantes)`);
+    return;
+  }
 
   if (!customer.name) {
     session.step = "ASK_NAME";
@@ -748,6 +761,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
   const greeting = `${baseGreeting}\n${impactPhrase}${urlLine}${leadLine}`;
   await wa.sendText(phone, greeting);
   await chatMemory.push(customer.id, "bot", greeting);
+  session._lastGreetingAt = Date.now();
 
   // Bloco 2 — Escolha direta (D.I.S.C.: Dominância — objetivo, claro)
   session.step = "CHOOSE_PRODUCT_TYPE";
@@ -761,6 +775,11 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
 
 // Pergunta Pizza ou Lasanha
 async function sendProductTypePrompt(wa, phone, customer, session) {
+  const now = Date.now();
+  const lastMenuAt = Number(session?._lastMenuPromptAt || 0);
+  if (lastMenuAt > 0 && now - lastMenuAt < MENU_COOLDOWN_MS) {
+    return;
+  }
   session.step = "CHOOSE_PRODUCT_TYPE";
   const m = "O que vai ser hoje? Escolha uma opção 👇";
   await wa.sendButtons(phone, m, [
@@ -768,6 +787,7 @@ async function sendProductTypePrompt(wa, phone, customer, session) {
     { id: "lasanha", title: "🍝 Lasanha" },
   ]);
   await chatMemory.push(customer.id, "bot", m);
+  session._lastMenuPromptAt = Date.now();
 }
 
 // Pergunta Entrega ou Retirada

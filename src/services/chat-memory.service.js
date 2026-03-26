@@ -12,6 +12,13 @@ const MAX_MEMORY = 100;
 const STORE_TTL_MS = 60 * 60 * 1000; // 1h sem acesso → remove do Map
 const store = new Map(); // customerId → { msgs: Message[], lastAccess: number }
 
+function resolveMsgMillis(m) {
+  const raw = m?.originalTimestamp || m?.at || m?.createdAt;
+  const d = raw ? new Date(raw) : new Date(0);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function getEntry(customerId) {
   let entry = store.get(customerId);
   if (!entry) {
@@ -114,7 +121,7 @@ async function get(customerId) {
   const entry = store.get(customerId);
   if (entry?.msgs?.length) {
     entry.lastAccess = Date.now();
-    return entry.msgs;
+    return [...entry.msgs].sort((a, b) => resolveMsgMillis(a) - resolveMsgMillis(b));
   }
 
   try {
@@ -127,7 +134,9 @@ async function get(customerId) {
       take: 100,
       select: messageDbCompat.getMessageRowSelect(),
     });
-    const msgs = rows.map((r) => messageDbCompat.mapRowToClientMessage(r));
+    const msgs = rows
+      .map((r) => messageDbCompat.mapRowToClientMessage(r))
+      .sort((a, b) => resolveMsgMillis(a) - resolveMsgMillis(b));
 
     // Popula cache
     const e = getEntry(customerId);

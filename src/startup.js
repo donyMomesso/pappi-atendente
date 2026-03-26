@@ -35,11 +35,13 @@ function startJobs() {
     cwRetrySvc.startScheduler();
     const orderDelayMonitor = require("./services/order-delay-monitor.service");
     orderDelayMonitor.startScheduler();
+    const messageRetention = require("./services/message-retention.service");
+    messageRetention.startScheduler();
     const aviseScheduler = require("./services/avise-abertura-scheduler");
     aviseScheduler.startScheduler();
     const handoffTimeout = require("./services/handoff-timeout-scheduler");
     handoffTimeout.start();
-    log.info("Jobs: schedulers ativos (retention, cw-retry, order-delay, avise-abertura, handoff-timeout)");
+    log.info("Jobs: schedulers ativos (retention, cw-retry, order-delay, message-retention, avise-abertura, handoff-timeout)");
   } catch (e) {
     log.warn({ err: e }, "[Startup] scheduler error");
   }
