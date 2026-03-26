@@ -529,6 +529,29 @@ async function appendUnresolvedInboundAudit(payload) {
   } catch {}
 }
 
+async function appendProtocolAudit(payload) {
+  try {
+    const env = ENV.APP_ENV || "local";
+    const key = `baileys:protocol_events:${env}`;
+    const row = await prisma.config.findUnique({ where: { key } });
+    let items = [];
+    if (row?.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (Array.isArray(parsed)) items = parsed;
+      } catch {}
+    }
+    items.push({ ...payload, at: new Date().toISOString() });
+    const max = 300;
+    if (items.length > max) items = items.slice(items.length - max);
+    await prisma.config.upsert({
+      where: { key },
+      create: { key, value: JSON.stringify(items) },
+      update: { value: JSON.stringify(items) },
+    });
+  } catch {}
+}
+
 // Salva o canal de resposta para o customer (cloud ou baileys:instanceId)
 async function setReplyChannel(customerId, channel) {
   try {
@@ -682,6 +705,20 @@ async function start(instanceId = "default", opts = {}) {
             if (echoParsed.mediaType === "empty") {
               continue;
             }
+            if (echoParsed.mediaType === "protocol") {
+              const auditPayload = {
+                pipeline: "protocol_ignored",
+                direction: "from_me",
+                instanceId,
+                jid,
+                keyId: msg?.key?.id || null,
+                parseNote: echoParsed.parseNote || null,
+                displayText: echoParsed.displayText || null,
+              };
+              log.info(auditPayload, "protocol_ignored");
+              await appendProtocolAudit(auditPayload);
+              continue;
+            }
             const echoIdentity = resolveInboundSender(msg);
             if (!echoIdentity) {
               log.warn(
@@ -803,6 +840,20 @@ async function start(instanceId = "default", opts = {}) {
         }
 
         const parsed = parseBaileysMessageContent(msg);
+        if (parsed.mediaType === "protocol") {
+          const auditPayload = {
+            pipeline: "protocol_ignored",
+            direction: "inbound",
+            instanceId,
+            jid,
+            keyId: msg?.key?.id || null,
+            parseNote: parsed.parseNote || null,
+            displayText: parsed.displayText || null,
+          };
+          log.info(auditPayload, "protocol_ignored");
+          await appendProtocolAudit(auditPayload);
+          continue;
+        }
         if (parsed.parseNote === "unknown_message_type" && parsed.rawSnippet) {
           log.warn(
             {
