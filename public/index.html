@@ -33,13 +33,28 @@
     .login-err{color:var(--red);font-size:12px;margin-top:8px}
 
     /* ── HEADER ── */
-    header{background:var(--brand-grad);color:#fff;height:54px;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-    header .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-    header .brand .brand-logo{height:40px;width:auto;object-fit:contain;border-radius:6px}
-    header .brand .brand-fallback{font-size:22px}
-    header .stats{margin-left:auto;display:flex;gap:16px;font-size:12px;opacity:.9}
-    header .stat{display:flex;align-items:center;gap:4px}
-    header .stat strong{font-size:15px;font-weight:700}
+    header{background:#fff;color:#1a1a1a;height:52px;display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0;border-bottom:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.06)}
+    header .page-context{display:flex;align-items:baseline;gap:8px;flex:1;min-width:0}
+    header .header-title{font-size:15px;font-weight:700;color:#1a1a1a;white-space:nowrap}
+    header .header-breadcrumb{font-size:12px;color:#aaa;white-space:nowrap}
+    header .header-right{display:flex;align-items:center;gap:12px;flex-shrink:0}
+    header .stat{display:flex;align-items:center;gap:5px;font-size:12px;color:#666;white-space:nowrap}
+    header .stat strong{font-size:13px;font-weight:700;color:#1a1a1a}
+    header .header-user{display:flex;align-items:center;gap:6px;padding:4px 10px;border-left:1px solid var(--border);margin-left:4px}
+    header .header-user #h-role-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--orange-ll);color:var(--orange-d)}
+    header .header-user #h-user-name{font-size:12px;color:#666}
+
+    /* ── PAGE HEADER (dentro de views) ── */
+    .view-page-header{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .view-page-header .vph-info h2{font-size:17px;font-weight:700;color:#1a1a1a;margin:0 0 2px}
+    .view-page-header .vph-info p{font-size:12px;color:#888;margin:0}
+    .view-page-header .vph-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+
+    /* ── SUB-NAV (análise) ── */
+    .view-subnav{display:flex;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0;padding:0 20px;overflow-x:auto}
+    .view-subnav-tab{padding:12px 16px;font-size:13px;font-weight:600;color:#888;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:.15s;white-space:nowrap;flex-shrink:0}
+    .view-subnav-tab:hover{color:#333}
+    .view-subnav-tab.active{color:var(--orange);border-bottom-color:var(--orange)}
 
     /* ── MAIN ── */
     #app{display:none;flex:1;overflow:hidden}
@@ -295,16 +310,13 @@
     #sidebar .sidebar-tenant{font-weight:600;color:var(--orange);margin-bottom:4px}
     #sidebar .sidebar-logout{color:var(--orange);cursor:pointer;margin-top:6px;display:inline-block}
     #sidebar .sidebar-logout:hover{text-decoration:underline;color:#ff8c5a}
-    #mainArea{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;border-left:3px solid var(--orange)}
-    #mainArea .main-header{flex-shrink:0;border-bottom:4px solid var(--orange)}
+    #mainArea{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    #mainArea .main-header{flex-shrink:0}
     #mainArea .main-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
     .layout{border-top:3px solid var(--orange)}
 
     /* ── ADMIN ── */
     #viewAdmin{background:#f5f5f5}
-    .admin-tab{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;transition:.2s;white-space:nowrap}
-    .admin-tab:hover{background:rgba(255,255,255,.2)}
-    .admin-tab.active{background:#fff;color:var(--orange)}
     .analise-checklist-item{padding:10px 16px;font-size:12px;cursor:pointer;color:#333;border-bottom:1px solid #f0f0f0;transition:background .15s}
     .analise-checklist-item:hover{background:#f5f5f5}
     .analise-checklist-item:last-child{border-bottom:none}
@@ -347,9 +359,8 @@
       header .stat{font-size:11px}
       header .stat strong{font-size:13px}
       .login-box{width:min(340px, calc(100vw - 32px));padding:24px 20px}
-      #viewAdmin > div:first-child{flex-wrap:wrap}
-      #adminTabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex:1;min-width:0;padding-bottom:4px}
-      .admin-tab{font-size:11px;padding:8px 12px}
+      .view-subnav{padding:0 12px}
+      .view-subnav-tab{padding:10px 12px;font-size:12px}
       .settings-grid{grid-template-columns:1fr;max-width:100%}
       .cfg-grid-2{grid-template-columns:1fr!important}
       #waIntContainer{grid-template-columns:1fr}
@@ -484,11 +495,8 @@
         <div class="sidebar-sep admin-only" id="sidebarAnaliseSep" style="display:none"></div>
         <div class="sidebar-section admin-only" id="sidebarAnaliseSection" style="display:none">Gestão</div>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('analise');return false" id="navAnalise" style="display:none"><span>📊</span><span class="sidebar-text">Análise</span></a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('stats');return false" id="navStats" style="display:none"><span>📈</span><span class="sidebar-text">Estatísticas</span></a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('rel');return false" id="navRel" style="display:none"><span>📄</span><span class="sidebar-text">Relatórios</span></a>
+        <a class="sidebar-item admin-only" href="#" onclick="navTo('rel');return false" id="navRel" style="display:none"><span>📋</span><span class="sidebar-text">Relatórios</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('audit');return false" id="navAudit" style="display:none"><span>🔍</span><span class="sidebar-text">Auditoria</span></a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('analista');return false" id="navAnalista" style="display:none"><span>🤖</span><span class="sidebar-text">Analista</span></a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('aprendizado');return false" id="navAprendizado" style="display:none"><span>🧠</span><span class="sidebar-text">Aprendizado</span></a>
         <div class="sidebar-sep admin-only" id="adminSep" style="display:none"></div>
         <div class="sidebar-section admin-only" id="adminLabel" style="display:none">Administração</div>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none"><span>📤</span><span class="sidebar-text">Transmissão</span></a>
@@ -506,38 +514,33 @@
     </aside>
     <div id="mainArea">
       <header id="header" class="main-header">
-        <div class="brand">
-          <img src="/logo.png" alt="" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"/>
-          <span class="brand-fallback" style="display:none">🍕</span>
-          <span id="headerTitle" style="font-size:16px;font-weight:700">Atendimento</span>
+        <div class="page-context">
+          <span id="headerTitle" class="header-title">Atendimento</span>
         </div>
-        <div class="stats">
-          <div class="stat">📦 <strong id="h-orders">0</strong> pedidos hoje</div>
+        <div class="header-right">
           <div class="stat" id="h-handoff-stat" style="display:none">🙋 <strong id="h-handoff">0</strong> aguardando</div>
-          <div class="stat" style="margin-left:8px;gap:8px;display:flex;align-items:center">
-            <span id="h-role-badge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px"></span>
-            <span id="h-user-name" style="font-size:12px;opacity:.8"></span>
+          <div class="stat">📦 <strong id="h-orders">0</strong> pedidos</div>
+          <div class="header-user">
+            <span id="h-role-badge" style="display:none"></span>
+            <span id="h-user-name"></span>
           </div>
         </div>
       </header>
       <div class="main-content">
         <!-- KANBAN PEDIDOS -->
 <div id="viewKanban" style="display:none;flex-direction:column;flex:1;overflow:hidden;background:#f0f2f5">
-  <div style="background:linear-gradient(135deg,var(--purple) 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0">
-    <button onclick="closeKanban()" style="margin:8px 0;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">← Voltar</button>
-    <span style="color:#fff;font-size:14px;font-weight:700">📋 Pedidos do Dia</span>
-    <span id="kanbanDate" style="color:rgba(255,255,255,.7);font-size:12px;margin-left:4px"></span>
-    <button onclick="fetchKanban()" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">🔄 Atualizar</button>
+  <div class="view-page-header">
+    <div class="vph-info"><h2>📋 Pedidos do Dia</h2><p id="kanbanDate"></p></div>
+    <div class="vph-actions"><button onclick="fetchKanban()" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer">🔄 Atualizar</button></div>
   </div>
   <div id="kanbanBoard" style="display:flex;gap:12px;padding:16px;overflow-x:auto;flex:1;align-items:flex-start"></div>
 </div>
 
 <!-- VIEW ATRASOS (pedidos em monitoramento de atraso) -->
 <div id="viewAtrasos" style="display:none;flex-direction:column;flex:1;overflow:hidden;background:#f0f2f5">
-  <div style="background:linear-gradient(135deg,var(--orange) 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0">
-    <button onclick="navTo('chat')" style="margin:8px 0;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">← Voltar</button>
-    <span style="color:#fff;font-size:14px;font-weight:700">⏱️ Alertas de Atraso</span>
-    <button onclick="loadDelayAlerts()" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">🔄 Atualizar</button>
+  <div class="view-page-header">
+    <div class="vph-info"><h2>⏱️ Alertas de Atraso</h2><p>Pedidos fora do prazo esperado</p></div>
+    <div class="vph-actions"><button onclick="loadDelayAlerts()" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer">🔄 Atualizar</button></div>
   </div>
   <div id="delayAlertsList" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px"></div>
 </div>
@@ -637,9 +640,13 @@
 
 <!-- VIEW: ADMIN ──────────────────────────────────────────── -->
 <div id="viewAdmin" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-  <!-- Contexto (Admin) -->
-  <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
-    <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
+
+  <!-- Sub-nav: Análise (visível apenas nos painéis analíticos) -->
+  <div id="adminAnalysisSubnav" class="view-subnav" style="display:none">
+    <button class="view-subnav-tab" id="subnavDash" onclick="adminSubNav('dash')">Dashboard</button>
+    <button class="view-subnav-tab" id="subnavStats" onclick="adminSubNav('stats')">Estatísticas</button>
+    <button class="view-subnav-tab" id="subnavAnalista" onclick="adminSubNav('analista')">Analista IA</button>
+    <button class="view-subnav-tab" id="subnavAprendizado" onclick="adminSubNav('aprendizado')">Aprendizado</button>
   </div>
 
   <!-- Painel: Dashboard -->
@@ -1863,29 +1870,35 @@ async function doLogin() {
 	}
 
 	function navTo(view) {
-	  const views = { chat: "app", pedidos: "viewKanban", atrasos: "viewAtrasos", analise: "viewAdmin", visao: "viewAdmin", stats: "viewAdmin", rel: "viewAdmin", audit: "viewAdmin", analista: "viewAdmin", aprendizado: "viewAdmin", transmissao: "viewAdmin", sac: "viewAdmin", usuarios: "viewAdmin", conexoes: "viewAdmin", config: "viewAdmin" };
 	  document.getElementById("app").style.display = "none";
 	  document.getElementById("viewKanban").style.display = "none";
+	  document.getElementById("viewAtrasos").style.display = "none";
 	  document.getElementById("viewAdmin").style.display = "none";
 	  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
-const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", analise: "Análise", visao: "Visão Geral", stats: "Estatísticas", rel: "Relatórios", audit: "Auditoria", analista: "Analista", aprendizado: "Aprendizado", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
-  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", analise: "navAnalise", visao: "navVisao", stats: "navStats", rel: "navRel", audit: "navAudit", analista: "navAnalista", aprendizado: "navAprendizado", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
-	  if (view === "chat") { clearInterval(kanbanTimer); kanbanTimer = null; document.getElementById("app").style.display = "block"; }
-  if (view === "atrasos") loadDelayAlerts();
-	  else if (view === "pedidos") {
+
+	  const titles = { chat: "Atendimento", pedidos: "Pedidos", atrasos: "Alertas de Atraso", analise: "Análise", stats: "Análise — Estatísticas", rel: "Relatórios", audit: "Auditoria", analista: "Análise — Analista IA", aprendizado: "Análise — Aprendizado", transmissao: "Transmissão", sac: "SAC", usuarios: "Usuários", config: "Configurações" };
+	  const navIds = { chat: "navChat", pedidos: "navPedidos", atrasos: "navAtrasos", analise: "navAnalise", stats: "navAnalise", rel: "navRel", audit: "navAudit", analista: "navAnalise", aprendizado: "navAnalise", transmissao: "navTransmissao", sac: "navSac", usuarios: "navUsuarios", config: "navConfig" };
+
+	  if (view === "chat") {
+	    clearInterval(kanbanTimer); kanbanTimer = null;
+	    document.getElementById("app").style.display = "block";
+	  } else if (view === "atrasos") {
+	    document.getElementById("viewAtrasos").style.display = "flex";
+	    loadDelayAlerts();
+	  } else if (view === "pedidos") {
 	    document.getElementById("viewKanban").style.display = "flex";
 	    const kd = document.getElementById("kanbanDate");
 	    if (kd) kd.textContent = new Date().toLocaleDateString("pt-BR");
 	    fetchKanban();
 	    if (kanbanTimer) clearInterval(kanbanTimer);
 	    kanbanTimer = setInterval(fetchKanban, 10000);
-	  }
-	  else if (["analise","visao","stats","rel","audit","analista","aprendizado","transmissao","sac","usuarios","config"].includes(view)) {
+	  } else if (["analise","stats","rel","audit","analista","aprendizado","transmissao","sac","usuarios","conexoes","config"].includes(view)) {
 	    if (USER_ROLE !== "admin") { navTo("chat"); return; }
-	    const tabMap = { analise: "dash", visao: "dash", stats: "stats", rel: "rel", audit: "audit", analista: "analista", aprendizado: "aprendizado", transmissao: "broadcast", sac: "sac", usuarios: "atend", config: "cfg" };
+	    const tabMap = { analise: "dash", stats: "stats", rel: "rel", audit: "audit", analista: "analista", aprendizado: "aprendizado", transmissao: "broadcast", sac: "sac", usuarios: "atend", conexoes: "cfg", config: "cfg" };
 	    document.getElementById("viewAdmin").style.display = "flex";
 	    adminTab(tabMap[view]);
 	  }
+
 	  const titleEl = document.getElementById("headerTitle");
 	  if (titleEl) titleEl.textContent = titles[view] || "Atendimento";
 	  const navEl = document.getElementById(navIds[view]);
@@ -2032,14 +2045,12 @@ function applyRole() {
   // Admin-only: attendant/manager não veem nada que dependa de authAdmin
   const adminOnlyIds = [
     "navConfig", "navTransmissao", "navSac", "navUsuarios",
-    // Sidebar: manter 1 entrada para análise (abas ficam no topo do painel)
-    "navAnalise",
-    // Sidebar: Gestão (Análise)
-    "navStats", "navRel", "navAudit", "navAnalista", "navAprendizado",
+    // Sidebar: Gestão
+    "navAnalise", "navRel", "navAudit",
     "sidebarAnaliseSep", "sidebarAnaliseSection",
     "adminSep", "adminLabel",
-    "atDash", "atStats", "atRel", "atAudit", "atAnalista", "atAprendizado",
-    "atBroadcast", "atSac", "atAtend", "atCfg"
+    // Sub-nav de análise
+    "adminAnalysisSubnav", "subnavDash", "subnavStats", "subnavAnalista", "subnavAprendizado"
   ];
   adminOnlyIds.forEach(id => {
     const el = document.getElementById(id);
@@ -3489,21 +3500,31 @@ async function deleteLearningCorrection(index) {
   fetchAprendizado();
 }
 
-function adminTab(tab) {
-  const adminOnlyTabs = ["dash", "stats", "rel", "audit", "broadcast", "sac", "atend", "cfg"];
-  if (USER_ROLE !== "admin" && adminOnlyTabs.includes(tab)) {
-    alert("Acesso restrito a administradores.");
-    return;
-  }
+// Tabs analíticos que aparecem no sub-nav de Análise
+const ANALYSIS_TABS = ["dash", "stats", "analista", "aprendizado"];
 
+function adminTab(tab) {
   currentAdminTab = tab;
+
+  // Mostra/oculta painéis
   const tabIds = { dash:"Dash", stats:"Stats", rel:"Rel", audit:"Audit", analista:"Analista", aprendizado:"Aprendizado", sac:"Sac", broadcast:"Broadcast", atend:"Atend", cfg:"Cfg" };
   Object.entries(tabIds).forEach(([k, v]) => {
-    const btn = document.getElementById("at"+v);
     const panel = document.getElementById("adminPanel"+v);
     if (panel) panel.style.display = k===tab ? "flex" : "none";
-    if (btn) btn.className = "admin-tab" + (k===tab?" active":"");
   });
+
+  // Sub-nav: visível apenas nos painéis analíticos
+  const subnav = document.getElementById("adminAnalysisSubnav");
+  if (subnav) subnav.style.display = ANALYSIS_TABS.includes(tab) ? "flex" : "none";
+
+  // Atualiza estado ativo dos tabs do sub-nav
+  const subnavMap = { dash:"subnavDash", stats:"subnavStats", analista:"subnavAnalista", aprendizado:"subnavAprendizado" };
+  Object.entries(subnavMap).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.className = "view-subnav-tab" + (k===tab ? " active" : "");
+  });
+
+  // Busca de dados
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
   if (tab === "rel") fetchRelatorioRange();
@@ -3511,6 +3532,18 @@ function adminTab(tab) {
   if (tab === "aprendizado") fetchAprendizado();
   if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();
   if (tab === "broadcast") loadBroadcastPanel();
+}
+
+function adminSubNav(tab) {
+  adminTab(tab);
+  // Sincroniza item ativo da sidebar (todos os sub-tabs de análise = navAnalise ativo)
+  document.querySelectorAll("#sidebar .sidebar-item").forEach(el => el.classList.remove("active"));
+  const navEl = document.getElementById("navAnalise");
+  if (navEl) navEl.classList.add("active");
+  // Atualiza título do header
+  const titleMap = { dash: "Análise", stats: "Análise — Estatísticas", analista: "Análise — Analista IA", aprendizado: "Análise — Aprendizado" };
+  const titleEl = document.getElementById("headerTitle");
+  if (titleEl) titleEl.textContent = titleMap[tab] || "Análise";
 }
 
 // ── RELATÓRIOS (por período) ───────────────────────────────────
