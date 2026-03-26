@@ -95,7 +95,8 @@ module.exports = {
   BAILEYS_INSTANCE_MODE: process.env.BAILEYS_INSTANCE_MODE || "embedded",
   // true = ao receber 440, limpa auth — use com critério (ver docs/BAILEYS_440.md)
   BAILEYS_CLEAR_AUTH_ON_440: process.env.BAILEYS_CLEAR_AUTH_ON_440 === "true",
-  BAILEYS_LOCK_TTL_MS: toNumber(process.env.BAILEYS_LOCK_TTL_MS, 60_000),
+  // Heartbeat = TTL/2; 90s tolera latência DB sem liberar lock para outro processo por engano.
+  BAILEYS_LOCK_TTL_MS: toNumber(process.env.BAILEYS_LOCK_TTL_MS, 90_000),
   BAILEYS_PROCESS_NAME: process.env.BAILEYS_PROCESS_NAME || "pappi-baileys",
   BAILEYS_HOSTNAME: process.env.BAILEYS_HOSTNAME || require("os").hostname(),
   WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),

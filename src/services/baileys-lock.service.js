@@ -62,13 +62,24 @@ async function acquireLock(instanceId) {
     }
 
     log.warn(
-      { instanceId, owner, currentOwner: data.owner, ageMs: age },
+      {
+        instanceId,
+        owner,
+        currentOwner: data.owner,
+        ageMs: age,
+        lockKey: key,
+        pid: process.pid,
+      },
       "Lock recusado — outro processo ativo. Não iniciar Baileys.",
     );
     return false;
   } catch (err) {
-    log.error({ instanceId, err }, "Erro ao adquirir lock — prossegue sem lock (risco 440)");
-    return true;
+    // Fail-closed: sem lock no banco não assumimos a sessão (evita 440 / disputa silenciosa).
+    log.error(
+      { instanceId, owner, lockKey: key, pid: process.pid, err },
+      "Erro ao adquirir lock — Baileys NÃO será iniciado neste processo até o DB responder",
+    );
+    return false;
   }
 }
 

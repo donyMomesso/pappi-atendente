@@ -1545,23 +1545,41 @@ function buildCwPayload({ session, customer, calc }) {
 
 // ── Salva mensagem enviada pelo Baileys ───────────────────────
 // waMessageId opcional: usado para check azul e deduplicação em recovery (append)
-async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waMessageId = null) {
+// opts.customerId: quando o cliente não tem `phone` (ex.: só @lid), obrigatório para não perder a mensagem
+// opts.mediaType: text | image | audio | … (painel / histórico)
+async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waMessageId = null, opts = {}) {
   try {
     const prisma = require("../lib/db");
     const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-    const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+    const log = require("../lib/logger").child({ service: "bot.baileys-msg" });
+    const { customerId, mediaType } = opts || {};
 
-    const customer = await prisma.customer.findUnique({
-      where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
-    });
+    let customer = null;
+    if (customerId) {
+      customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    }
+    if (!customer && phone) {
+      const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
+      customer = await prisma.customer.findUnique({
+        where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
+      });
+    }
     if (customer) {
       const sender = role === "customer" ? null : role === "human" ? "WhatsApp App" : "WhatsApp Auxiliar";
-      await chatMemory.push(customer.id, role, text, sender, null, "text", waMessageId);
+      await chatMemory.push(customer.id, role, text, sender, null, mediaType || "text", waMessageId);
+      log.info(
+        { pipeline: "message_saved", customerId: customer.id, role, mediaType: mediaType || "text", waMessageId },
+        "message_saved",
+      );
     } else {
-      console.warn(`[BaileysMsg] Cliente não encontrado: ${normalizedPhone} (tenant: ${tenantId})`);
+      log.warn(
+        { pipeline: "save_failed", tenantId, phone, customerId, waMessageId },
+        "Cliente não encontrado para salvar mensagem Baileys",
+      );
     }
   } catch (err) {
-    console.error("[Bot] Erro ao salvar msg Baileys:", err.message);
+    const log = require("../lib/logger").child({ service: "bot.baileys-msg" });
+    log.error({ pipeline: "save_failed", err }, "[Bot] Erro ao salvar msg Baileys");
   }
 }
 

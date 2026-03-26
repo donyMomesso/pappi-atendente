@@ -4,6 +4,34 @@ const { withRetry } = require("./retry");
 const WA_BASE = "https://graph.facebook.com/v19.0";
 
 /**
+ * Classifica erros conhecidos da Graph / WhatsApp Cloud (não confundir com falha interna).
+ * @param {Record<string, unknown> | null} data corpo JSON da resposta de erro
+ */
+function classifyWhatsAppCloudError(data) {
+  const errObj = data?.error;
+  if (!errObj || typeof errObj !== "object") return null;
+  const code = errObj.code;
+  const subcode = errObj.error_subcode;
+  const msg = String(errObj.message || "");
+  // 131047 — fora da janela de 24h; exige template / reengajamento
+  if (
+    subcode === 131047 ||
+    code === 131047 ||
+    msg.includes("131047") ||
+    /re-engagement|24.?hour|outside.*window/i.test(msg)
+  ) {
+    return {
+      kind: "window_closed",
+      requiresTemplate: true,
+      reengagementRequired: true,
+      code,
+      error_subcode: subcode,
+    };
+  }
+  return { kind: "api_error", code, error_subcode: subcode };
+}
+
+/**
  * @param {string | { to?: string, recipientUserId?: string }} destination
  * @returns {Record<string, unknown>}
  */
@@ -37,6 +65,11 @@ function createClient({ token, phoneNumberId }) {
           const data = await resp.json().catch(() => null);
           const err = new Error(`WA API ${resp.status}: ${JSON.stringify(data)}`);
           err.status = resp.status;
+          const classified = classifyWhatsAppCloudError(data);
+          if (classified) {
+            err.waCloudClass = classified.kind;
+            err.waCloudMeta = classified;
+          }
           throw err;
         }
         return resp.json();
@@ -162,4 +195,4 @@ async function getWabaId(token, phoneNumberId) {
   return data.whatsapp_business_account_id;
 }
 
-module.exports = { createClient, recipientBlock };
+module.exports = { createClient, recipientBlock, classifyWhatsAppCloudError };

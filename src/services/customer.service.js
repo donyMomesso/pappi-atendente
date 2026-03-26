@@ -31,6 +31,20 @@ function learningKeyFromCustomer(customer) {
  * @param {import("@prisma/client").Customer} customer
  * @returns {string | { recipientUserId: string }}
  */
+/**
+ * Destino para envio via Baileys: dígitos (E.164 sem +) ou JID completo (@s.whatsapp.net / @lid).
+ * @param {import("@prisma/client").Customer | null | undefined} customer
+ * @returns {string | null}
+ */
+function baileysChatTarget(customer) {
+  if (!customer) return null;
+  const p = customer.phone != null ? String(customer.phone).replace(/\D/g, "") : "";
+  if (p.length >= 10 && p.length <= 15) return p;
+  const wa = customer.waId != null ? String(customer.waId).trim() : "";
+  if (wa.includes("@lid") || wa.endsWith("@s.whatsapp.net")) return wa;
+  return p.length >= 8 ? p : null;
+}
+
 function waCloudDestination(customer) {
   if (!customer) throw new Error("Cliente ausente — sem destino WhatsApp Cloud.");
   const raw = customer.phone != null ? String(customer.phone).trim() : "";
@@ -292,6 +306,7 @@ async function incrementBotErrorAndCheckHandoff(customerId) {
 }
 
 module.exports = {
+  baileysChatTarget,
   findOrCreate,
   findOrCreateContactByIdentity,
   waCloudDestination,

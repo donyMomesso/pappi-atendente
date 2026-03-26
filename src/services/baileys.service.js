@@ -14,6 +14,7 @@ const messageDbCompat = require("../lib/message-db-compat");
 const ENV = require("../config/env");
 const log = require("../lib/logger").child({ service: "baileys" });
 const messageBuffer = require("./message-buffer.service");
+const { parseBaileysMessageContent } = require("../lib/baileys-message-content");
 
 function instanceConfigKey(instanceId) {
   const env = ENV.APP_ENV || "local";
@@ -208,7 +209,8 @@ function normalizeToDigits(raw) {
   return part.replace(/\D/g, "");
 }
 
-function extractPhoneFromMessage(msg) {
+/** Dígitos E.164-like do contato (remoteJidAlt / PN / @s.whatsapp.net). Sem isso, use @lid + waId no Customer. */
+function extractPhoneDigitsFromMessage(msg) {
   try {
     const key = msg?.key || {};
     const remoteJid = key.remoteJid || "";
@@ -247,55 +249,14 @@ function extractPhoneFromMessage(msg) {
   }
 }
 
-function extractIncomingText(msg) {
-  const m = msg?.message || {};
-  let text =
-    m?.conversation ||
-    m?.extendedTextMessage?.text ||
-    m?.imageMessage?.caption ||
-    m?.videoMessage?.caption ||
-    m?.documentMessage?.caption ||
-    null;
-
-  if (!text) {
-    const btnResp = m?.buttonsResponseMessage;
-    if (btnResp) {
-      const id = btnResp.selectedButtonId || "";
-      const display = btnResp.selectedDisplayText || "";
-      const flowIds = [
-        "delivery",
-        "takeout",
-        "confirm_addr",
-        "change_addr",
-        "CONFIRMAR",
-        "CANCELAR",
-        "AVISE_ABERTURA",
-        "HELP_HUMAN",
-        "HELP_BOT",
-        "FULFILLMENT_RETIRADA",
-      ];
-      text = flowIds.includes(id) ? id : display || id || "";
-    }
-  }
-
-  if (!text) {
-    const listResp = m?.listResponseMessage;
-    if (listResp) {
-      text = listResp.singleSelectReply?.selectedRowId || listResp.title || listResp.description || "";
-    }
-  }
-
-  if (text) {
-    const t = String(text)
-      .toLowerCase()
-      .replace(/✅|✏️|❌/g, "")
-      .trim();
-    if (t === "corrigir") text = "change_addr";
-    else if (t === "cancelar") text = "CANCELAR";
-    else if (t === "confirmar" || t === "confirma") text = "confirm_addr";
-  }
-
-  return text || null;
+/** Telefone normalizado ou conversa @lid (sem dígitos). */
+function resolveInboundSender(msg) {
+  const key = msg?.key || {};
+  const remoteJid = key.remoteJid || "";
+  const digits = extractPhoneDigitsFromMessage(msg);
+  if (digits) return { kind: "phone", phoneDigits: digits, remoteJid: remoteJid || null };
+  if (remoteJid.endsWith("@lid")) return { kind: "lid", phoneDigits: null, remoteJid };
+  return null;
 }
 
 // ── Detecta tenantId a partir do número do remetente ──────────
@@ -346,6 +307,45 @@ async function detectTenantByPhone(phone, instanceId = null) {
   } catch {
     return null;
   }
+}
+
+async function resolveTenantForNewChat(instanceId) {
+  if (instanceId) {
+    const cfg = await prisma.config.findUnique({
+      where: { key: instanceConfigKey(instanceId) },
+    });
+    if (cfg?.value) {
+      try {
+        const { tenantId } = JSON.parse(cfg.value);
+        if (tenantId) return tenantId;
+      } catch {}
+    }
+  }
+  const fallbackTenant = await prisma.tenant.findFirst({
+    where: { active: true },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return fallbackTenant?.id || null;
+}
+
+/** Tenant para inbound: telefone (histórico), waId (@lid), ou config da instância / primeiro tenant. */
+async function detectTenantForInbound({ phoneDigits, remoteJid }, instanceId) {
+  const d = phoneDigits != null ? String(phoneDigits).replace(/\D/g, "") : "";
+  if (d.length >= 10 && d.length <= 15) {
+    return detectTenantByPhone(d, instanceId);
+  }
+  if (remoteJid) {
+    try {
+      const hit = await prisma.customer.findFirst({
+        where: { waId: remoteJid },
+        select: { tenantId: true },
+        orderBy: { lastInteraction: "desc" },
+      });
+      if (hit?.tenantId) return hit.tenantId;
+    } catch {}
+  }
+  return resolveTenantForNewChat(instanceId);
 }
 
 // Salva o canal de resposta para o customer (cloud ou baileys:instanceId)
@@ -496,33 +496,88 @@ async function start(instanceId = "default", opts = {}) {
         // → salva no histórico como "human" para aparecer no painel
         if (msg?.key?.fromMe) {
           try {
-            const echoText = extractIncomingText(msg);
-            if (echoText && echoText.length > 0) {
-              const echoPhone = extractPhoneFromMessage(msg);
-              if (echoPhone) {
-                const echoTenantId = await detectTenantByPhone(echoPhone, instanceId);
-                if (echoTenantId) {
-                  const botHandler = require("../routes/bot.handler");
-                  await botHandler.saveBaileysMessage(echoPhone, echoText, echoTenantId, "human", msg?.key?.id);
-                  log.info(
-                    { instanceId, phone: echoPhone, text: echoText.slice(0, 60) },
-                    "Echo capturado (resposta pelo app)",
-                  );
-                  require("./socket.service").emitConvUpdate(null);
-                }
-              }
+            const echoParsed = parseBaileysMessageContent(msg);
+            if (echoParsed.mediaType === "empty") {
+              continue;
             }
+            const echoIdentity = resolveInboundSender(msg);
+            if (!echoIdentity) {
+              log.warn(
+                {
+                  instanceId,
+                  jid,
+                  pipeline: "contact_resolved",
+                  keyId: msg?.key?.id,
+                  remoteJidAlt: msg?.key?.remoteJidAlt,
+                },
+                "Echo fromMe: identidade do chat não resolvida",
+              );
+              continue;
+            }
+            const echoTenantId = await detectTenantForInbound(
+              { phoneDigits: echoIdentity.phoneDigits, remoteJid: echoIdentity.remoteJid },
+              instanceId,
+            );
+            if (!echoTenantId) continue;
+
+            const { findOrCreate, findOrCreateContactByIdentity } = require("../services/customer.service");
+            const echoCustomer =
+              echoIdentity.kind === "phone"
+                ? await findOrCreate(echoTenantId, echoIdentity.phoneDigits, null)
+                : await findOrCreateContactByIdentity({
+                    tenantId: echoTenantId,
+                    normalizedPhone: null,
+                    rawWaId: echoIdentity.remoteJid,
+                  });
+
+            const botHandler = require("../routes/bot.handler");
+            await botHandler.saveBaileysMessage(
+              echoCustomer.phone || echoIdentity.remoteJid,
+              echoParsed.displayText,
+              echoTenantId,
+              "human",
+              msg?.key?.id,
+              { customerId: echoCustomer.id, mediaType: echoParsed.mediaType },
+            );
+            log.info(
+              {
+                instanceId,
+                customerId: echoCustomer.id,
+                keyId: msg?.key?.id,
+                pipeline: "message_saved",
+              },
+              "Echo capturado (resposta pelo app)",
+            );
+            require("./socket.service").emitConvUpdate(echoCustomer.id);
           } catch (echoErr) {
-            log.warn({ instanceId, err: echoErr.message }, "Erro ao capturar echo fromMe");
+            log.warn(
+              { instanceId, err: echoErr.message, pipeline: "save_failed" },
+              "Erro ao capturar echo fromMe",
+            );
           }
           continue;
         }
+
+        log.info(
+          {
+            instanceId,
+            jid,
+            keyId: msg?.key?.id,
+            upsertType: type,
+            pipeline: "message_received",
+            pid: process.pid,
+            lockOwner: baileysLock.ownerId(),
+          },
+          "message_received",
+        );
 
         if (!msg?.message) {
           log.warn(
             {
               instanceId,
               jid,
+              pipeline: "message_parsed",
+              parseNote: "stub_only",
               key: msg?.key,
               messageStubType: msg?.messageStubType,
               messageStubParameters: msg?.messageStubParameters,
@@ -532,31 +587,52 @@ async function start(instanceId = "default", opts = {}) {
           continue;
         }
 
-        const phone = extractPhoneFromMessage(msg);
-
-        if (!phone) {
+        const parsed = parseBaileysMessageContent(msg);
+        if (parsed.parseNote === "unknown_message_type" && parsed.rawSnippet) {
           log.warn(
             {
               instanceId,
               jid,
-              key: msg?.key,
-              pushName: msg?.pushName,
-              verifiedBizName: msg?.verifiedBizName,
-              messageKeys: Object.keys(msg.message || {}),
-              messageStubType: msg?.messageStubType,
-              messageStubParameters: msg?.messageStubParameters,
+              keyId: msg?.key?.id,
+              pipeline: "parse_failed",
+              rawSnippet: parsed.rawSnippet,
+              unknownKeys: parsed.unknownKeys,
             },
-            "Não foi possível resolver o telefone da mensagem",
+            "unknown_message_type — texto de fallback gravado para o painel",
+          );
+        }
+
+        log.info(
+          {
+            instanceId,
+            jid,
+            keyId: msg?.key?.id,
+            pipeline: "message_parsed",
+            primaryKey: parsed.primaryKey,
+            mediaType: parsed.mediaType,
+            parseNote: parsed.parseNote,
+            shouldInvokeBot: parsed.shouldInvokeBot,
+          },
+          "message_parsed",
+        );
+
+        const sender = resolveInboundSender(msg);
+        if (!sender) {
+          log.warn(
+            {
+              instanceId,
+              jid,
+              keyId: msg?.key?.id,
+              pipeline: "contact_resolved",
+              messageKeys: Object.keys(msg.message || {}),
+              pushName: msg?.pushName,
+            },
+            "contact_resolved: falhou — sem telefone nem @lid",
           );
           continue;
         }
 
-        const text = extractIncomingText(msg);
-        if (!text) {
-          log.warn({ instanceId, phone, jid }, "Mensagem sem texto reconhecível");
-          continue;
-        }
-
+        const text = parsed.displayText;
         const waId = msg?.key?.id;
 
         // Evita reprocessar: cache em memória (duplicatas) ou banco (recovery)
@@ -575,11 +651,19 @@ async function start(instanceId = "default", opts = {}) {
           }
         }
 
+        const traceKey = sender.phoneDigits || sender.remoteJid || jid;
         const { startTimer } = require("../lib/timing");
-        const timer = startTimer({ instanceId, phone, step: "baileys" });
+        const timer = startTimer({ instanceId, phone: traceKey, step: "baileys" });
 
         log.info(
-          { instanceId, jid, phone, text: text.slice(0, 80), type },
+          {
+            instanceId,
+            jid,
+            traceKey,
+            text: text.slice(0, 80),
+            type,
+            pipeline: isAppend ? "message_received_append" : "message_received",
+          },
           isAppend ? "MSG append (recovery)" : "MSG recebida",
         );
 
@@ -594,24 +678,54 @@ async function start(instanceId = "default", opts = {}) {
           timer.mark("read_composing");
 
           try {
-            const tenantId = await detectTenantByPhone(phone, instanceId);
+            const tenantId = await detectTenantForInbound(
+              { phoneDigits: sender.phoneDigits, remoteJid: sender.remoteJid },
+              instanceId,
+            );
             if (!tenantId) {
-              log.warn({ instanceId, phone, jid }, "Tenant não encontrado — msg ignorada");
+              log.warn(
+                { instanceId, traceKey, jid, pipeline: "tenant_resolve_failed" },
+                "Tenant não encontrado — msg ignorada",
+              );
               continue;
             }
 
-            const { findOrCreate, touchInteraction } = require("../services/customer.service");
+            const {
+              findOrCreate,
+              findOrCreateContactByIdentity,
+              touchInteraction,
+              learningKeyFromCustomer,
+              baileysChatTarget,
+            } = require("../services/customer.service");
             const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
             if (!tenant) {
-              log.warn({ instanceId, tenantId }, "Tenant não existe no banco — msg ignorada");
+              log.warn({ instanceId, tenantId, pipeline: "tenant_resolve_failed" }, "Tenant não existe — msg ignorada");
               continue;
             }
             timer.mark("tenant");
 
-            // Cria customer ANTES de salvar msg — números novos não existiam e msg era descartada
             const pushName = msg.pushName || msg.verifiedBizName || null;
-            const customer = await findOrCreate(tenantId, phone, pushName);
+            const customer =
+              sender.kind === "phone"
+                ? await findOrCreate(tenantId, sender.phoneDigits, pushName)
+                : await findOrCreateContactByIdentity({
+                    tenantId,
+                    normalizedPhone: null,
+                    rawWaId: sender.remoteJid,
+                    profileName: pushName,
+                  });
             timer.mark("customer");
+
+            log.info(
+              {
+                instanceId,
+                customerId: customer.id,
+                pipeline: "contact_resolved",
+                kind: sender.kind,
+                waIdField: customer.waId || null,
+              },
+              "contact_resolved",
+            );
 
             if (pushName && !customer.name) {
               await prisma.customer
@@ -624,45 +738,75 @@ async function start(instanceId = "default", opts = {}) {
 
             await touchInteraction(customer.id);
             await setReplyChannel(customer.id, `baileys:${instanceId}`);
+            log.info(
+              { instanceId, customerId: customer.id, tenantId, pipeline: "conversation_resolved" },
+              "conversation_resolved",
+            );
 
             const botHandler = require("../routes/bot.handler");
-            await botHandler.saveBaileysMessage(customer.phone, text, tenantId, "customer", waId || undefined);
+            await botHandler.saveBaileysMessage(
+              customer.phone || sender.remoteJid,
+              text,
+              tenantId,
+              "customer",
+              waId || undefined,
+              { customerId: customer.id, mediaType: parsed.mediaType },
+            );
             if (waId) markMessageProcessed(waId);
             timer.mark("save_msg");
+            log.info(
+              { instanceId, customerId: customer.id, waMessageId: waId, pipeline: "message_saved" },
+              "message_saved",
+            );
             require("./socket.service").emitConvUpdate(customer.id);
+            log.info({ instanceId, customerId: customer.id, pipeline: "socket_emitted" }, "socket_emitted");
 
-            // Análise de sentimento automática
             try {
               const learning = require("./bot-learning.service");
-              await learning.analyzeMessage(tenantId, customer.phone, customer.name || pushName, text);
+              await learning.analyzeMessage(
+                tenantId,
+                learningKeyFromCustomer(customer) || customer.id,
+                customer.name || pushName,
+                text,
+              );
             } catch {}
             timer.mark("sentiment");
+
+            const baileysTo = baileysChatTarget(customer);
 
             if (isAppend && !recoverySent.has(customer.id)) {
               recoverySent.add(customer.id);
               const recovery = "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
               try {
-                await sendText(customer.phone, recovery, instanceId, true);
-                await botHandler.saveBaileysMessage(customer.phone, recovery, tenantId, "assistant");
+                if (!baileysTo) {
+                  log.warn({ instanceId, customerId: customer.id }, "Recovery: sem JID/telefone para envio Baileys");
+                } else {
+                  await sendText(baileysTo, recovery, instanceId, true);
+                  await botHandler.saveBaileysMessage(baileysTo, recovery, tenantId, "assistant", null, {
+                    customerId: customer.id,
+                  });
+                }
               } catch (e) {
-                log.warn({ instanceId, phone: customer.phone, err: e }, "Falha ao enviar msg de retomada");
+                log.warn({ instanceId, customerId: customer.id, err: e }, "Falha ao enviar msg de retomada");
               }
             }
 
-            if (inst.botEnabled !== false) {
+            if (inst.botEnabled !== false && parsed.shouldInvokeBot) {
               try {
                 const convState = require("./conversation-state.service");
                 const { botMayRespond, state } = await convState.resetIfEncerradoAndShouldBotRespond(customer);
                 timer.mark("conv_state");
 
                 if (!botMayRespond) {
-                  // Auto-libera se estava aguardando humano mas não há atendente ativo
                   if (state === "aguardando_humano" && !customer.claimedBy) {
-                    log.info({ instanceId, phone }, "Auto-liberando handoff sem atendente — devolvendo ao bot");
+                    log.info(
+                      { instanceId, traceKey },
+                      "Auto-liberando handoff sem atendente — devolvendo ao bot",
+                    );
                     await convState.setState(customer.id, "bot_ativo");
                     customer.handoff = false;
                   } else {
-                    log.info({ instanceId, phone, state }, "Bot silencioso (handoff/estado)");
+                    log.info({ instanceId, traceKey, state }, "Bot silencioso (handoff/estado)");
                     timer.mark("bot_skip");
                     timer.log(log);
                     continue;
@@ -670,7 +814,6 @@ async function start(instanceId = "default", opts = {}) {
                 }
 
                 const wa = {
-                  // saveHistory=false: bot handler já salva via chatMemory.push — evita dupla gravação
                   sendText: async (to, msgText) => {
                     const r = await sendText(to, msgText, instanceId, true, false);
                     if (!r?.ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
@@ -688,15 +831,17 @@ async function start(instanceId = "default", opts = {}) {
                   sendDocument: () => {},
                 };
 
-                log.debug({ instanceId, phone }, "Chamando bot.handle");
+                log.debug({ instanceId, traceKey }, "Chamando bot.handle");
                 const isFast =
                   /^(delivery|takeout|confirm_addr|change_addr|confirmar|cancelar|avise_abertura)$/i.test(
                     String(text || "").trim(),
                   );
                 const windowMs = isFast ? messageBuffer.FAST_WINDOW_MS : messageBuffer.DEFAULT_WINDOW_MS;
+                const bufferPhoneKey = customer.phone || `cid:${customer.id}`;
+                const waTarget = baileysChatTarget(customer) || bufferPhoneKey;
                 messageBuffer.enqueue({
                   tenantId,
-                  phone: customer.phone,
+                  phone: bufferPhoneKey,
                   channel: `baileys:${instanceId}`,
                   text,
                   meta: { kind: isFast ? "interactive" : "text" },
@@ -708,7 +853,7 @@ async function start(instanceId = "default", opts = {}) {
                       wa,
                       customer,
                       text: combinedText,
-                      phone: customer.phone,
+                      phone: waTarget,
                       timer,
                     });
                   },
@@ -717,26 +862,33 @@ async function start(instanceId = "default", opts = {}) {
                 require("./socket.service").emitConvUpdate(customer.id);
                 timer.log(log);
               } catch (e) {
-                log.error({ instanceId, phone, err: e }, "Erro no bot");
+                log.error({ instanceId, traceKey, err: e }, "Erro no bot");
                 timer.mark("bot_error");
                 timer.log(log);
                 try {
-                  const { incrementBotErrorAndCheckHandoff } = require("./customer.service");
+                  const { incrementBotErrorAndCheckHandoff } = require("../services/customer.service");
                   const { shouldHandoff } = await incrementBotErrorAndCheckHandoff(customer.id);
                   const ENV = require("../config/env");
                   const statusUrl = `${ENV.APP_URL || "https://pappiatendente.com.br"}/status`;
 
                   let fallback;
                   if (shouldHandoff) {
-                    const { setHandoff } = require("./customer.service");
+                    const { setHandoff } = require("../services/customer.service");
                     await setHandoff(customer.id, true);
                     fallback =
                       "Como a instabilidade persistiu, você será direcionado para um atendente humano. Aguarde um momento! 👨‍💼";
                   } else {
                     fallback = `Estamos com instabilidade no WhatsApp. Aguarde alguns minutos e tente novamente. Acompanhe: ${statusUrl}\n\nSe persistir, você será direcionado para atendimento humano.`;
                   }
-                  await sendText(customer.phone, fallback, instanceId, true);
-                  await botHandler.saveBaileysMessage(customer.phone, fallback, tenantId, "assistant");
+                  const fbTo = baileysChatTarget(customer);
+                  if (fbTo) {
+                    await sendText(fbTo, fallback, instanceId, true);
+                    await botHandler.saveBaileysMessage(fbTo, fallback, tenantId, "assistant", null, {
+                      customerId: customer.id,
+                    });
+                  } else {
+                    log.warn({ instanceId, customerId: customer.id }, "Fallback bot: sem destino Baileys");
+                  }
                   if (shouldHandoff) {
                     const socketService = require("./socket.service");
                     socketService.emitQueueUpdate();
@@ -746,6 +898,11 @@ async function start(instanceId = "default", opts = {}) {
                   log.error({ instanceId, err: f }, "Falha ao enviar mensagem de fallback");
                 }
               }
+            } else if (inst.botEnabled !== false && !parsed.shouldInvokeBot) {
+              log.debug(
+                { instanceId, customerId: customer.id, mediaType: parsed.mediaType, parseNote: parsed.parseNote },
+                "Bot não invocado (mídia sem legenda / tipo sem fluxo de pedido)",
+              );
             }
           } finally {
             // Para o "digitando" — evita ficar travado quando não há resposta
@@ -1046,14 +1203,29 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
     if (saveHistory) {
       try {
         const botHandler = require("../routes/bot.handler");
-        const cleanPhone = to.split("@")[0];
-        const tenantId = await detectTenantByPhone(cleanPhone, instanceId);
+        const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+        const dest = String(to);
+        const tenantId = dest.includes("@lid")
+          ? await detectTenantForInbound({ phoneDigits: null, remoteJid: dest }, instanceId)
+          : await detectTenantByPhone(dest.split("@")[0].replace(/\D/g, ""), instanceId);
 
         if (tenantId) {
-          await botHandler.saveBaileysMessage(cleanPhone, text, tenantId, "assistant", sent?.key?.id || null);
+          let customer = null;
+          if (dest.includes("@lid")) {
+            customer = await prisma.customer.findFirst({ where: { tenantId, waId: dest } });
+          } else {
+            const normalized =
+              PhoneNormalizer.normalize(dest.split("@")[0]) || dest.split("@")[0].replace(/\D/g, "");
+            customer = await prisma.customer.findUnique({
+              where: { tenantId_phone: { tenantId, phone: normalized } },
+            });
+          }
+          await botHandler.saveBaileysMessage(dest, text, tenantId, "assistant", sent?.key?.id || null, {
+            customerId: customer?.id,
+          });
         }
       } catch (err) {
-        console.error(`[Baileys:${instanceId}] Erro ao registrar msg no histórico:`, err.message);
+        log.warn({ instanceId, err: err?.message }, "Erro ao registrar msg outbound no histórico");
       }
     }
 
