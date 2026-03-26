@@ -25,6 +25,7 @@ function mapCwStatusToInternal(status) {
     ready_for_pickup: "ready",
     aguardando_retirada: "waiting_pickup",
     waiting_pickup: "waiting_pickup",
+    waiting_to_catch: "waiting_pickup",
   };
   return map[s] || s || "waiting_confirmation";
 }
