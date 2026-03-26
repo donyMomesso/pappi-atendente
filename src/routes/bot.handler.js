@@ -199,6 +199,124 @@ function isCep(text) {
   return /^\d{5}-?\d{3}$/.test(text.trim());
 }
 
+function normalizeText(input) {
+  return String(input || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function extractAddressNumber(text) {
+  const m = String(text || "").match(/\b(\d{1,6}[a-zA-Z]?)\b/);
+  return m ? m[1] : "";
+}
+
+async function resolveAddressFromFreeText(input, tenant, cw) {
+  const cleaned = String(input || "").trim();
+  if (!cleaned) return { addr: null, confidence: "low", geo: null };
+
+  let parsed = null;
+  try {
+    parsed = await ai.extractAddress(cleaned, tenant.city || "Campinas");
+  } catch {}
+  if (!parsed) {
+    const ext = AddressNormalizer.fromText(cleaned);
+    const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
+    if (res.ok) parsed = res.address;
+  }
+
+  let geo = null;
+  try {
+    geo = await Maps.geocode(`${cleaned}, ${tenant.city || "Campinas"}`);
+  } catch {}
+
+  if (!geo) {
+    if (!parsed) return { addr: null, confidence: "low", geo: null };
+    return { addr: parsed, confidence: parsed?.street ? "medium" : "low", geo: null };
+  }
+
+  const extGeo = AddressNormalizer.fromText(geo.formatted_address || cleaned);
+  const normGeo = AddressNormalizer.normalize({ ...extGeo, city: tenant.city || "" });
+  const geoAddr = normGeo?.ok ? normGeo.address : {};
+
+  const merged = {
+    street: parsed?.street || geoAddr?.street || "",
+    number: parsed?.number || geoAddr?.number || extractAddressNumber(cleaned),
+    neighborhood: parsed?.neighborhood || geoAddr?.neighborhood || "",
+    city: parsed?.city || geoAddr?.city || tenant.city || "",
+    state: parsed?.state || geoAddr?.state || "SP",
+    zipCode: parsed?.zipCode || geoAddr?.zipCode || "",
+    complement: parsed?.complement || "",
+    formatted: geo.formatted_address || cleaned,
+    lat: geo.lat,
+    lng: geo.lng,
+  };
+
+  const confidence = merged.street && merged.number ? "high" : merged.street ? "medium" : "low";
+  return { addr: merged, confidence, geo };
+}
+
+function resolveCatalogSizeFromText(text, sizeOptions = []) {
+  const raw = String(text || "").trim();
+  const norm = normalizeText(raw);
+  if (!norm || !sizeOptions.length) return { chosen: null, remainder: raw };
+
+  if (raw.startsWith("size_")) {
+    const direct = raw.replace("size_", "");
+    const exact = sizeOptions.find((s) => normalizeText(s) === normalizeText(direct));
+    if (exact) return { chosen: exact, remainder: "" };
+  }
+
+  const normalizedOptions = sizeOptions.map((opt) => ({
+    original: opt,
+    norm: normalizeText(opt),
+    number: (String(opt).match(/\b(\d{1,2})\b/) || [])[1] || "",
+  }));
+
+  let chosen = normalizedOptions.find((o) => norm.includes(o.norm))?.original || null;
+  let matchedToken = chosen ? normalizeText(chosen) : "";
+
+  if (!chosen) {
+    const mNum = norm.match(/\b(?:de\s+)?(\d{1,2})\b/);
+    const num = mNum?.[1] || "";
+    if (num) {
+      const byNum = normalizedOptions.find((o) => o.number === num);
+      if (byNum) {
+        chosen = byNum.original;
+        matchedToken = num;
+      }
+    }
+  }
+
+  if (!chosen) {
+    const aliasRules = [
+      { rx: /\bbrot(?:o|inho)?\b/, keys: ["brot", "pequen", "16"] },
+      { rx: /\bmed(?:ia|io)?\b/, keys: ["med", "30"] },
+      { rx: /\bgrand(?:e|ao)?\b/, keys: ["grand", "35"] },
+    ];
+    for (const rule of aliasRules) {
+      if (!rule.rx.test(norm)) continue;
+      const found = normalizedOptions.find((o) => rule.keys.some((k) => o.norm.includes(k)));
+      if (found) {
+        chosen = found.original;
+        matchedToken = (norm.match(rule.rx) || [""])[0];
+        break;
+      }
+    }
+  }
+
+  if (!chosen) return { chosen: null, remainder: raw };
+
+  const remainder = norm
+    .replace(new RegExp(`\\b${matchedToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g"), " ")
+    .replace(/\b(de|pizza|lasanha|tamanho|quero|uma|um|a|o)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { chosen, remainder };
+}
+
 // ── Ponto de entrada — com mutex por usuário ──────────────────
 async function handle({ tenant, wa, customer, text, phone, sessionKey, timer }) {
   const sk = sessionKey != null ? sessionKey : sessionService.discriminatorFromCustomer(customer);
@@ -958,17 +1076,13 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant, tim
   session.addressFailCount = session.addressFailCount || 0;
 
   async function tryParseAddress(input) {
-    let addr = await ai.extractAddress(input, tenant.city || "Campinas");
-    if (!addr) {
-      const ext = AddressNormalizer.fromText(input);
-      const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
-      if (res.ok) addr = res.address;
-    }
-    return addr;
+    const resolved = await resolveAddressFromFreeText(input, tenant, cw);
+    return resolved;
   }
 
   timer?.mark("pre_extractAddress");
-  const addr = await tryParseAddress(combined);
+  const resolved = await tryParseAddress(combined);
+  const addr = resolved?.addr || null;
   timer?.mark("extractAddress");
 
   if (!addr?.street) {
@@ -996,10 +1110,14 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant, tim
   if (!addr.number) {
     session.partialAddress = addr;
     session.step = "ADDRESS_NUMBER";
-    const m = `*${addr.street}* — ${addr.neighborhood || ""}\nQual o número da casa?`;
+    const m = `Encontrei: *${addr.formatted || addr.street}*\nQual o número da casa?`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
+  }
+
+  if (resolved?.confidence === "medium") {
+    addr.formatted = addr.formatted || `${addr.street}, ${addr.number}${addr.neighborhood ? ` - ${addr.neighborhood}` : ""}`;
   }
 
   await confirmAddress(wa, cw, phone, addr, session, customer, tenant);
@@ -1126,6 +1244,9 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
     return;
   }
 
+  const normalizedChosenSize = resolveCatalogSizeFromText(session.chosenSize, sizes).chosen;
+  if (normalizedChosenSize) session.chosenSize = normalizedChosenSize;
+
   // FASE 2: se já detectamos tamanho no intake, não perguntar novamente.
   if (session.chosenSize && sizes.some((s) => String(s).toLowerCase() === String(session.chosenSize).toLowerCase())) {
     session.step = "ORDERING";
@@ -1155,12 +1276,8 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
 // ── ASK_SIZE ──────────────────────────────────────────────────
 async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
   const sizes = session.sizeOptions || [];
-  let chosen = null;
-  if (text?.startsWith("size_")) {
-    chosen = text.replace("size_", "");
-  } else if (sizes.some((s) => text?.toLowerCase().includes(s.toLowerCase()))) {
-    chosen = sizes.find((s) => text?.toLowerCase().includes(s.toLowerCase()));
-  }
+  const sizeResolution = resolveCatalogSizeFromText(text, sizes);
+  const chosen = sizeResolution.chosen;
 
   if (!chosen && sizes.length) {
     const m = `Qual tamanho? Escolha uma opção 👇`;
@@ -1175,6 +1292,11 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
   session.chosenSize = chosen || sizes[0];
   session.step = "ORDERING";
   session.orderHistory = [];
+
+  if (sizeResolution.remainder && sizeResolution.remainder.length >= 4) {
+    await handleOrdering(wa, cw, phone, sizeResolution.remainder, session, customer, tenant);
+    return;
+  }
 
   metaCapi.trackViewContent({ customer, tenantName: tenant.name }).catch(() => {});
 
