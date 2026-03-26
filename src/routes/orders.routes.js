@@ -8,6 +8,7 @@ const { setHandoff, findByPhone, waCloudDestination } = require("../services/cus
 const { getClients } = require("../services/tenant.service");
 const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const prisma = require("../lib/db");
+const log = require("../lib/logger").child({ route: "orders/cw-status" });
 
 const router = express.Router();
 const GOOGLE_REVIEW_URL =
@@ -16,12 +17,16 @@ const GOOGLE_REVIEW_URL =
 // Webhook CW (sem auth; tenant inferido pelo order)
 router.post("/cw-status", async (req, res) => {
   try {
-    res.sendStatus(200);
-    const { order_id, status } = req.body;
-    if (!order_id || !status) return;
+    const { order_id, status } = req.body || {};
+    if (!order_id || !status) {
+      return res.status(400).json({ ok: false, error: "order_id e status obrigatórios" });
+    }
 
     const order = await findOrderByCwOrderIdGlobal(String(order_id));
-    if (!order) return;
+    if (!order) {
+      log.warn({ orderId: String(order_id), status }, "Webhook CW recebido para pedido inexistente no PAppi");
+      return res.status(404).json({ ok: false, error: "pedido não encontrado" });
+    }
 
     await updateStatus(order.id, status, "webhook");
     await updateCwStatus(order.id, status);
@@ -51,10 +56,14 @@ router.post("/cw-status", async (req, res) => {
             } catch {}
           }, 30_000);
         }
+      } else {
+        log.warn({ orderId: order.id, cwOrderId: order.cwOrderId, statusKey }, "Webhook CW: sem destino de envio ao cliente");
       }
     }
+    return res.status(200).json({ ok: true, orderId: order.id, cwOrderId: order.cwOrderId, statusApplied: statusKey });
   } catch (err) {
-    console.error("cw-status:", err.message);
+    log.error({ err: err?.message }, "Falha no webhook CW status");
+    return res.status(500).json({ ok: false, error: err?.message || "erro interno" });
   }
 });
 
