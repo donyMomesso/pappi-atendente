@@ -3078,6 +3078,8 @@ const KANBAN_COLS = [
   { key: "waiting_confirmation", label: "⏳ Novo",          color: "#e67e22" },
   { key: "confirmed",            label: "✅ Confirmado",    color: "#2980b9" },
   { key: "in_preparation",       label: "👨‍🍳 Preparando",   color: "#8e44ad" },
+  { key: "ready",                label: "✅ Pronto",        color: "#16a34a" },
+  { key: "waiting_pickup",       label: "🙋 Aguard. retirada", color: "#0ea5e9" },
   { key: "dispatched",           label: "🛵 Saiu",          color: "#27ae60" },
   { key: "concluded",            label: "🏁 Entregue",      color: "#7f8c8d" },
   { key: "cancelled",            label: "❌ Cancelado",     color: "#e74c3c" },
@@ -3285,8 +3287,8 @@ async function fetchAnalista() {
   // Status breakdown
   const statusEl = document.getElementById("analistaStatusBreakdown");
   if (statusEl && data.statusBreakdown) {
-    const statusLabels = { waiting_confirmation:"Aguardando", confirmed:"Confirmado", in_preparation:"Preparando", dispatched:"Enviado", concluded:"Concluído", cancelled:"Cancelado", cw_failed:"Falha CW" };
-    const statusColors = { waiting_confirmation:"#f59e0b", confirmed:"#22c55e", in_preparation:"#6366f1", dispatched:"#0ea5e9", concluded:"#22c55e", cancelled:"#ef4444", cw_failed:"#ef4444" };
+    const statusLabels = { waiting_confirmation:"Aguardando", confirmed:"Confirmado", in_preparation:"Preparando", ready:"Pronto", waiting_pickup:"Aguard. retirada", dispatched:"Enviado", concluded:"Concluído", cancelled:"Cancelado", cw_failed:"Falha CW" };
+    const statusColors = { waiting_confirmation:"#f59e0b", confirmed:"#22c55e", in_preparation:"#6366f1", ready:"#16a34a", waiting_pickup:"#0ea5e9", dispatched:"#0ea5e9", concluded:"#22c55e", cancelled:"#ef4444", cw_failed:"#ef4444" };
     const entries = Object.entries(data.statusBreakdown).sort((a,b)=>b[1]-a[1]);
     const totalS = entries.reduce((s,e)=>s+e[1],0)||1;
     statusEl.innerHTML = entries.map(([k,v]) => `
@@ -4868,7 +4870,8 @@ function statusLabel(s) {
   return {
     waiting_confirmation:"⏳ Aguardando",confirmed:"✅ Confirmado",
     preparing:"👨‍🍳 Preparando",in_preparation:"👨‍🍳 Preparando",em_producao:"👨‍🍳 Preparando",
-    ready:"✅ Pronto",dispatched:"🛵 A caminho",saiu_para_entrega:"🛵 A caminho",
+    ready:"✅ Pronto",pronto_para_retirada:"✅ Pronto",waiting_pickup:"🙋 Aguardando retirada",aguardando_retirada:"🙋 Aguardando retirada",
+    dispatched:"🛵 A caminho",saiu_para_entrega:"🛵 A caminho",
     delivered:"🏠 Entregue",concluded:"🏠 Entregue",pedido_concluido:"🏠 Entregue",cancelled:"❌ Cancelado",
     lead:"📝 Lead (fechado)",cw_failed:"⚠️ Falha CW"
   }[s]||s;

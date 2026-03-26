@@ -1229,6 +1229,8 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
       const t = String(s || "").toLowerCase();
       if (t.includes("confirm") || t === "confirmed") return "confirmed";
       if (t.includes("prepar") || t === "in_preparation") return "in_preparation";
+      if (t.includes("pronto") || t === "ready" || t === "ready_for_pickup") return "ready";
+      if (t.includes("aguardando_retirada") || t === "waiting_pickup") return "waiting_pickup";
       if (t.includes("dispatch") || t === "dispatched") return "dispatched";
       if (t.includes("conclu") || t === "concluded" || t === "delivered") return "concluded";
       if (t.includes("cancel")) return "cancelled";
@@ -1321,6 +1323,8 @@ router.get("/orders/kanban", authDash, async (req, res) => {
       waiting_confirmation: [],
       confirmed: [],
       in_preparation: [],
+      ready: [],
+      waiting_pickup: [],
       dispatched: [],
       concluded: [],
       cancelled: [],
