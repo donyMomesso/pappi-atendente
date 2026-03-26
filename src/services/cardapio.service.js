@@ -27,6 +27,10 @@ async function safeJson(resp) {
 
 function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: _storeId }) {
   const base = (baseUrl || "https://integracao.cardapioweb.com").replace(/\/$/, "");
+  const toNum = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
 
   function headersPartner() {
     if (!apiKey) throw new Error(`[${tenantId}] CARDAPIOWEB_API_KEY não configurado`);
@@ -114,6 +118,30 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
     if (!payload || typeof payload !== "object")
       throw Object.assign(new Error("createOrder: payload inválido"), { status: 400 });
 
+    // Regra CW: payment_method_id deve estar ativo no estabelecimento.
+    const paymentMethods = await getPaymentMethods();
+    const paymentIds = new Set((paymentMethods || []).map((m) => toNum(m?.id)).filter((n) => n != null));
+    const reqPayments = Array.isArray(payload?.payments) ? payload.payments : [];
+    if (!paymentMethods?.length) {
+      const err = new Error(
+        "CardápioWeb sem métodos de pagamento ativos para esta loja. Ative pagamentos no Portal CW e tente novamente.",
+      );
+      err.status = 422;
+      err.data = { errors: ["Payments list is empty for this merchant"] };
+      throw err;
+    }
+    for (const p of reqPayments) {
+      const reqId = toNum(p?.payment_method_id);
+      if (reqId != null && !paymentIds.has(reqId)) {
+        const err = new Error(
+          `payment_method_id ${p?.payment_method_id} não está ativo no CardápioWeb para este estabelecimento.`,
+        );
+        err.status = 422;
+        err.data = { errors: [`payment_method_id ${p?.payment_method_id} not found or inactive`] };
+        throw err;
+      }
+    }
+
     return withRetry(
       async () => {
         const resp = await fetchWithTimeout(`${base}/api/partner/v1/orders`, {
@@ -123,7 +151,13 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
         });
         const data = await safeJson(resp);
         if (!resp.ok) {
-          const msg = Array.isArray(data?.errors) ? data.errors.join(" | ") : JSON.stringify(data);
+          let msg = Array.isArray(data?.errors) ? data.errors.join(" | ") : JSON.stringify(data);
+          const code = data?.code;
+          if (resp.status === 401) {
+            msg =
+              "Falha de autenticação no CardápioWeb (X-API-KEY/X-PARTNER-KEY inválidos ou de ambiente diferente: produção vs sandbox).";
+            if (code) msg += ` [code=${code}]`;
+          }
           const err = new Error(`CW createOrder ${resp.status}: ${msg}`);
           err.status = resp.status;
           err.data = data;

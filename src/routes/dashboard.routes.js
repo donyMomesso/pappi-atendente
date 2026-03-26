@@ -113,6 +113,21 @@ function buildOutboundError(err, fallbackMessage = "Falha ao enviar mensagem") {
   };
 }
 
+function mapCwOrderError(cwErr) {
+  const raw = cwErr?.data?.errors?.join?.(" ") || cwErr?.message || "Falha ao enviar ao CardápioWeb";
+  const msg = String(raw);
+  if (/4010|unauthorized|x-api-key|x-partner-key|token invalido|token inválido/i.test(msg)) {
+    return "CardápioWeb recusou autenticação (token inválido ou ambiente incorreto). Revise cwApiKey/cwPartnerKey do tenant.";
+  }
+  if (/payment_method_id|payment_methods|not found or inactive|payments list is empty/i.test(msg)) {
+    return "Nenhum método de pagamento válido está ativo no CardápioWeb desta loja. Ative os pagamentos no Portal CW e tente novamente.";
+  }
+  if (/catalog|categories: 0|hasdata|item/i.test(msg) && /empty|vazio|sem/i.test(msg)) {
+    return "Catálogo vazio no CardápioWeb para esta loja. Publique itens/categorias no Portal CW e tente novamente.";
+  }
+  return msg;
+}
+
 async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
   const txt = typeof text === "string" ? text.trim() : "";
   if (!txt) return null;
@@ -1055,7 +1070,7 @@ router.post("/order", authDash, async (req, res) => {
       createdCwOrderId = cwResponse?.id || cwResponse?.order_id;
     } catch (cwErr) {
       console.error(`[${tid}] CW createOrder:`, cwErr.message);
-      const errMsg = cwErr?.data?.errors?.join?.(" ") || cwErr.message;
+      const errMsg = mapCwOrderError(cwErr);
       return res.status(200).json({ ok: false, error: errMsg || "Falha ao enviar ao CardápioWeb" });
     }
 
