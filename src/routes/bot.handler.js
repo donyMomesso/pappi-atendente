@@ -1606,8 +1606,16 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     m = `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
   }
 
-  await wa.sendText(phone, m);
-  await chatMemory.push(customer.id, "bot", m);
+  const receipt = buildOrderReceiptMessage({
+    order,
+    customer,
+    session,
+    calc,
+    cwOrderId,
+  });
+  const finalMsg = `${m}\n\n${receipt}`;
+  await wa.sendText(phone, finalMsg);
+  await chatMemory.push(customer.id, "bot", finalMsg);
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -1616,6 +1624,57 @@ function cartSummary(cart) {
   const lines = cart.map((i) => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`);
   const total = cart.reduce((s, i) => s + i.unit_price * i.quantity, 0);
   return lines.join("\n") + `\n\n*Total: R$ ${total.toFixed(2)}*`;
+}
+
+function formatMoney(v) {
+  return `R$ ${Number(v || 0).toFixed(2)}`;
+}
+
+function buildOrderReceiptMessage({ order, customer, session, calc, cwOrderId }) {
+  const now = new Date();
+  const madeAt = now.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const orderNo = order?.id ? order.id.slice(-6).toUpperCase() : "----";
+  const integrationLine = cwOrderId ? `\n🔗 CW #${cwOrderId}` : "";
+  const phoneFmt = String(customer?.phone || "")
+    .replace(/^55(\d{2})(\d{4,5})(\d{4})$/, "($1) $2-$3")
+    .trim();
+  const fulfillLine =
+    session?.fulfillment === "delivery"
+      ? `📍 Entrega: ${session?.address?.formatted || "Endereço informado"}`
+      : "📍 Retirar na loja";
+  const items = Array.isArray(session?.cart) ? session.cart : [];
+  const itemsText =
+    items
+      .map((i) => {
+        const qty = Number(i?.quantity || 1);
+        const unit = Number(i?.unit_price || 0);
+        const lineTotal = unit * qty;
+        return `${qty} x ${i?.name || "Item"}\n💵 ${qty} x ${formatMoney(unit)} = ${formatMoney(lineTotal)}`;
+      })
+      .join("\n\n") || "Sem itens";
+  const subtotal = Number(calc?.subtotal || 0);
+  const finalTotal = Number(calc?.expectedTotal || subtotal);
+  const payName = session?.paymentMethodName || "Não informado";
+  return (
+    `#️⃣ Pedido Nº ${orderNo} (Integração)\n` +
+    `feito em ${madeAt}${integrationLine}\n\n` +
+    `👤 ${customer?.name || "Cliente"}\n` +
+    `📞 ${phoneFmt || customer?.phone || "—"}\n\n` +
+    `${fulfillLine}\n\n` +
+    `------ ITENS DO PEDIDO ------\n\n` +
+    `${itemsText}\n\n` +
+    `-----------------------------\n\n` +
+    `SUBTOTAL: ${formatMoney(subtotal)}\n\n` +
+    `VALOR FINAL: ${formatMoney(finalTotal)}\n\n` +
+    `💲 FORMA DE PAGAMENTO\n\n` +
+    `${payName}: ${formatMoney(finalTotal)}`
+  );
 }
 
 function buildCwPayload({ session, customer, calc }) {
