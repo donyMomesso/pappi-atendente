@@ -475,23 +475,22 @@
         <button type="button" class="sidebar-toggle" id="sidebarToggleBtn" onclick="toggleSidebar()" title="Recolher/Expandir menu">◀</button>
       </div>
       <nav class="sidebar-nav">
-        <div class="sidebar-section">Atendimento</div>
+        <div class="sidebar-section">Operação</div>
         <a class="sidebar-item active" href="#" onclick="navTo('chat');return false" id="navChat"><span>💬</span><span class="sidebar-text">Chat</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('chat');setConvFilter('human');return false"><span>🔔</span><span class="sidebar-text">Notificações</span><span class="sidebar-badge" id="sidebarNotifBadge" style="display:none">0</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('pedidos');return false" id="navPedidos"><span>📦</span><span class="sidebar-text">Pedidos</span></a>
         <a class="sidebar-item" href="#" onclick="navTo('atrasos');return false" id="navAtrasos"><span>⏱️</span><span class="sidebar-text">Atrasos</span><span class="sidebar-badge" id="sidebarAtrasosBadge" style="display:none">0</span></a>
         <a class="sidebar-item" href="#" onclick="openContacts();return false"><span>📒</span><span class="sidebar-text">Contatos</span></a>
         <div class="sidebar-sep admin-only" id="sidebarAnaliseSep" style="display:none"></div>
-        <div class="sidebar-section admin-only" id="sidebarAnaliseSection" style="display:none">Análise</div>
+        <div class="sidebar-section admin-only" id="sidebarAnaliseSection" style="display:none">Gestão</div>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('analise');return false" id="navAnalise" style="display:none"><span>📊</span><span class="sidebar-text">Análise</span></a>
-        <a class="sidebar-item admin-only" href="#" onclick="navTo('visao');return false" id="navVisao" style="display:none"><span>📊</span><span class="sidebar-text">Visão geral</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('stats');return false" id="navStats" style="display:none"><span>📈</span><span class="sidebar-text">Estatísticas</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('rel');return false" id="navRel" style="display:none"><span>📄</span><span class="sidebar-text">Relatórios</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('audit');return false" id="navAudit" style="display:none"><span>🔍</span><span class="sidebar-text">Auditoria</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('analista');return false" id="navAnalista" style="display:none"><span>🤖</span><span class="sidebar-text">Analista</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('aprendizado');return false" id="navAprendizado" style="display:none"><span>🧠</span><span class="sidebar-text">Aprendizado</span></a>
         <div class="sidebar-sep admin-only" id="adminSep" style="display:none"></div>
-        <div class="sidebar-section admin-only" id="adminLabel" style="display:none">Admin</div>
+        <div class="sidebar-section admin-only" id="adminLabel" style="display:none">Administração</div>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('transmissao');return false" id="navTransmissao" style="display:none"><span>📤</span><span class="sidebar-text">Transmissão</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('sac');return false" id="navSac" style="display:none"><span>📩</span><span class="sidebar-text">SAC</span></a>
         <a class="sidebar-item admin-only" href="#" onclick="navTo('usuarios');return false" id="navUsuarios" style="display:none"><span>👥</span><span class="sidebar-text">Usuários</span></a>
@@ -638,28 +637,16 @@
 
 <!-- VIEW: ADMIN ──────────────────────────────────────────── -->
 <div id="viewAdmin" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-  <!-- Navbar admin -->
+  <!-- Contexto (Admin) -->
   <div style="background:linear-gradient(135deg,#FF6B35 0%,#000 100%);display:flex;align-items:center;padding:0 20px;gap:4px;flex-shrink:0">
     <button class="btn-back-settings" onclick="closeAdmin()" style="margin:8px 12px 8px 0;background:rgba(255,255,255,.15);color:#fff;border-color:transparent;display:flex;align-items:center;gap:5px">← Voltar</button>
-    <div id="adminTabs" style="display:flex;gap:2px;align-items:center;flex-wrap:wrap">
-      <button class="admin-tab admin-only" id="atDash" onclick="adminTab('dash')" style="display:none">📊 Dashboard</button>
-      <button class="admin-tab admin-only" id="atStats" onclick="adminTab('stats')" style="display:none">📈 Estatísticas</button>
-      <button class="admin-tab admin-only" id="atRel" onclick="adminTab('rel')" style="display:none">📋 Relatórios</button>
-      <button class="admin-tab admin-only" id="atAudit" onclick="adminTab('audit')" style="display:none">🔍 Auditoria</button>
-      <button class="admin-tab admin-only" id="atAnalista" onclick="adminTab('analista')" style="display:none">🤖 Analista</button>
-      <button class="admin-tab admin-only" id="atAprendizado" onclick="adminTab('aprendizado')" style="display:none">🧠 Aprendizado</button>
-      <button class="admin-tab admin-only" id="atSac" onclick="adminTab('sac')" style="display:none">📩 SAC</button>
-      <button class="admin-tab admin-only" id="atBroadcast" onclick="adminTab('broadcast')" style="display:none">📤 Transmissão</button>
-      <button class="admin-tab admin-only" id="atAtend" onclick="adminTab('atend')" style="display:none">👥 Usuários</button>
-      <button class="admin-tab admin-only" id="atCfg" onclick="adminTab('cfg')" style="display:none">⚙️ Config</button>
-    </div>
   </div>
 
   <!-- Painel: Dashboard -->
-  <div id="adminPanelDash" class="admin-panel" style="display:flex">
+      <div id="adminPanelDash" class="admin-panel" style="display:flex">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📊 Dashboard Geral</div>
-      <div class="settings-sub">Visão consolidada da operação</div>
+      <div class="settings-title">📊 Análise — Dashboard</div>
+      <div class="settings-sub">Visão consolidada da operação (análise)</div>
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="fetchAdminDash()">🔄 Atualizar</button>
         <button class="btn-save-settings" style="width:auto;padding:8px 16px;background:#555" onclick="openDebug()">🔍 Diagnóstico Webhook</button>
@@ -2047,6 +2034,8 @@ function applyRole() {
     "navConfig", "navTransmissao", "navSac", "navUsuarios",
     // Sidebar: manter 1 entrada para análise (abas ficam no topo do painel)
     "navAnalise",
+    // Sidebar: Gestão (Análise)
+    "navStats", "navRel", "navAudit", "navAnalista", "navAprendizado",
     "sidebarAnaliseSep", "sidebarAnaliseSection",
     "adminSep", "adminLabel",
     "atDash", "atStats", "atRel", "atAudit", "atAnalista", "atAprendizado",
@@ -2277,8 +2266,12 @@ async function selectCustomer(c) {
 async function loadCustomerOrders(customerId, force = false) {
   if (!customerId) return;
   if (!force && (!selectedCustomer || selectedCustomer.id !== customerId)) return;
+  const elOrders = document.getElementById("ordersList");
   const metaEl = document.getElementById("ordersSyncMeta");
-  if (metaEl) metaEl.textContent = `Sincronizando pedidos de ${customerId.slice(-6).toUpperCase()}...`;
+  // Evita UI “presa” com pedidos do cliente anterior quando uma resposta é descartada
+  // por corrida (selectedOrdersReqSeq) ou quando a API falha.
+  if (metaEl) metaEl.textContent = `Carregando pedidos de ${customerId.slice(-6).toUpperCase()}...`;
+  if (elOrders) elOrders.innerHTML = '<div class="no-orders">Carregando...</div>';
   const reqSeq = ++selectedOrdersReqSeq;
   const orders = await api(`/customer/${customerId}/orders`);
   if (!orders) {
@@ -3217,7 +3210,7 @@ async function fetchKanban() {
   }).join("");
 }
 
-function openAdmin() { navTo("visao"); }
+function openAdmin() { navTo("analise"); }
 
 // ── ANALISTA ──────────────────────────────────────────────────
 async function fetchAnalista() {
@@ -4199,7 +4192,7 @@ async function staffUserResetPwd(id) {
   else alert("Erro: " + (r?.error || "Tente novamente."));
 }
 
-function openSettings() { if (USER_ROLE !== "admin") { navTo("chat"); return; } openAdmin(); adminTab("cfg"); }
+function openSettings() { if (USER_ROLE !== "admin") { navTo("chat"); return; } navTo("config"); }
 function closeSettings() { closeAdmin(); }
 
   // ── WHATSAPP INTERNO — funções legacy redirecionadas para o novo sistema ──

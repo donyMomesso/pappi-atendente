@@ -1922,4 +1922,16 @@ module.exports = {
   getReplyChannel,
   setReplyChannel,
   broadcastSend,
+  _test: {
+    resolveBaileysOriginalTimestamp,
+    isMessageWithinLast24h,
+    isFreshForBot,
+    shouldSendReconnectNotice,
+    isReconnectSuppressed,
+    resetReconnectCaches: () => {
+      SEEN_MSG_IDS.clear();
+      RECONNECT_NOTICE_BY_CUSTOMER.clear();
+      RECONNECT_BOT_SUPPRESS_UNTIL.clear();
+    },
+  },
 };

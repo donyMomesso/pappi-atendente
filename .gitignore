@@ -8,3 +8,4 @@ certificados/
 prisma/generated/
 *.zip
 .DS_Store
+tests/reports/

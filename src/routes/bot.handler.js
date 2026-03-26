@@ -314,9 +314,11 @@ function resolveCatalogSizeFromText(text, sizeOptions = []) {
       } else {
         // Catálogo sem número explícito (ex.: Broto/Média/Grande): mapeia por faixa.
         const value = Number(num);
-        const bySmall = normalizedOptions.find((o) => /\bbrot|pequen|mini|p\b/.test(o.norm));
-        const byMedium = normalizedOptions.find((o) => /\bmed|media|m\b/.test(o.norm));
-        const byLarge = normalizedOptions.find((o) => /\bgrand|famil|g\b/.test(o.norm));
+          // Usa `includes` em vez de regex com `\b` para evitar falhas por limites de palavra
+          // (ex.: tamanhos tipo "Broto/Média/Grande" que chegam sem números explícitos no catálogo).
+          const bySmall = normalizedOptions.find((o) => o.norm.includes("brot") || o.norm.includes("pequen") || o.norm.includes("mini"));
+          const byMedium = normalizedOptions.find((o) => o.norm.includes("med") || o.norm.includes("media"));
+          const byLarge = normalizedOptions.find((o) => o.norm.includes("grand") || o.norm.includes("famil"));
         if (Number.isFinite(value)) {
           if (value <= 19 && bySmall) chosen = bySmall.original;
           else if (value <= 32 && byMedium) chosen = byMedium.original;
@@ -616,8 +618,10 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
         return;
       }
 
-      // Se a mensagem já tem itens (pedido veio “de uma vez”), pula o prompt genérico e deixa o fluxo vencedor interpretar
-      const early = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT", "ASK_SIZE"];
+      // Se a mensagem já tem itens (pedido veio “de uma vez”), pula o prompt genérico e deixa o fluxo vencedor interpretar.
+      // IMPORTANTE: quando já estamos em `ASK_SIZE`, não dispare `startOrdering()`,
+      // para não re-perguntar “Qual tamanho?” (o próprio `handleAskSize()` já resolve tamanho+resto na mesma mensagem).
+      const early = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"];
       if (intake?.isOrder && intake?.confidence >= 0.7 && intake?.missing && intake.missing.length <= 3) {
         // Se ainda não entrou em ordering, tenta iniciar (sem repetir ASK_SIZE se chosenSize já foi detectado)
         if (session.fulfillment && early.includes(session.step)) {
@@ -1003,16 +1007,36 @@ function filterCatalogByProductType(catalog, productType) {
   });
   const useCats = filtered.length ? filtered : cats;
   const sizes = new Set();
+
+  function optionLooksLikeSizeOption(name) {
+    const n = normalizeText(String(name || ""));
+    // Tamanhos comuns no PAppi: Broto/Média/Grande ou números/pedaços (8/16/20P, 16 pedaços etc).
+    return (
+      /\b(broto|media|grande)\b/i.test(n) ||
+      /\b\d{1,3}\b/.test(n) ||
+      /\b\d{1,3}\s*p\b/i.test(n) ||
+      /peda(c|ç)os/.test(n) ||
+      /fatias/.test(n)
+    );
+  }
+
   for (const cat of useCats) {
     for (const item of cat.items || cat.products || []) {
       if (item.status === "INACTIVE") continue;
       for (const g of item.option_groups || []) {
         if (g.status === "INACTIVE" || !g.options) continue;
         const gn = (g.name || "").toLowerCase();
-        if (/tamanho|size|fatias|escolha.*1/.test(gn)) {
-          for (const o of g.options) {
-            if (o.status !== "INACTIVE" && o.name) sizes.add(o.name.trim());
-          }
+
+        // Regra mais segura: inferir tamanho pelo formato das opções (dígitos/pedaços/broto),
+        // evitando confundir grupos de "sabor" com grupos de "tamanho".
+        const groupHasSizeOption = g.options.some((o) => optionLooksLikeSizeOption(o?.name));
+        const groupLooksPlausible = /tamanho|size|fatias|peda/.test(gn) || groupHasSizeOption;
+
+        if (!groupLooksPlausible) continue;
+
+        for (const o of g.options) {
+          if (o.status === "INACTIVE" || !o.name) continue;
+          if (optionLooksLikeSizeOption(o.name)) sizes.add(o.name.trim());
         }
       }
     }
