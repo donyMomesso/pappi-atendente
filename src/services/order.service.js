@@ -40,6 +40,9 @@ async function createWithIdempotency(opts) {
 
   const itemsSnapshot = JSON.stringify(items);
   const addressSnapshot = address ? JSON.stringify(address) : null;
+  const paymentMethodIdNormalized =
+    paymentMethodId === undefined || paymentMethodId === null || paymentMethodId === "" ? null : String(paymentMethodId);
+  const cwOrderIdNormalized = cwOrderId === undefined || cwOrderId === null || cwOrderId === "" ? null : String(cwOrderId);
 
   const order = await prisma.order.create({
     select: selOrder(),
@@ -54,11 +57,11 @@ async function createWithIdempotency(opts) {
       totalValidated: validation.ok,
       totalExpected: validation.expected,
       fulfillment,
-      paymentMethodId: paymentMethodId || null,
+      paymentMethodId: paymentMethodIdNormalized,
       paymentMethodName: paymentMethodName || null,
       itemsSnapshot,
       addressSnapshot,
-      cwOrderId: cwOrderId || null,
+      cwOrderId: cwOrderIdNormalized,
       cwPayload: cwPayload ? JSON.stringify(cwPayload) : null,
       cwResponse: cwResponse ? JSON.stringify(cwResponse) : null,
     },
