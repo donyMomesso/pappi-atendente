@@ -10,6 +10,8 @@ const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const prisma = require("../lib/db");
 
 const router = express.Router();
+const GOOGLE_REVIEW_URL =
+  "https://www.google.com/search?sca_esv=9246bc9b7addcc13&sxsrf=ANbL-n7QrLnNDNJNDCBiiND4G0LvcKSanA:1774541776308&si=AL3DRZEsmMGCryMMFSHJ3StBhOdZ2-6yYkXd_doETEE1OR-qOY9HBv12ESnfD4AEouCNN5LHxzhbfjhyzrGiYaWjVTUorbe9U60PWGh0IWYPWdVOv91TJ9QYPdyPe53lg-lC0T1X-I7-LaOt25dlqZaq_-W0RJLMKw%3D%3D&q=Pappi+Pizza+Pizzaria+Coment%C3%A1rios&sa=X&ved=2ahUKEwiD6tyh-72TAxV8jpUCHeOnIgAQ0bkNegQILRAH&biw=1242&bih=575&dpr=1.1";
 
 // Webhook CW (sem auth; tenant inferido pelo order)
 router.post("/cw-status", async (req, res) => {
@@ -25,7 +27,7 @@ router.post("/cw-status", async (req, res) => {
     await updateCwStatus(order.id, status);
 
     const statusKey = String(status).toLowerCase().replace(/\s/g, "_");
-    const msg = STATUS_MESSAGES[statusKey] || STATUS_MESSAGES[status];
+    const msg = getCustomerStatusMessage(statusKey, order);
     if (msg && order.customer) {
       const { getClients } = require("../services/tenant.service");
       const { wa } = await getClients(order.tenantId);
@@ -41,9 +43,11 @@ router.post("/cw-status", async (req, res) => {
         if (["delivered", "pedido_concluido"].includes(statusKey)) {
           setTimeout(async () => {
             try {
-              const survey =
-                "🌟 Como foi sua experiência? Responda com uma nota de *1 a 5*:\n\n1 = Ruim  |  5 = Excelente\n\nSua opinião nos ajuda a melhorar! 😊";
-              await wa.sendText(dest, survey).catch(() => {});
+              if (!shouldSendReviewInvite(order)) return;
+              const reviewInvite =
+                "🌟 Obrigado por pedir na Pappi!\n\nSe puder, nos avalie no Google:\n" +
+                `${GOOGLE_REVIEW_URL}\n\nSua avaliação ajuda muito! 🙏`;
+              await wa.sendText(dest, reviewInvite).catch(() => {});
             } catch {}
           }, 30_000);
         }
@@ -65,6 +69,27 @@ const STATUS_MESSAGES = {
   pedido_concluido: "🎉 Seu pedido foi *entregue*! Bom apetite!",
   cancelled: "❌ Seu pedido foi *cancelado*. Entre em contato se tiver dúvidas.",
 };
+
+function getCustomerStatusMessage(statusKey, order) {
+  const k = normalizeStatusKey(statusKey);
+  if (["delivered", "pedido_concluido"].includes(k)) {
+    if (String(order?.fulfillment || "").toLowerCase() === "takeout") {
+      return "🎉 Seu pedido foi *retirado*! Obrigado e bom apetite 😋";
+    }
+    return "🎉 Seu pedido foi *entregue*! Bom apetite 😋";
+  }
+  return STATUS_MESSAGES[k] || STATUS_MESSAGES[statusKey];
+}
+
+function shouldSendReviewInvite(order) {
+  const fulfillment = String(order?.fulfillment || "").toLowerCase();
+  if (fulfillment === "takeout") return true;
+  if (fulfillment !== "delivery") return true;
+  const hadDelayAlert = Boolean(
+    order?.delayAlertSentAt || order?.secondDelayAlertSentAt || order?.thirdDelayAlertSentAt || order?.attendantAlertSentAt,
+  );
+  return !hadDelayAlert;
+}
 
 function normalizeStatusKey(s) {
   return String(s || "")
