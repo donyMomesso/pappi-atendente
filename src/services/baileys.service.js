@@ -30,6 +30,7 @@ const INSTANCES = new Map();
 const SEEN_MSG_IDS = new Set();
 const SEEN_MSG_MAX = 2000;
 const RECONNECT_NOTICE_BY_CUSTOMER = new Map();
+const RECONNECT_BOT_SUPPRESS_UNTIL = new Map();
 function markMessageProcessed(waId) {
   if (!waId) return;
   if (SEEN_MSG_IDS.size >= SEEN_MSG_MAX) {
@@ -294,18 +295,28 @@ function isFreshForBot(msg) {
   return Date.now() - ts.getTime() <= BOT_FRESH_WINDOW_MS;
 }
 
-function shouldSendReconnectNotice(customerId) {
-  if (!customerId) return false;
+function shouldSendReconnectNotice(identityKey) {
+  if (!identityKey) return false;
   const now = Date.now();
-  const prev = RECONNECT_NOTICE_BY_CUSTOMER.get(customerId) || 0;
+  const prev = RECONNECT_NOTICE_BY_CUSTOMER.get(identityKey) || 0;
   if (now - prev < RECONNECT_NOTICE_COOLDOWN_MS) return false;
-  RECONNECT_NOTICE_BY_CUSTOMER.set(customerId, now);
+  RECONNECT_NOTICE_BY_CUSTOMER.set(identityKey, now);
+  RECONNECT_BOT_SUPPRESS_UNTIL.set(identityKey, now + 90_000);
   if (RECONNECT_NOTICE_BY_CUSTOMER.size > 5000) {
     for (const [cid, at] of RECONNECT_NOTICE_BY_CUSTOMER.entries()) {
-      if (now - at > RECONNECT_NOTICE_COOLDOWN_MS * 6) RECONNECT_NOTICE_BY_CUSTOMER.delete(cid);
+      if (now - at > RECONNECT_NOTICE_COOLDOWN_MS * 6) {
+        RECONNECT_NOTICE_BY_CUSTOMER.delete(cid);
+        RECONNECT_BOT_SUPPRESS_UNTIL.delete(cid);
+      }
     }
   }
   return true;
+}
+
+function isReconnectSuppressed(identityKey) {
+  if (!identityKey) return false;
+  const until = RECONNECT_BOT_SUPPRESS_UNTIL.get(identityKey) || 0;
+  return Date.now() < until;
 }
 
 // ── Detecta tenantId a partir do número do remetente ──────────
@@ -1142,8 +1153,9 @@ async function start(instanceId = "default", opts = {}) {
 
             const baileysTo = baileysChatTarget(customer);
 
-            if (isAppend && !recoverySent.has(customer.id) && shouldSendReconnectNotice(customer.id)) {
-              recoverySent.add(customer.id);
+            const reconnectIdentityKey = `${tenantId}:${customer.id || customer.phone || sender.remoteJid || "unknown"}`;
+            if (isAppend && !recoverySent.has(reconnectIdentityKey) && shouldSendReconnectNotice(reconnectIdentityKey)) {
+              recoverySent.add(reconnectIdentityKey);
               const recovery = "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
               try {
                 if (!baileysTo) {
@@ -1159,7 +1171,11 @@ async function start(instanceId = "default", opts = {}) {
               }
             }
 
-            const canInvokeBot = parsed.shouldInvokeBot && !isAppend && isFreshForBot(msg);
+            const canInvokeBot =
+              parsed.shouldInvokeBot &&
+              !isAppend &&
+              isFreshForBot(msg) &&
+              !isReconnectSuppressed(reconnectIdentityKey);
             if (inst.botEnabled !== false && canInvokeBot) {
               try {
                 const convState = require("./conversation-state.service");
@@ -1276,6 +1292,7 @@ async function start(instanceId = "default", opts = {}) {
                   parseNote: parsed.parseNote,
                   isAppend,
                   freshForBot: isFreshForBot(msg),
+                  reconnectSuppressed: isReconnectSuppressed(reconnectIdentityKey),
                   shouldInvokeBot: parsed.shouldInvokeBot,
                 },
                 "Bot não invocado (backlog/replay ou tipo sem fluxo de pedido)",

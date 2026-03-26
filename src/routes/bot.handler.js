@@ -38,9 +38,9 @@ async function handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, ses
   require("../services/socket.service").emitQueueUpdate();
 }
 
-async function handleStatusFlow({ wa, phone, customer, tenant } = {}) {
+async function handleStatusFlow({ wa, phone, customer, tenant, session } = {}) {
   // Reaproveita o handler existente (já consulta pedido e responde status)
-  await handleStatusQuery(wa, phone, customer, tenant);
+  await handleStatusQuery(wa, phone, customer, tenant, session);
 }
 
 async function handleComplaintFlow({ tenant, wa, customer, phone, sessionKey, session, text } = {}) {
@@ -212,6 +212,31 @@ function extractAddressNumber(text) {
   return m ? m[1] : "";
 }
 
+function parseLooseAddressFromText(text, tenant) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const n = extractAddressNumber(raw);
+  let street = raw;
+  if (n) {
+    street = raw
+      .replace(new RegExp(`\\b${String(n).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`), "")
+      .replace(/[,\-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (!street || street.length < 4) return null;
+  return {
+    street,
+    number: n || "",
+    neighborhood: "",
+    city: tenant?.city || "",
+    state: "SP",
+    zipCode: "",
+    complement: "",
+    formatted: raw,
+  };
+}
+
 async function resolveAddressFromFreeText(input, tenant, cw) {
   const cleaned = String(input || "").trim();
   if (!cleaned) return { addr: null, confidence: "low", geo: null };
@@ -225,6 +250,7 @@ async function resolveAddressFromFreeText(input, tenant, cw) {
     const res = AddressNormalizer.normalize({ ...ext, city: tenant.city || "" });
     if (res.ok) parsed = res.address;
   }
+  if (!parsed) parsed = parseLooseAddressFromText(cleaned, tenant);
 
   let geo = null;
   try {
@@ -285,6 +311,18 @@ function resolveCatalogSizeFromText(text, sizeOptions = []) {
       if (byNum) {
         chosen = byNum.original;
         matchedToken = num;
+      } else {
+        // Catálogo sem número explícito (ex.: Broto/Média/Grande): mapeia por faixa.
+        const value = Number(num);
+        const bySmall = normalizedOptions.find((o) => /\bbrot|pequen|mini|p\b/.test(o.norm));
+        const byMedium = normalizedOptions.find((o) => /\bmed|media|m\b/.test(o.norm));
+        const byLarge = normalizedOptions.find((o) => /\bgrand|famil|g\b/.test(o.norm));
+        if (Number.isFinite(value)) {
+          if (value <= 19 && bySmall) chosen = bySmall.original;
+          else if (value <= 32 && byMedium) chosen = byMedium.original;
+          else if (byLarge) chosen = byLarge.original;
+          if (chosen) matchedToken = num;
+        }
       }
     }
   }
@@ -736,7 +774,35 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
 }
 
 // ── Status do pedido ──────────────────────────────────────────
-async function handleStatusQuery(wa, phone, customer, _tenant) {
+function isOrderInProgressSession(session) {
+  if (!session || typeof session !== "object") return false;
+  const steps = new Set([
+    "CHOOSE_PRODUCT_TYPE",
+    "FULFILLMENT",
+    "ADDRESS",
+    "ADDRESS_NUMBER",
+    "ADDRESS_CONFIRM",
+    "ASK_SIZE",
+    "ORDERING",
+    "PAYMENT",
+    "CONFIRM",
+  ]);
+  if (steps.has(session.step)) return true;
+  if (Array.isArray(session.cart) && session.cart.length > 0) return true;
+  if (session.chosenSize || session.fulfillment || session.address || session.productType) return true;
+  return false;
+}
+
+function buildSessionProgressSummary(session) {
+  const parts = [];
+  if (session?.productType) parts.push(`tipo: ${session.productType}`);
+  if (session?.chosenSize) parts.push(`tamanho: ${session.chosenSize}`);
+  if (session?.fulfillment) parts.push(session.fulfillment === "delivery" ? "entrega" : "retirada");
+  if (Array.isArray(session?.cart) && session.cart.length) parts.push(`${session.cart.length} item(ns)`);
+  return parts.length ? parts.join(" | ") : "montagem em andamento";
+}
+
+async function handleStatusQuery(wa, phone, customer, _tenant, session) {
   try {
     const prisma = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
@@ -746,6 +812,13 @@ async function handleStatusQuery(wa, phone, customer, _tenant) {
     });
 
     if (!lastOrder) {
+      if (isOrderInProgressSession(session)) {
+        const progress = buildSessionProgressSummary(session);
+        const m = `Seu pedido está em andamento por aqui ✅\n\n(${progress})\nMe manda o próximo detalhe e eu continuo de onde paramos.`;
+        await wa.sendText(phone, m);
+        await chatMemory.push(customer.id, "bot", m);
+        return;
+      }
       const m = "Não encontrei nenhum pedido seu por aqui ainda. Quer fazer um? 😊";
       await wa.sendText(phone, m);
       await chatMemory.push(customer.id, "bot", m);
