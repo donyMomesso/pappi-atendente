@@ -812,6 +812,18 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
         return;
       }
 
+      if (!intakeLooksComplete && intakeResult?.productType && ["MENU", "CHOOSE_PRODUCT_TYPE"].includes(session.step)) {
+        session.step = "FULFILLMENT";
+        const msg = "Anotado! Deseja entrega ou retirada? 👇";
+        await wa.sendButtons(phone, msg, [
+          { id: "delivery", title: "🚚 Entrega" },
+          { id: "takeout", title: "🏪 Retirada" },
+        ]);
+        await chatMemory.push(customer.id, "bot", msg);
+        await saveSession(tenant.id, sessionKey, session);
+        return;
+      }
+
       // Se já identificou entrega/retirada no texto, reaproveita o handler atual (endereço / startOrdering)
       if (intakeResult?.fulfillment && session.step === "FULFILLMENT") {
         await handleFulfillment(
@@ -1365,7 +1377,8 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant, tim
     .replace(/[\u0300-\u036f]/g, "");
   const isFulfillmentClick =
     t.includes("entrega") || t.includes("retirada") || t.includes("retirar") || t === "delivery" || t === "takeout";
-  if (isFulfillmentClick) {
+  const isShortMessage = (text || "").trim().length <= 15; // Cliques de botão são curtos
+  if (isFulfillmentClick && isShortMessage) {
     session.addressBuffer = [];
     session.addressFailCount = 0;
     const m = "🛵 Me manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
