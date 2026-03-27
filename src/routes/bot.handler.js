@@ -907,11 +907,9 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
   // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
   const menuTriggers = ["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "opa", "e ai", "fala"];
   if (menuTriggers.includes(t)) {
-    const prevGreetingAt = Number(session?._lastGreetingAt || 0);
     const prevMenuAt = Number(session?._lastMenuPromptAt || 0);
     await clearSession(tenant.id, sessionKey);
     const fresh = await getSession(tenant.id, sessionKey);
-    if (prevGreetingAt) fresh._lastGreetingAt = prevGreetingAt;
     if (prevMenuAt) fresh._lastMenuPromptAt = prevMenuAt;
     if (!storeOpen && closedAsLead) fresh.isLeadOrder = true;
     await sendGreeting(wa, cw, phone, customer, tenant, fresh, timer);

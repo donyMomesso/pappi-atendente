@@ -41,22 +41,35 @@ async function transcribeAudio(mediaUrl, token) {
     const contentType = audioResp.headers.get("content-type") || "audio/ogg";
     const arrayBuf = await audioResp.arrayBuffer();
     const buffer = Buffer.from(arrayBuf);
-
-    if (buffer.byteLength > MAX_SIZE_BYTES) {
-      console.warn("[AudioTranscribe] Áudio muito grande:", buffer.byteLength, "bytes");
-      return null;
-    }
-
-    const mimeType = SUPPORTED_TYPES.includes(contentType) ? contentType : "audio/ogg";
-    const { text } = await aiMotor.transcribe(buffer, mimeType);
-
-    if (!text) return null;
-    console.log(`[AudioTranscribe] Transcrito (${buffer.byteLength}b): "${text.slice(0, 80)}..."`);
-    return text;
+    return transcribeAudioBuffer(buffer, contentType);
   } catch (err) {
     console.warn("[AudioTranscribe] Erro:", err.message);
     return null;
   }
 }
 
-module.exports = { transcribeAudio };
+async function transcribeAudioBuffer(buffer, contentType = "audio/ogg") {
+  if (!buffer || !Buffer.isBuffer(buffer) || !buffer.byteLength) return null;
+  const hasTranscribe =
+    (require("../config/env").GEMINI_API_KEY?.length > 10) ||
+    require("./openai-fallback.service").hasOpenAIKey();
+  if (!hasTranscribe) return null;
+
+  if (buffer.byteLength > MAX_SIZE_BYTES) {
+    console.warn("[AudioTranscribe] Áudio muito grande:", buffer.byteLength, "bytes");
+    return null;
+  }
+
+  try {
+    const mimeType = SUPPORTED_TYPES.includes(contentType) ? contentType : "audio/ogg";
+    const { text } = await aiMotor.transcribe(buffer, mimeType);
+    if (!text) return null;
+    console.log(`[AudioTranscribe] Transcrito (${buffer.byteLength}b): "${text.slice(0, 80)}..."`);
+    return text;
+  } catch (err) {
+    console.warn("[AudioTranscribe] Erro ao transcrever buffer:", err.message);
+    return null;
+  }
+}
+
+module.exports = { transcribeAudio, transcribeAudioBuffer };

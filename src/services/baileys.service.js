@@ -5,7 +5,9 @@
 // Qualquer número pode ser conectado a qualquer instância — ao reconectar/reescanear
 // o QR, o número pode mudar. O que importa é a instância (ex: "default", "drmlogistica").
 
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadContentFromMessage } = require(
+  "@whiskeysockets/baileys",
+);
 const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-auth");
 const baileysLock = require("./baileys-lock.service");
 const QRCode = require("qrcode");
@@ -19,6 +21,27 @@ const { parseBaileysMessageContent } = require("../lib/baileys-message-content")
 function instanceConfigKey(instanceId) {
   const env = ENV.APP_ENV || "local";
   return `baileys:instance:${env}:${instanceId}`;
+}
+
+function resolveAudioMessageNode(message, depth = 0) {
+  if (!message || depth > 12) return null;
+  if (message.audioMessage) return message.audioMessage;
+  if (message.ephemeralMessage?.message) return resolveAudioMessageNode(message.ephemeralMessage.message, depth + 1);
+  if (message.viewOnceMessage?.message) return resolveAudioMessageNode(message.viewOnceMessage.message, depth + 1);
+  if (message.viewOnceMessageV2?.message) return resolveAudioMessageNode(message.viewOnceMessageV2.message, depth + 1);
+  if (message.documentWithCaptionMessage?.message)
+    return resolveAudioMessageNode(message.documentWithCaptionMessage.message, depth + 1);
+  if (message.editedMessage?.message) return resolveAudioMessageNode(message.editedMessage.message, depth + 1);
+  return null;
+}
+
+async function downloadAudioBufferFromBaileys(audioNode) {
+  if (!audioNode || typeof downloadContentFromMessage !== "function") return null;
+  const stream = await downloadContentFromMessage(audioNode, "audio");
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  if (!chunks.length) return null;
+  return Buffer.concat(chunks);
 }
 
 // ── Limites de segurança por instância (bot + notificações) ─────
@@ -992,6 +1015,35 @@ async function start(instanceId = "default", opts = {}) {
           );
         }
 
+        let text = parsed.displayText;
+        let shouldInvokeBot = parsed.shouldInvokeBot;
+        if (parsed.mediaType === "audio" && !shouldInvokeBot) {
+          try {
+            const audioNode = resolveAudioMessageNode(msg?.message);
+            const audioBuffer = await downloadAudioBufferFromBaileys(audioNode);
+            if (audioBuffer?.length) {
+              const { transcribeAudioBuffer } = require("./audio-transcribe.service");
+              const transcription = await transcribeAudioBuffer(audioBuffer, audioNode?.mimetype || "audio/ogg");
+              if (transcription) {
+                text = transcription;
+                shouldInvokeBot = true;
+                log.info(
+                  {
+                    instanceId,
+                    jid,
+                    keyId: msg?.key?.id,
+                    pipeline: "audio_transcribed",
+                    chars: transcription.length,
+                  },
+                  "audio_transcribed",
+                );
+              }
+            }
+          } catch (audioErr) {
+            log.warn({ instanceId, jid, keyId: msg?.key?.id, err: audioErr?.message }, "Falha na transcrição do áudio");
+          }
+        }
+
         log.info(
           {
             instanceId,
@@ -1001,7 +1053,7 @@ async function start(instanceId = "default", opts = {}) {
             primaryKey: parsed.primaryKey,
             mediaType: parsed.mediaType,
             parseNote: parsed.parseNote,
-            shouldInvokeBot: parsed.shouldInvokeBot,
+            shouldInvokeBot,
           },
           "message_parsed",
         );
@@ -1022,7 +1074,6 @@ async function start(instanceId = "default", opts = {}) {
           continue;
         }
 
-        const text = parsed.displayText;
         const waId = msg?.key?.id;
 
         // Evita reprocessar: cache em memória (duplicatas) ou banco (recovery)
@@ -1261,11 +1312,7 @@ async function start(instanceId = "default", opts = {}) {
               }
             }
 
-            const canInvokeBot =
-              parsed.shouldInvokeBot &&
-              !isAppend &&
-              isFreshForBot(msg) &&
-              !isReconnectSuppressed(reconnectIdentityKey);
+            const canInvokeBot = shouldInvokeBot && !isAppend && isFreshForBot(msg) && !isReconnectSuppressed(reconnectIdentityKey);
             if (inst.botEnabled !== false && canInvokeBot) {
               try {
                 const convState = require("./conversation-state.service");
@@ -1396,7 +1443,7 @@ async function start(instanceId = "default", opts = {}) {
                   isAppend,
                   freshForBot: isFreshForBot(msg),
                   reconnectSuppressed: isReconnectSuppressed(reconnectIdentityKey),
-                  shouldInvokeBot: parsed.shouldInvokeBot,
+                  shouldInvokeBot,
                 },
                 "Bot não invocado (backlog/replay ou tipo sem fluxo de pedido)",
               );
