@@ -53,6 +53,7 @@ const INSTANCES = new Map();
 const SEEN_MSG_MAX_PER_INSTANCE = 1000;
 const RECONNECT_NOTICE_BY_CUSTOMER = new Map();
 const RECONNECT_BOT_SUPPRESS_UNTIL = new Map();
+const RECONNECT_APPEND_ALLOW_ONCE = new Map();
 function getOrCreateInstance(instanceId = "default") {
   let inst = INSTANCES.get(instanceId);
   if (!inst) {
@@ -346,11 +347,13 @@ function shouldSendReconnectNotice(identityKey) {
   if (now - prev < RECONNECT_NOTICE_COOLDOWN_MS) return false;
   RECONNECT_NOTICE_BY_CUSTOMER.set(identityKey, now);
   RECONNECT_BOT_SUPPRESS_UNTIL.set(identityKey, now + 90_000);
+  RECONNECT_APPEND_ALLOW_ONCE.set(identityKey, now + 90_000);
   if (RECONNECT_NOTICE_BY_CUSTOMER.size > 5000) {
     for (const [cid, at] of RECONNECT_NOTICE_BY_CUSTOMER.entries()) {
       if (now - at > RECONNECT_NOTICE_COOLDOWN_MS * 6) {
         RECONNECT_NOTICE_BY_CUSTOMER.delete(cid);
         RECONNECT_BOT_SUPPRESS_UNTIL.delete(cid);
+        RECONNECT_APPEND_ALLOW_ONCE.delete(cid);
       }
     }
   }
@@ -361,6 +364,19 @@ function isReconnectSuppressed(identityKey) {
   if (!identityKey) return false;
   const until = RECONNECT_BOT_SUPPRESS_UNTIL.get(identityKey) || 0;
   return Date.now() < until;
+}
+
+function consumeAppendFreshAllowance(identityKey, msg) {
+  if (!identityKey) return false;
+  if (!isFreshForBot(msg)) return false;
+  const now = Date.now();
+  const until = RECONNECT_APPEND_ALLOW_ONCE.get(identityKey) || 0;
+  if (until <= now) {
+    RECONNECT_APPEND_ALLOW_ONCE.delete(identityKey);
+    return false;
+  }
+  RECONNECT_APPEND_ALLOW_ONCE.delete(identityKey);
+  return true;
 }
 
 // ── Detecta tenantId a partir do número do remetente ──────────
@@ -1312,7 +1328,21 @@ async function start(instanceId = "default", opts = {}) {
               }
             }
 
-            const canInvokeBot = shouldInvokeBot && !isAppend && isFreshForBot(msg) && !isReconnectSuppressed(reconnectIdentityKey);
+            const appendFreshAllowed =
+              isAppend &&
+              shouldInvokeBot &&
+              !isReconnectSuppressed(reconnectIdentityKey) &&
+              consumeAppendFreshAllowance(reconnectIdentityKey, msg);
+            const canInvokeBot =
+              shouldInvokeBot &&
+              isFreshForBot(msg) &&
+              (appendFreshAllowed || (!isAppend && !isReconnectSuppressed(reconnectIdentityKey)));
+            if (appendFreshAllowed) {
+              log.info(
+                { instanceId, customerId: customer.id, identityKey: reconnectIdentityKey, pipeline: "append_fresh_release" },
+                "Liberando 1a mensagem append fresca para o bot",
+              );
+            }
             if (inst.botEnabled !== false && canInvokeBot) {
               try {
                 const convState = require("./conversation-state.service");
@@ -1443,6 +1473,7 @@ async function start(instanceId = "default", opts = {}) {
                   isAppend,
                   freshForBot: isFreshForBot(msg),
                   reconnectSuppressed: isReconnectSuppressed(reconnectIdentityKey),
+                  appendFreshAllowed,
                   shouldInvokeBot,
                 },
                 "Bot não invocado (backlog/replay ou tipo sem fluxo de pedido)",
@@ -2096,6 +2127,7 @@ module.exports = {
       }
       RECONNECT_NOTICE_BY_CUSTOMER.clear();
       RECONNECT_BOT_SUPPRESS_UNTIL.clear();
+      RECONNECT_APPEND_ALLOW_ONCE.clear();
     },
   },
 };
