@@ -28,6 +28,18 @@ function map(tenantId, text) {
   const methods = getMethods(tenantId);
   if (!methods.length) return { id: null, name: null, matched: false, candidates: [] };
 
+  // Lista numerada do bot: "1. Dinheiro" → resposta "1" ou "3"
+  const numOnly = String(text || "")
+    .trim()
+    .match(/^(\d{1,2})$/);
+  if (numOnly) {
+    const idx = parseInt(numOnly[1], 10) - 1;
+    if (idx >= 0 && idx < methods.length) {
+      const m = methods[idx];
+      return { id: m.id, name: m.name || m.label, matched: true, candidates: methods };
+    }
+  }
+
   const normalized = normalize(text);
 
   for (const m of methods) {

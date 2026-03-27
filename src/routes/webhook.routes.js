@@ -360,6 +360,9 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   if (isEcho) {
     const echoText = extractEchoContent(msg) || text;
     if (echoText) {
+      if (chatMemory.shouldSkipOutboundEcho(customer.id, echoText)) {
+        return;
+      }
       await chatMemory.push(
         customer.id,
         "human",

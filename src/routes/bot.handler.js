@@ -27,6 +27,80 @@ const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 
+function extractCepDigitsFromString(s) {
+  const m = String(s || "").match(/\b(\d{5})-?(\d{3})\b/);
+  return m ? m[1] + m[2] : "";
+}
+
+/** Preenche CEP, rua/nº/bairro/cidade a partir do texto tipo Google e geocodifica coords se faltar. */
+function parseBrazilianFormattedAddressLine(formatted) {
+  const out = {};
+  const f = String(formatted || "").trim();
+  if (!f) return out;
+  const cep = extractCepDigitsFromString(f);
+  if (cep.length === 8) out.zipCode = `${cep.slice(0, 5)}-${cep.slice(5)}`;
+  const noCountry = f.replace(/,\s*Brazil\s*$/i, "").trim();
+  const parts = noCountry.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    const first = parts[0];
+    const second = parts[1];
+    const mNum = second.match(/^(\d+)\s*[-–]\s*(.+)$/);
+    if (mNum) {
+      out.street = first;
+      out.number = mNum[1];
+      out.neighborhood = mNum[2];
+    } else if (/^\d{1,8}$/.test(second)) {
+      out.street = first;
+      out.number = second;
+    }
+    const cityState = parts[2]?.match(/^(.+?)\s*-\s*([A-Z]{2})$/);
+    if (cityState) {
+      out.city = cityState[1].trim();
+      out.state = cityState[2];
+    }
+  }
+  return out;
+}
+
+async function enrichAddressObjectForDelivery(a, tenant, cw) {
+  if (!a) return;
+  const z = String(a.zipCode || "").replace(/\D/g, "");
+  if (z.length !== 8 && a.formatted) {
+    const cep = extractCepDigitsFromString(a.formatted);
+    if (cep.length === 8) a.zipCode = `${cep.slice(0, 5)}-${cep.slice(5)}`;
+  }
+  const needParts =
+    !(a.street || "").trim() ||
+    !(a.number || "").trim() ||
+    !(a.neighborhood || "").trim() ||
+    !(a.city || "").trim() ||
+    !(a.state || "").trim();
+  if (needParts && a.formatted) {
+    const p = parseBrazilianFormattedAddressLine(a.formatted);
+    if (!(a.street || "").trim() && p.street) a.street = p.street;
+    if (!(a.number || "").trim() && p.number) a.number = p.number;
+    if (!(a.neighborhood || "").trim() && p.neighborhood) a.neighborhood = p.neighborhood;
+    if (!(a.city || "").trim() && p.city) a.city = p.city;
+    if (!(a.state || "").trim() && p.state) a.state = p.state;
+    if (!(a.zipCode || "").trim() && p.zipCode) a.zipCode = p.zipCode;
+  }
+  const hasCoords =
+    Number.isFinite(a.lat) &&
+    Number.isFinite(a.lng) &&
+    Math.abs(a.lat) > 1e-5 &&
+    Math.abs(a.lng) > 1e-5;
+  if (!hasCoords && a.formatted) {
+    try {
+      const geo = await Maps.quote(a.formatted, cw);
+      if (geo) {
+        a.lat = geo.lat;
+        a.lng = geo.lng;
+        if (geo.formatted_address) a.formatted = geo.formatted_address;
+      }
+    } catch {}
+  }
+}
+
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
 async function handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session, message, clear = true } = {}) {
   const { setHandoff } = require("../services/customer.service");
@@ -1106,6 +1180,7 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
         lng: customer.lastLng,
       };
       session.address = addr;
+      await enrichAddressObjectForDelivery(session.address, tenant, cw);
       const m = `🛵 Usar o mesmo endereço da última vez?\n📍 *${addr.formatted}*`;
       await wa.sendButtons(phone, m, [
         { id: "confirm_addr", title: "✅ Sim, usar esse" },
@@ -1514,9 +1589,16 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
 
   // Delivery: valida pré-requisitos operacionais (não envia CW sem endereço completo + coords + CEP)
   if (session.fulfillment === "delivery") {
+    if (session.address) {
+      await enrichAddressObjectForDelivery(session.address, tenant, cw);
+    }
     const a = session.address || null;
-    const cep = (a?.zipCode || "").replace(/\D/g, "");
-    const hasCoords = Number.isFinite(a?.lat) && Number.isFinite(a?.lng) && !!a?.lat && !!a?.lng;
+    const cep = (a?.zipCode || "").replace(/\D/g, "") || (a?.formatted ? extractCepDigitsFromString(a.formatted) : "");
+    const hasCoords =
+      Number.isFinite(a?.lat) &&
+      Number.isFinite(a?.lng) &&
+      Math.abs(a.lat) > 1e-5 &&
+      Math.abs(a.lng) > 1e-5;
     const ok =
       cep.length === 8 &&
       hasCoords &&

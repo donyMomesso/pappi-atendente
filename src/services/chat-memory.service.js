@@ -12,6 +12,42 @@ const MAX_MEMORY = 100;
 const STORE_TTL_MS = 60 * 60 * 1000; // 1h sem acesso → remove do Map
 const store = new Map(); // customerId → { msgs: Message[], lastAccess: number }
 
+/** Evita linha duplicada no painel: eco Cloud da mesma msg já salva como "bot". */
+const OUTBOUND_ECHO_DEDUP_TTL_MS = 120_000;
+const recentBotOutboundByCustomer = new Map(); // customerId → { norm, at }[]
+
+function normalizeForOutboundDedup(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function recordBotOutbound(customerId, text) {
+  const norm = normalizeForOutboundDedup(text);
+  if (!norm) return;
+  const now = Date.now();
+  let arr = recentBotOutboundByCustomer.get(customerId) || [];
+  arr.push({ norm, at: now });
+  if (arr.length > 12) arr = arr.slice(-12);
+  recentBotOutboundByCustomer.set(customerId, arr);
+}
+
+/** true = eco da API é duplicata de mensagem nossa; não persistir de novo como "human". */
+function shouldSkipOutboundEcho(customerId, echoText) {
+  const norm = normalizeForOutboundDedup(echoText);
+  if (!norm) return false;
+  const arr = recentBotOutboundByCustomer.get(customerId) || [];
+  const now = Date.now();
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (now - arr[i].at > OUTBOUND_ECHO_DEDUP_TTL_MS) continue;
+    if (arr[i].norm === norm) return true;
+  }
+  return false;
+}
+
 function resolveMsgMillis(m) {
   const raw = m?.originalTimestamp || m?.at || m?.createdAt;
   const d = raw ? new Date(raw) : new Date(0);
@@ -81,6 +117,10 @@ async function push(
     } catch (err) {
       console.error("[ChatMemory] Erro ao salvar no banco:", err.message);
     }
+  }
+
+  if (role === "bot" || role === "assistant") {
+    recordBotOutbound(customerId, text);
   }
 
   // Push em tempo real via WebSocket
@@ -170,4 +210,4 @@ setInterval(
   30 * 60 * 1000,
 ); // roda a cada 30 min
 
-module.exports = { push, get, clear, updateStatus };
+module.exports = { push, get, clear, updateStatus, shouldSkipOutboundEcho };
