@@ -590,7 +590,10 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
       await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session });
       return;
     }
-    if (text === "HELP_BOT" || t.includes("continuar")) {
+    // "Continua" vira "continua" após normalizar — não contém "continuar" como substring
+    const wantsContinueBot =
+      text === "HELP_BOT" || t.includes("continua") || t.includes("continuar");
+    if (wantsContinueBot) {
       const prev =
         session._beforeDeescalationStep ||
         (session.fulfillment
@@ -633,7 +636,14 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
     }
     if (text === "FULFILLMENT_RETIRADA" || t.includes("retirada")) {
       session.fulfillment = "takeout";
+      delete session._beforeDeescalationStep;
       await startOrdering(wa, cw, phone, session, customer, tenant);
+      await saveSession(tenant.id, sessionKey, session);
+      return;
+    }
+    if (text === "delivery" || t.includes("entrega")) {
+      delete session._beforeDeescalationStep;
+      await handleFulfillment(wa, cw, phone, text, t, session, customer, tenant);
       await saveSession(tenant.id, sessionKey, session);
       return;
     }
