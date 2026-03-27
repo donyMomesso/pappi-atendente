@@ -34,6 +34,7 @@ const baileys = require("../services/baileys.service");
 const socketService = require("../services/socket.service");
 const interPix = require("../services/inter-pix.service");
 const botLearning = require("../services/bot-learning.service");
+const audioSynthesis = require("../services/audio-synthesis.service");
 const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 
@@ -519,19 +520,20 @@ function applyOrchestratorStepOverride(session, orchestration, text) {
 }
 
 // ── Ponto de entrada — com mutex por usuário ──────────────────
-async function handle({ tenant, wa, customer, text, phone, sessionKey, timer }) {
+async function handle({ tenant, wa, customer, text, phone, sessionKey, timer, isAudioInput = false }) {
   const sk = sessionKey != null ? sessionKey : sessionService.discriminatorFromCustomer(customer);
   const lockKey = `${tenant.id}:${sk}`;
 
   // CORREÇÃO: mutex garante que dois webhooks simultâneos do mesmo usuário
   // não processem em paralelo, evitando race condition na sessão
   return sessionService.withLock(lockKey, async () => {
-    return _handle({ tenant, wa, customer, text, phone, sessionKey: sk, timer });
+    return _handle({ tenant, wa, customer, text, phone, sessionKey: sk, timer, isAudioInput });
   });
 }
 
-async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer }) {
+async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, isAudioInput = false }) {
   const session = await getSession(tenant.id, sessionKey);
+  if (isAudioInput) session.prefersAudio = true;
   timer?.mark("session");
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
@@ -1744,7 +1746,17 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   timer?.mark("chatOrder");
 
   session.orderHistory.push({ role: "bot", text: result.reply });
-  await wa.sendText(phone, result.reply);
+  if (session.prefersAudio && !result.reply.includes("👇") && !result.reply.includes("💳")) {
+    const audioBuf = await audioSynthesis.synthesizeTextToAudio(result.reply);
+    if (audioBuf && typeof wa.sendAudio === "function") {
+      await wa.sendAudio(phone, audioBuf, null, true);
+      await wa.sendText(phone, result.reply);
+    } else {
+      await wa.sendText(phone, result.reply);
+    }
+  } else {
+    await wa.sendText(phone, result.reply);
+  }
   await chatMemory.push(customer.id, "bot", result.reply);
 
   if (result.done && result.items?.length > 0) {

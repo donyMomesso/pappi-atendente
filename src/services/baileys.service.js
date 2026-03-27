@@ -1371,6 +1371,18 @@ async function start(instanceId = "default", opts = {}) {
                     if (!r?.ok) log.warn({ instanceId, to }, "Falha ao enviar resposta");
                     return r;
                   },
+                  sendPresence: async (to, status, targetInstanceId = null) => {
+                    const useInstance = targetInstanceId || instanceId;
+                    const r = await sendPresence(to, status, useInstance);
+                    if (!r?.ok) log.debug({ instanceId: useInstance, to, status }, "sendPresence sem envio efetivo");
+                    return r;
+                  },
+                  sendAudio: async (to, audioBuffer, targetInstanceId = null, ptt = true) => {
+                    const useInstance = targetInstanceId || instanceId;
+                    const r = await sendAudio(to, audioBuffer, useInstance, ptt);
+                    if (!r?.ok) log.warn({ instanceId: useInstance, to }, "Falha ao enviar áudio");
+                    return r;
+                  },
                   sendButtons: (to, body, buttons) =>
                     sendText(
                       to,
@@ -1401,9 +1413,9 @@ async function start(instanceId = "default", opts = {}) {
                   phone: bufferPhoneKey,
                   channel: `baileys:${instanceId}`,
                   text,
-                  meta: { kind: isFast ? "interactive" : "text" },
+                  meta: { kind: isFast ? "interactive" : "text", mediaType: parsed.mediaType },
                   windowMs,
-                  onFlush: async ({ combinedText }) => {
+                  onFlush: async ({ combinedText, lastMeta }) => {
                     if (!combinedText) return;
                     try {
                       await botHandler.handle({
@@ -1413,6 +1425,7 @@ async function start(instanceId = "default", opts = {}) {
                         text: combinedText,
                         phone: waTarget,
                         timer,
+                        isAudioInput: !!lastMeta?.mediaType && lastMeta.mediaType === "audio",
                       });
                     } catch (e) {
                       log.error({ instanceId, traceKey, err: e }, "Erro no bot (onFlush)");
@@ -1859,11 +1872,18 @@ async function initAll() {
 // ── Envio ──────────────────────────────────────────────────────
 // saveHistory=true: salva no chatMemory (usado por notificações/broadcast diretos)
 // saveHistory=false: não salva (bot handler já chama chatMemory.push internamente)
-async function sendText(to, text, instanceId = "default", skipNotifyCheck = false, saveHistory = true) {
+function resolveInstanceForOutbound(instanceId = "default") {
   const inst = INSTANCES.get(instanceId);
-  if (!inst || !inst.socket || inst.status !== "connected") {
+  if (!inst || !inst.socket || inst.status !== "connected") return null;
+  return { inst, sock: inst.socket };
+}
+
+async function sendText(to, text, instanceId = "default", skipNotifyCheck = false, saveHistory = true) {
+  const resolved = resolveInstanceForOutbound(instanceId);
+  if (!resolved) {
     return { ok: false, error: "instance_not_connected" };
   }
+  const { inst, sock } = resolved;
 
   if (!skipNotifyCheck && inst.notifyTo.length > 0 && !inst.notifyTo.includes(to)) {
     console.warn(`[Baileys:${instanceId}] Envio bloqueado para ${to} — não está na lista.`);
@@ -1877,7 +1897,7 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
 
   try {
     const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
-    const sent = await inst.socket.sendMessage(jid, { text });
+    const sent = await sock.sendMessage(jid, { text });
 
     inst.counters.hour++;
     inst.counters.day++;
@@ -1919,6 +1939,46 @@ async function sendText(to, text, instanceId = "default", skipNotifyCheck = fals
   } catch (err) {
     log.error({ instanceId, to, err }, "Erro ao enviar mensagem");
     return { ok: false, error: err.message || "send_failed" };
+  }
+}
+
+async function sendAudio(jid, audioBuffer, instanceId = null, ptt = true) {
+  const targetInstanceId = instanceId || "default";
+  const resolved = resolveInstanceForOutbound(targetInstanceId);
+  if (!resolved) return { ok: false, error: "instance_not_connected" };
+  const { sock } = resolved;
+
+  try {
+    const to = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+    const sent = await sock.sendMessage(to, {
+      audio: audioBuffer,
+      ptt: ptt,
+      mimetype: "audio/ogg; codecs=opus",
+    });
+    return {
+      ok: true,
+      messageId: sent?.key?.id || null,
+      key: sent?.key || null,
+    };
+  } catch (err) {
+    log.error({ instanceId: targetInstanceId, jid, err }, "Erro ao enviar áudio");
+    return { ok: false, error: err.message || "send_audio_failed" };
+  }
+}
+
+async function sendPresence(jid, status, instanceId = null) {
+  const targetInstanceId = instanceId || "default";
+  const resolved = resolveInstanceForOutbound(targetInstanceId);
+  if (!resolved) return { ok: false, error: "instance_not_connected" };
+  const { sock } = resolved;
+
+  try {
+    const to = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+    await sock.sendPresenceUpdate(status, to);
+    return { ok: true };
+  } catch (err) {
+    log.warn({ instanceId: targetInstanceId, jid, status, err }, "Falha ao enviar presença");
+    return { ok: false, error: err.message || "send_presence_failed" };
   }
 }
 
@@ -2102,6 +2162,8 @@ module.exports = {
   start,
   initAll,
   sendText,
+  sendPresence,
+  sendAudio,
   notify,
   getStatus,
   getAllStatuses,
