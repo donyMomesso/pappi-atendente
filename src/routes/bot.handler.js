@@ -24,6 +24,7 @@ const inboxTriage = require("../services/inbox-triage.service");
 const orderIntake = require("../services/order-intake.service");
 const aiOrchestrator = require("../services/ai-orchestrator.service");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
+const cartPricing = require("../services/cart-pricing.service");
 const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 
@@ -1490,7 +1491,15 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
 
 // ── ORDERING ──────────────────────────────────────────────────
 async function handleOrdering(wa, cw, phone, text, session, customer, tenant, timer) {
+  const sessionKey = sessionService.discriminatorFromCustomer(customer);
   session.orderHistory.push({ role: "customer", text });
+
+  const rawIn = String(text || "").trim();
+  if (rawIn.length >= 72) {
+    const ack = "Recebi tudo — já tô montando seu pedido e buscando os valores no cardápio ⚡";
+    await wa.sendText(phone, ack);
+    await chatMemory.push(customer.id, "bot", ack);
+  }
 
   const catalog =
     session.filteredCatalog &&
@@ -1522,9 +1531,32 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   await chatMemory.push(customer.id, "bot", result.reply);
 
   if (result.done && result.items?.length > 0) {
-    session.cart = result.items;
+    const priced = cartPricing.enrichCartFromCatalog(result.items, catalog, {
+      chosenSize: session.chosenSize,
+      productType: session.productType,
+    });
+    session.cart = priced.items;
+    if (priced.hasUnpriced) {
+      const warn =
+        "⚠️ Não consegui fechar o *preço* desses itens no cardápio (confere tamanho e sabor?). " +
+        "Me diz de novo em uma linha: *tamanho + sabor + quantidade* ou fala com um atendente pra fechar o valor.";
+      await wa.sendText(phone, warn);
+      await chatMemory.push(customer.id, "bot", warn);
+      session.step = "ORDERING";
+      await saveSession(tenant.id, sessionKey, session);
+      return;
+    }
     session.step = "PAYMENT";
-    const payMsg = `E o pagamento vai ser como? 💳\n\n${listPayments(tenant.id)}`;
+    const { calculate: calcPreview } = require("../calculators/OrderCalculator");
+    const prev = calcPreview({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
+    const linesOnly = cartSummary(session.cart, { omitTotal: true });
+    const entregaLinha =
+      session.fulfillment === "delivery"
+        ? `\n🛵 Taxa entrega: *R$ ${(session.deliveryFee || 0).toFixed(2)}*`
+        : "";
+    const payMsg =
+      `💰 *Prévia (cardápio)*\n${linesOnly}${entregaLinha}\n\n✅ *Total: R$ ${prev.expectedTotal.toFixed(2)}*\n\n` +
+      `E o pagamento vai ser como? 💳\n\n${listPayments(tenant.id)}`;
     await wa.sendText(phone, payMsg);
     await chatMemory.push(customer.id, "bot", payMsg);
   }
@@ -1571,16 +1603,38 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     return;
   }
 
-  await wa.sendText(phone, "⏳ Processando seu pedido...");
-
   const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
   const { recordOrder } = require("../services/customer.service");
   const { calculate } = require("../calculators/OrderCalculator");
   const baileys = require("../services/baileys.service");
 
-  // Recalcula totais SEMPRE (itens + taxa + desconto)
+  const catalogForPrice =
+    session.filteredCatalog &&
+    (session.filteredCatalog?.categories?.length || session.filteredCatalog?.sections?.length)
+      ? session.filteredCatalog
+      : session.catalog;
+  if (session.cart?.length && catalogForPrice) {
+    const rep = cartPricing.enrichCartFromCatalog(session.cart, catalogForPrice, {
+      chosenSize: session.chosenSize,
+      productType: session.productType,
+    });
+    if (!rep.hasUnpriced) session.cart = rep.items;
+  }
+
   let calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
   const isLead = !!session.isLeadOrder;
+
+  if (!isLead && calc.expectedTotal <= 0 && session.cart?.length) {
+    await wa.sendText(
+      phone,
+      "⚠️ O total ficou *R$ 0,00* — não envio pedido sem valor confirmado no cardápio. Confirma o item/tamanho ou fala com um atendente.",
+    );
+    session.step = "ORDERING";
+    await saveSession(tenant.id, sessionKey, session);
+    return;
+  }
+
+  await wa.sendText(phone, "⏳ Processando seu pedido...");
 
   let cwResponse = null,
     cwOrderId = null,
@@ -1799,11 +1853,18 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
 }
 
 // ── Helpers ───────────────────────────────────────────────────
-function cartSummary(cart) {
+function cartSummary(cart, opts = {}) {
   if (!cart?.length) return "Carrinho vazio";
-  const lines = cart.map((i) => `• ${i.quantity}x ${i.name} — R$ ${(i.unit_price * i.quantity).toFixed(2)}`);
-  const total = cart.reduce((s, i) => s + i.unit_price * i.quantity, 0);
-  return lines.join("\n") + `\n\n*Total: R$ ${total.toFixed(2)}*`;
+  const lines = cart.map((i) => {
+    const sub = (Number(i.unit_price) || 0) * (Number(i.quantity) || 1);
+    const money = sub > 0 ? `R$ ${sub.toFixed(2)}` : "preço a confirmar";
+    return `• ${i.quantity}x ${i.name} — ${money}`;
+  });
+  const total = cart.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 1), 0);
+  const totalLine = total > 0 ? `R$ ${total.toFixed(2)}` : "total a confirmar no cardápio";
+  const body = lines.join("\n");
+  if (opts.omitTotal) return body;
+  return body + `\n\n*Subtotal itens: ${totalLine}*`;
 }
 
 function formatMoney(v) {
