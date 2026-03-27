@@ -99,7 +99,12 @@ router.post("/webhook", async (req, res) => {
         if (change.field !== "messages") continue;
         const value = change.value;
         const phoneNumberId = normalizeWaPhoneNumberId(value?.metadata?.phone_number_id);
-        if (!phoneNumberId) continue;
+        if (!phoneNumberId) {
+          require("../lib/logger")
+            .child({ service: "webhook" })
+            .warn({ pipeline: "cloud_inbound_skipped", reason: "no_phone_number_id" }, "Webhook WhatsApp: payload sem phone_number_id — mensagens não processadas");
+          continue;
+        }
 
         const tenant = await getTenantByPhoneNumberId(phoneNumberId);
         if (!tenant) {
@@ -123,6 +128,8 @@ router.post("/webhook", async (req, res) => {
             });
             wlog.warn(
               {
+                pipeline: "cloud_inbound_skipped",
+                reason: "tenant_inactive",
                 phoneNumberIdReceived: phoneNumberId,
                 tenantId: inactive.id,
                 tenantName: inactive.name,
@@ -143,6 +150,8 @@ router.post("/webhook", async (req, res) => {
             const firstBad = placeholderTenants[0];
             wlog.warn(
               {
+                pipeline: "cloud_inbound_skipped",
+                reason: "tenant_unmatched",
                 phoneNumberIdReceived: phoneNumberId,
                 hint: "No Meta: WhatsApp > API do WhatsApp > número > Phone number ID (não é o número de telefone).",
                 activeTenantCount: activeRefs.length,
@@ -241,7 +250,17 @@ async function processMessage({ tenant, wa, msg, contacts }) {
       profileName: parsed.profileName,
     });
   } catch (err) {
-    wlog.warn({ err: err.message, msgId: msg?.id }, "Cloud: não foi possível resolver identidade do remetente");
+    wlog.warn(
+      {
+        pipeline: "cloud_inbound_not_persisted",
+        reason: "contact_resolve_failed",
+        tenantId: tenant.id,
+        msgId: msg?.id,
+        msgType: msg?.type,
+        err: err.message,
+      },
+      "Cloud: não foi possível resolver identidade do remetente — mensagem não salva no painel",
+    );
     return;
   }
 
@@ -279,6 +298,18 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   }
 
   // Salva mensagem SEMPRE (mesmo rate limited) — para aparecer no painel
+  if (!isEcho && !msg?.id) {
+    wlog.warn(
+      {
+        pipeline: "cloud_inbound_not_persisted",
+        reason: "missing_wa_message_id",
+        tenantId: tenant.id,
+        customerId: customer.id,
+        msgType: msg?.type,
+      },
+      "Cloud: mensagem inbound sem id da Meta — não persistida no histórico",
+    );
+  }
   if (!isEcho && msg?.id) {
     const displayText = (text || "").trim() || fallbackTextForCloudMsg(msg);
     const safeMediaType = mediaType || (msg?.type ? String(msg.type) : "text");
@@ -292,6 +323,20 @@ async function processMessage({ tenant, wa, msg, contacts }) {
       msg.id,
       null,
       originalTimestamp,
+    );
+    wlog.info(
+      {
+        pipeline: "message_saved",
+        channel: "cloud",
+        tenantId: tenant.id,
+        customerId: customer.id,
+        sessionPart,
+        waMessageId: msg.id,
+        msgType: msg?.type || null,
+        mediaType: safeMediaType,
+        hasText: !!(text && String(text).trim()),
+      },
+      "Cloud inbound persistido (painel/socket)",
     );
 
     // Análise de sentimento automática

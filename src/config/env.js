@@ -97,6 +97,10 @@ module.exports = {
   BAILEYS_CLEAR_AUTH_ON_440: process.env.BAILEYS_CLEAR_AUTH_ON_440 === "true",
   // Heartbeat = TTL/2; 90s tolera latência DB sem liberar lock para outro processo por engano.
   BAILEYS_LOCK_TTL_MS: toNumber(process.env.BAILEYS_LOCK_TTL_MS, 90_000),
+  // Tempo máximo (ms) aguardando escaneamento do QR antes de reconectar — padrão 5 min (antes 60s fixo no Baileys).
+  BAILEYS_QR_TIMEOUT_MS: toNumber(process.env.BAILEYS_QR_TIMEOUT_MS, 300_000),
+  // Timeout da conexão WebSocket; deve ser ≥ ao QR para não cortar durante a espera.
+  BAILEYS_CONNECT_TIMEOUT_MS: toNumber(process.env.BAILEYS_CONNECT_TIMEOUT_MS, 300_000),
   BAILEYS_PROCESS_NAME: process.env.BAILEYS_PROCESS_NAME || "pappi-baileys",
   BAILEYS_HOSTNAME: process.env.BAILEYS_HOSTNAME || require("os").hostname(),
   WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),
