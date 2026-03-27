@@ -9,6 +9,7 @@
 //   4. Retorna texto transcrito ou null se falhar
 
 const aiMotor = require("./ai-motor.service");
+const ENV = require("../config/env");
 
 const SUPPORTED_TYPES = ["audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm", "audio/opus"];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -23,9 +24,7 @@ const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 async function transcribeAudio(mediaUrl, token) {
   if (!mediaUrl) return null;
 
-  const hasTranscribe =
-    (require("../config/env").GEMINI_API_KEY?.length > 10) ||
-    require("./openai-fallback.service").hasOpenAIKey();
+  const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY || !!ENV.GROQ_API_KEY;
   if (!hasTranscribe) return null;
 
   try {
@@ -50,9 +49,7 @@ async function transcribeAudio(mediaUrl, token) {
 
 async function transcribeAudioBuffer(buffer, contentType = "audio/ogg") {
   if (!buffer || !Buffer.isBuffer(buffer) || !buffer.byteLength) return null;
-  const hasTranscribe =
-    (require("../config/env").GEMINI_API_KEY?.length > 10) ||
-    require("./openai-fallback.service").hasOpenAIKey();
+  const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY || !!ENV.GROQ_API_KEY;
   if (!hasTranscribe) return null;
 
   if (buffer.byteLength > MAX_SIZE_BYTES) {

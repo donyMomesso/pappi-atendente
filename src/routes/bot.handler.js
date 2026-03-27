@@ -533,7 +533,7 @@ async function handle({ tenant, wa, customer, text, phone, sessionKey, timer, is
 
 async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, isAudioInput = false }) {
   const session = await getSession(tenant.id, sessionKey);
-  if (isAudioInput) session.prefersAudio = true;
+  session.prefersAudio = isAudioInput;
   timer?.mark("session");
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
