@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { makeRng, generateScenario } = require("./lib/conversation-fuzz.generator");
+const { makeRng, generateScenario, generateExtremeProfiles } = require("./lib/conversation-fuzz.generator");
 
 const TENANT_ID = process.env.FUZZ_TENANT_ID || "tenant-pappi-001";
 const CUSTOMER_PHONE = process.env.FUZZ_PHONE || "5519981755689";
@@ -21,6 +21,7 @@ const mockStore = {
 
 let mockCatalog = null;
 let mockPayments = [];
+let mockForceOutOfArea = false;
 
 function mockDeepClone(v) {
   return JSON.parse(JSON.stringify(v));
@@ -64,7 +65,10 @@ jest.mock("../src/services/chat-memory.service", () => ({
 jest.mock("../src/services/tenant.service", () => ({
   getClients: async () => ({
     cw: {
-      getDeliveryFee: async () => 8,
+      getDeliveryFee: async () => {
+        if (mockForceOutOfArea) return null;
+        return 8;
+      },
       getMerchant: async () => ({ url: "https://pappiatendente.com.br/cardapio" }),
       getCatalog: async () => mockCatalog || { categories: [] },
       getPaymentMethods: async () => mockPayments || [],
@@ -104,13 +108,21 @@ jest.mock("../src/services/maps.service", () => ({
     };
   },
   quote: async () => ({
-    lat: -22.9400676,
-    lng: -47.0916285,
-    formatted_address: "R. Col. de Minas, 375 - Jardim Santa Amalia, Campinas - SP, 13050-111, Brazil",
-    delivery_fee: 8,
-    km: 4.9,
-    eta_minutes: 35,
-    is_serviceable: true,
+    ...(mockForceOutOfArea
+      ? {
+          is_serviceable: false,
+          status: "out_of_range",
+          delivery_fee: null,
+        }
+      : {
+          lat: -22.9400676,
+          lng: -47.0916285,
+          formatted_address: "R. Col. de Minas, 375 - Jardim Santa Amalia, Campinas - SP, 13050-111, Brazil",
+          delivery_fee: 8,
+          km: 4.9,
+          eta_minutes: 35,
+          is_serviceable: true,
+        }),
   }),
 }));
 
@@ -477,6 +489,56 @@ describe("reconnect anti-spam/backlog (baileys.service._test)", () => {
     expect(canInvokeBot).toBe(false);
 
     jest.useRealTimers();
+  });
+});
+
+describe("conversation stress simulation (extreme profiles)", () => {
+  beforeEach(() => {
+    mockStore.sessions.clear();
+    mockStore.chat.clear();
+    mockForceOutOfArea = false;
+  });
+
+  test("prints full chat history for extreme customer profiles", async () => {
+    const profiles = generateExtremeProfiles();
+    const tenant = { id: TENANT_ID, name: "Pappi", city: "Campinas" };
+    const customer = { id: "cust_extreme", phone: CUSTOMER_PHONE, name: "Cliente Extremo", visitCount: 1 };
+    const phone = `${CUSTOMER_PHONE}@s.whatsapp.net`;
+
+    for (const profile of profiles) {
+      const transcript = [];
+      const wa = {
+        sendText: async (_to, text) => {
+          transcript.push(`🤖 Bot: ${String(text || "")}`);
+        },
+        sendButtons: async (_to, text, buttons = []) => {
+          const labels = (buttons || []).map((b) => b.title || b.id || "").filter(Boolean);
+          const rendered = labels.length ? `${String(text || "")} [${labels.join(" | ")}]` : String(text || "");
+          transcript.push(`🤖 Bot: ${rendered}`);
+        },
+      };
+
+      const initialSession = { mode: "ORDER", step: "MENU", cart: [], orderHistory: [], _updatedAt: Date.now() };
+      if (profile.type === "extreme_out_of_area") {
+        initialSession.step = "ADDRESS";
+        initialSession.fulfillment = "delivery";
+        initialSession.productType = "pizza";
+        mockForceOutOfArea = true;
+      } else {
+        mockForceOutOfArea = false;
+      }
+      mockStore.sessions.set(`${TENANT_ID}:${SESSION_KEY}`, mockDeepClone(initialSession));
+
+      for (const inboundText of profile.messages) {
+        transcript.push(`👤 Cliente: ${inboundText}`);
+        await bot.handle({ tenant, wa, customer, text: inboundText, phone, sessionKey: SESSION_KEY });
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(`\n========== ${profile.label} ==========\n${transcript.join("\n")}\n`);
+    }
+
+    expect(profiles.length).toBeGreaterThanOrEqual(4);
   });
 });
 

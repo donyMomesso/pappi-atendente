@@ -764,6 +764,23 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
       }
 
       intakeResult = orderIntake.intake({ text, sizeOptions: session.sizeOptions || [] });
+      const isPriceQuestion = /\b(quanto e|quanto custa|qual o valor|qual o preco|valor d)\b/i.test(t);
+      if (isPriceQuestion && intakeResult?.hasItems) {
+        session.step = "ORDERING";
+        session.orderHistory = session.orderHistory || [];
+        if (!session.orderHistory.length) session.orderHistory.push({ role: "customer", text });
+        await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
+        await saveSession(tenant.id, sessionKey, session);
+        return;
+      }
+      if (intakeResult?.isOrder && !session.initialIntakeText) session.initialIntakeText = text;
+      if (intakeResult?.paymentMethod && !session.paymentMethodName) {
+        const mapped = mapPayment(tenant.id, intakeResult.paymentMethod);
+        if (mapped.matched) {
+          session.paymentMethodId = mapped.id;
+          session.paymentMethodName = mapped.name;
+        }
+      }
       if (intakeResult?.productType && !session.productType) session.productType = intakeResult.productType;
       if (intakeResult?.fulfillment && !session.fulfillment) session.fulfillment = intakeResult.fulfillment;
       if (intakeResult?.size && !session.chosenSize) session.chosenSize = intakeResult.size;
@@ -775,9 +792,13 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
       if (intakeLooksComplete && earlyFunnelSteps.includes(session.step)) {
         if (intakeResult.fulfillment === "delivery") {
           session.step = "ADDRESS";
-          const m = "🛵 Perfeito! Agora me manda o endereço (Rua + Número + Bairro) ou o CEP 📍";
-          await wa.sendText(phone, m);
-          await chatMemory.push(customer.id, "bot", m);
+          if (intakeResult.address) {
+            await handleAddress(wa, cw, phone, text, session, customer, tenant, timer);
+          } else {
+            const m = "🛵 Perfeito! Agora me manda o endereço (Rua + Número + Bairro) ou o CEP 📍";
+            await wa.sendText(phone, m);
+            await chatMemory.push(customer.id, "bot", m);
+          }
           await saveSession(tenant.id, sessionKey, session);
           return;
         }
@@ -1587,7 +1608,10 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
 
   if (!sizes.length) {
     session.step = "ORDERING";
-    session.orderHistory = [];
+    session.orderHistory = session.orderHistory || [];
+    if (session.initialIntakeText && session.orderHistory.length === 0) {
+      session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
+    }
     const m = `${prefix}Me diz seu pedido ${productType === "lasanha" ? "🍝" : "🍕"} (tamanho + sabor)`;
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
@@ -1600,7 +1624,10 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
   // FASE 2: se já detectamos tamanho no intake, não perguntar novamente.
   if (session.chosenSize && sizes.some((s) => String(s).toLowerCase() === String(session.chosenSize).toLowerCase())) {
     session.step = "ORDERING";
-    session.orderHistory = [];
+    session.orderHistory = session.orderHistory || [];
+    if (session.initialIntakeText && session.orderHistory.length === 0) {
+      session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
+    }
     metaCapi.trackViewContent({ customer, tenantName: _tenant?.name }).catch(() => {});
     const isVip = (customer.visitCount || 0) > 0;
     const last = customer.lastOrderSummary;
@@ -1641,7 +1668,10 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
 
   session.chosenSize = chosen || sizes[0];
   session.step = "ORDERING";
-  session.orderHistory = [];
+  session.orderHistory = session.orderHistory || [];
+  if (session.initialIntakeText && session.orderHistory.length === 0) {
+    session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
+  }
 
   if (sizeResolution.remainder && sizeResolution.remainder.length >= 4) {
     await handleOrdering(wa, cw, phone, sizeResolution.remainder, session, customer, tenant);
@@ -1722,6 +1752,31 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
       await saveSession(tenant.id, sessionKey, session);
       return;
     }
+
+    if (!session.fulfillment) {
+      session.step = "FULFILLMENT";
+      const msg = "Anotado! Pra fechar, deseja entrega ou retirada?";
+      await wa.sendButtons(phone, msg, [
+        { id: "delivery", title: "🚚 Entrega" },
+        { id: "takeout", title: "🏪 Retirada" },
+      ]);
+      await chatMemory.push(customer.id, "bot", msg);
+      return;
+    }
+
+    if (session.fulfillment === "delivery" && !session.address) {
+      session.step = "ADDRESS";
+      const msg = "🛵 Quase lá! Me manda o endereço completo ou CEP pra calcular a taxa:";
+      await wa.sendText(phone, msg);
+      await chatMemory.push(customer.id, "bot", msg);
+      return;
+    }
+
+    if (session.paymentMethodName) {
+      await handlePayment(wa, phone, session.paymentMethodName, session, customer, tenant);
+      return;
+    }
+
     session.step = "PAYMENT";
     const prev = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
     const linesOnly = cartSummary(session.cart, { omitTotal: true });

@@ -149,8 +149,45 @@ function generateScenario({ i, rng, sizeOptions }) {
   };
 }
 
+function generateExtremeProfiles() {
+  return [
+    {
+      id: "ext_indeciso",
+      type: "extreme_indeciso",
+      label: "O Indeciso",
+      messages: [
+        "Quero uma pizza de calabresa",
+        "Mudei de ideia, quero meia calabresa meia frango",
+        "Na verdade desisti da pizza, quero uma lasanha",
+      ],
+    },
+    {
+      id: "ext_apressado",
+      type: "extreme_fast_forward",
+      label: "O Apressado (Fast-Forward)",
+      messages: ["Quero uma pizza grande de mussarela pra entregar na rua XV de novembro 100, pago no pix"],
+    },
+    {
+      id: "ext_fora_area",
+      type: "extreme_out_of_area",
+      label: "O Fora de Area",
+      messages: [
+        "Quero delivery para o CEP 99999-999, bairro muito longe",
+        "Sim, confirma esse endereco",
+      ],
+    },
+    {
+      id: "ext_irritado",
+      type: "extreme_irritado",
+      label: "O Irritado",
+      messages: ["A pizza esta demorando muito, to irritado"],
+    },
+  ];
+}
+
 module.exports = {
   makeRng,
   generateScenario,
+  generateExtremeProfiles,
 };
 
