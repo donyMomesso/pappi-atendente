@@ -62,8 +62,8 @@
 
     /* ── COL 1: CONVERSAS ── */
     .col-conv{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,var(--orange) 0%,var(--orange-ll) 100%);border-top:2px solid var(--orange)}
-    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--orange);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+    .col-conv .col-header{padding:12px;border-bottom:1px solid var(--border);background:var(--orange-ll)}
+    .col-conv .col-header h2{font-size:13px;font-weight:700;color:var(--orange-d);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
     .search-box{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:6px 10px;border:1px solid var(--border)}
     .search-box input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
     .search-box svg{color:#aaa;flex-shrink:0}
@@ -107,8 +107,8 @@
 
     /* ── COL 3: PAINEL DIREITO ── */
     .col-right{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,var(--orange) 0%,var(--orange-ll) 100%);border-left:3px solid var(--orange)}
-    .col-right .panel-header h2{font-size:13px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+    .col-right .panel-header{padding:12px 14px;border-bottom:1px solid var(--border);background:#fff}
+    .col-right .panel-header h2{font-size:13px;font-weight:700;color:#333;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
     .client-info{font-size:13px}
     .client-info .cname{font-weight:700;font-size:15px;color:#1a1a1a}
     .client-info .cphone{color:#888;font-size:12px;margin-top:2px}
@@ -213,15 +213,15 @@
     #viewSettings{display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px}
     .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:860px;margin:0 auto}
     .settings-card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-    .settings-card-head{background:linear-gradient(135deg,#FF6B35 0%,#000 100%);color:#fff;padding:14px 18px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+    .settings-card-head{background:#f5f5f5;color:#333;border-bottom:1px solid var(--border);padding:12px 18px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
     .settings-card-body{padding:16px}
     .settings-field{margin-bottom:14px}
     .settings-field label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px}
     .settings-field input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:.2s;background:#fff}
     .settings-field input:focus{border-color:var(--purple)}
     .settings-field input[readonly]{background:#f9f9f9;color:#888;cursor:default}
-    .btn-save-settings{background:linear-gradient(135deg,#FF6B35 0%,#000 100%);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;transition:.2s;width:100%;margin-top:4px}
-    .btn-save-settings:hover{opacity:.9}
+    .btn-save-settings{background:var(--orange);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;transition:.2s;width:100%;margin-top:4px}
+    .btn-save-settings:hover{background:var(--orange-d)}
     .attendant-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
     .attendant-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fafafa}
     .attendant-item span{flex:1;font-size:13px;color:#333}
@@ -231,11 +231,6 @@
     .add-attendant-row input{flex:1;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;outline:none}
     .add-attendant-row input:focus{border-color:var(--purple)}
     .btn-add-att{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
-    .settings-title{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
-    .settings-sub{font-size:13px;color:#888;margin-bottom:20px}
-    .btn-back-settings{background:#f5f5f5;color:#555;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;margin-bottom:20px;width:fit-content}
-    .btn-back-settings:hover{background:#e8e8e8}
-
     /* ── FILA DE ESPERA ── */
     .col-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
     .col-tab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:#888;transition:.2s;background:#fff}
@@ -508,7 +503,6 @@
       </nav>
       <div class="sidebar-foot">
         <div class="sidebar-tenant" id="sidebarTenant">—</div>
-        <span style="font-size:11px;color:rgba(255,255,255,.5)" id="sidebarUserName">—</span>
         <a class="sidebar-logout" onclick="doLogout()">Sair</a>
       </div>
     </aside>
@@ -652,8 +646,6 @@
   <!-- Painel: Dashboard -->
       <div id="adminPanelDash" class="admin-panel" style="display:flex">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📊 Análise — Dashboard</div>
-      <div class="settings-sub">Visão consolidada da operação (análise)</div>
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn-save-settings" style="width:auto;padding:8px 16px" onclick="fetchAdminDash()">🔄 Atualizar</button>
         <button class="btn-save-settings" style="width:auto;padding:8px 16px;background:#555" onclick="openDebug()">🔍 Diagnóstico Webhook</button>
@@ -670,11 +662,7 @@
   <!-- Painel: Estatísticas -->
   <div id="adminPanelStats" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f0f2f5">
     <div style="padding:24px;max-width:1000px;margin:0 auto;width:100%">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-        <div>
-          <div class="settings-title" style="margin:0">📈 Estatísticas de Atendimento</div>
-          <div class="settings-sub" style="margin:4px 0 0">Visão consolidada do período selecionado</div>
-        </div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:20px;flex-wrap:wrap;gap:10px">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <select id="statsPeriod" onchange="fetchStatsPanel()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:12px">
             <option value="7">Últimos 7 dias</option>
@@ -727,8 +715,7 @@
   <!-- Painel: Relatórios -->
   <div id="adminPanelRel" class="admin-panel" style="display:none">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">📋 Relatórios</div>
-      <div class="settings-sub">Selecione um período para ver métricas anteriores.</div>
+      <p style="font-size:12px;color:#888;margin:0 0 4px">Selecione um período para ver métricas do atendimento.</p>
 
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:14px 0 18px">
         <div>
@@ -754,21 +741,15 @@
   <!-- Painel: Auditoria -->
   <div id="adminPanelAudit" class="admin-panel" style="display:none">
     <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div class="settings-title">🔍 Auditoria de Atendimentos</div>
-      <div class="settings-sub">Em breve — IA avalia cada conversa e gera score de qualidade</div>
       <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">🤖</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Disponível na Fase 3</div>
+      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Em breve — IA avalia cada conversa e gera score de qualidade (Fase 3)</div>
     </div>
   </div>
 
   <!-- Painel: Analista -->
   <div id="adminPanelAnalista" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f0f2f5">
     <div style="padding:24px;max-width:1100px;margin:0 auto;width:100%">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-        <div>
-          <div class="settings-title" style="margin:0">🤖 Analista do Negócio</div>
-          <div class="settings-sub" style="margin:4px 0 0">Análise automática da operação com insights em tempo real</div>
-        </div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:20px;flex-wrap:wrap;gap:10px">
         <button onclick="fetchAnalista()" style="background:var(--purple);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">🔄 Atualizar análise</button>
       </div>
 
@@ -818,11 +799,7 @@
   <!-- Painel: Aprendizado -->
   <div id="adminPanelAprendizado" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f0f2f5">
     <div style="padding:24px;max-width:1100px;margin:0 auto;width:100%">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-        <div>
-          <div class="settings-title" style="margin:0">🧠 Aprendizado do Bot</div>
-          <div class="settings-sub" style="margin:4px 0 0">O bot aprende com cada conversa — perguntas frequentes, correções e preferências dos clientes</div>
-        </div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:20px;flex-wrap:wrap;gap:10px">
         <div style="display:flex;gap:8px">
           <button onclick="fetchAprendizado()" style="background:var(--purple);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">🔄 Atualizar</button>
           <button onclick="document.getElementById('addFaqForm').style.display=document.getElementById('addFaqForm').style.display==='none'?'block':'none'" style="background:#22c55e;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">➕ Ensinar FAQ</button>
@@ -875,9 +852,7 @@
   <!-- Painel: Usuários (Setor + Atendentes) -->
   <div id="adminPanelAtend" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:860px;margin:0 auto">
-      <div class="settings-title">👥 Usuários</div>
-      <div class="settings-sub">Configure departamentos (setores) e atendentes autorizados.</div>
-      <div class="settings-grid" style="margin-top:20px">
+      <div class="settings-grid" style="margin-top:8px">
         <div class="settings-card">
           <div class="settings-card-head">🔄 Departamentos (Setores)</div>
           <div class="settings-card-body">
@@ -982,9 +957,6 @@
   <!-- Painel: Lista de Transmissão (admin only) -->
   <div id="adminPanelBroadcast" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:720px;margin:0 auto">
-      <div class="settings-title">📤 Lista de Transmissão</div>
-      <div class="settings-sub">Envio em massa via WhatsApp Interno (Baileys). Apenas admin.</div>
-
       <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:14px 18px;margin:20px 0;font-size:13px;color:#856404;line-height:1.6">
         <strong>⚠️ Restrições e avisos</strong>
         <ul style="margin:8px 0 0 16px;padding:0">
@@ -1093,9 +1065,7 @@
 
   <div id="adminPanelSac" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:560px;margin:0 auto">
-      <div class="settings-title">📩 SAC — Reclamações e Elogios</div>
-      <div class="settings-sub">O SAC é o único canal que envia notificação para outro número WhatsApp. Transferências para SAC disparam o envio.</div>
-      <div class="settings-card" style="margin-top:20px">
+      <div class="settings-card" style="margin-top:8px">
         <div class="settings-card-head">📱 Número WhatsApp do SAC</div>
         <div class="settings-card-body">
           <p style="font-size:13px;color:#555;margin-bottom:12px">Quando uma conversa for transferida para SAC, a notificação será enviada para este número.</p>
@@ -1112,9 +1082,6 @@
   <!-- Painel: Configurações -->
   <div id="adminPanelCfg" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f5f5f5;padding:24px">
     <div style="max-width:1000px;margin:0 auto">
-      <div class="settings-title">⚙️ Configurações</div>
-      <div class="settings-sub" style="margin-bottom:20px">Dados da empresa, conexões WhatsApp e integrações.</div>
-
       <!-- Seção 1: Empresa + WhatsApp lado a lado -->
       <div class="cfg-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
         <div class="settings-card">
@@ -1860,7 +1827,6 @@ async function doLogin() {
 	  loadCatalog();
 	  if (USER_ROLE === "admin") { waIntRefresh(); setInterval(waIntRefresh, 10000); }
 	  document.getElementById("sidebarTenant").textContent = TENANT.replace("tenant-","").replace(/-/g," ").toUpperCase() || "—";
-	  document.getElementById("sidebarUserName").textContent = ATTENDANT_NAME || "—";
 	  if (localStorage.getItem("pappi_sidebar_collapsed") === "true") {
 	    const sb = document.getElementById("sidebar");
 	    const btn = document.getElementById("sidebarToggleBtn");
