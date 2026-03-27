@@ -2,16 +2,28 @@
 // CORREÇÃO: usa singleton do PrismaClient em todo o arquivo
 // MELHORIA: rota GET /dash/orders/failed para ver pedidos que falharam no CW
 
+const { randomUUID } = require("crypto");
 const express = require("express");
 const prisma = require("../lib/db");
+const logger = require("../lib/logger");
 const { authAdmin, authDash } = require("../middleware/auth.middleware");
 const {
   getClients,
+  listActive,
+  invalidateCache,
   normalizeWaPhoneNumberId,
   isLikelyPlaceholderWaPhoneNumberId,
 } = require("../services/tenant.service");
 const messageDbCompat = require("../lib/message-db-compat");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
+const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
+const metaTelemetry = require("../lib/meta-telemetry");
+const chatMemory = require("../services/chat-memory.service");
+const socketService = require("../services/socket.service");
+const botLearning = require("../services/bot-learning.service");
+const { generateCompensationCoupon, markCouponSent } = require("../services/coupon.service");
+const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
+const { calculate, round2 } = require("../calculators/OrderCalculator");
 const {
   setHandoff,
   releaseHandoff,
@@ -19,6 +31,8 @@ const {
   closeConversation,
   waCloudDestination,
   learningKeyFromCustomer,
+  findByPhone,
+  recordOrder,
   findByWaUserId,
 } = require("../services/customer.service");
 const waIdentity = require("../lib/wa-webhook-identity");
@@ -132,7 +146,7 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
   const txt = typeof text === "string" ? text.trim() : "";
   if (!txt) return null;
 
-  const dashLog = require("../lib/logger").child({ route: "dash" });
+  const dashLog = logger.child({ route: "dash" });
 
   const social = parseSocialPhone(phone);
   if (social) {
@@ -151,7 +165,6 @@ async function sendOutboundMessage({ tenantId, phone, text, customerId }) {
     }
   }
 
-  const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
   const normalizedPhone = PhoneNormalizer.normalize(phone) || phone;
 
   const replyChannel = customerId ? await baileys.getReplyChannel(customerId) : "cloud";
@@ -243,7 +256,6 @@ async function sendAttendantGreeting(customerId, attendantName, tenantId, sender
 
   const resolvedEmail = senderEmail || (await resolveAttendantSenderEmail(tid, attendantName));
 
-  const chatMemory = require("../services/chat-memory.service");
   await chatMemory.push(customerId, "attendant", greeting, attendantName, null, "text", null, resolvedEmail);
 }
 
@@ -349,7 +361,7 @@ router.get("/stats", authDash, async (req, res) => {
     ]);
     res.json({ ordersToday, handoffActive, cwFailed, delayAlerts });
   } catch (err) {
-    const log = require("../lib/logger").child({ route: "stats" });
+    const log = logger.child({ route: "stats" });
     log.error({ err, tenantId: req.query.tenant }, "Erro em /dash/stats");
     res.status(500).json({ error: err.message });
   }
@@ -406,7 +418,7 @@ router.get("/conversations", authDash, async (req, res) => {
     );
     res.json(withState);
   } catch (err) {
-    const log = require("../lib/logger").child({ route: "conversations" });
+    const log = logger.child({ route: "conversations" });
     log.error({ err, tenantId: req.query.tenant }, "Erro em /dash/conversations");
     res.status(500).json({ error: err.message });
   }
@@ -449,7 +461,6 @@ router.put("/handoff", authDash, async (req, res) => {
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
     let { customerId, phone, enabled, attendant } = req.body;
     if (!customerId && phone) {
-      const { findByPhone } = require("../services/customer.service");
       let c = await findByPhone(tenantId, phone);
       if (!c && waIdentity.looksLikeBsuid(phone)) c = await findByWaUserId(tenantId, phone);
       if (!c && parseSocialPhone(phone)) {
@@ -469,7 +480,6 @@ router.put("/handoff", authDash, async (req, res) => {
         console.error("[Handoff] Erro ao enviar saudação:", greetingErr.message);
       }
     }
-    const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
@@ -492,7 +502,6 @@ router.post("/queue/claim", authDash, async (req, res) => {
       console.error("[Queue/claim] Erro ao enviar saudação:", greetingErr.message);
     }
 
-    const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
@@ -513,13 +522,11 @@ router.post("/queue/release", authDash, async (req, res) => {
         select: { tenantId: true, phone: true, waUserId: true, id: true },
       });
       if (customer) {
-        const learning = require("../services/bot-learning.service");
-        await learning.analyzeConversation(customer.tenantId, customerId, learningKeyFromCustomer(customer));
+        await botLearning.analyzeConversation(customer.tenantId, customerId, learningKeyFromCustomer(customer));
       }
     } catch {}
 
     await releaseHandoff(customerId);
-    const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
@@ -533,7 +540,6 @@ router.post("/queue/close", authDash, async (req, res) => {
     const { customerId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId obrigatório" });
     await closeConversation(customerId);
-    const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
@@ -586,7 +592,6 @@ router.post("/orders/retry", authAdmin, async (req, res) => {
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
     if (!order.cwPayload) return res.status(400).json({ error: "Pedido sem payload CW — não pode ser reenviado" });
 
-    const { getClients } = require("../services/tenant.service");
     const { cw } = await getClients(order.tenantId);
     const cwPayload = JSON.parse(order.cwPayload);
     const cwResponse = await cw.createOrder(cwPayload);
@@ -691,9 +696,6 @@ router.post("/orders/:id/compensate", authDash, async (req, res) => {
     });
     if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
 
-    const { generateCompensationCoupon, markCouponSent } = require("../services/coupon.service");
-    const chatMemory = require("../services/chat-memory.service");
-
     const result = await generateCompensationCoupon({
       orderId,
       type: type || "borda_gratis",
@@ -797,7 +799,6 @@ router.post("/transfer", authDash, async (req, res) => {
     if (toAttendant) await claimFromQueue(customerId, toAttendant);
 
     if (comment || department || toAttendant) {
-      const chatMemory = require("../services/chat-memory.service");
       const parts = [];
       if (department) parts.push(`Departamento: ${department}`);
       if (toAttendant) parts.push(`Atendente: ${toAttendant}`);
@@ -817,7 +818,6 @@ router.post("/transfer", authDash, async (req, res) => {
     if (department && department.toUpperCase() === "SAC") {
       const sacCfg = await prisma.config.findUnique({ where: { key: `${tenantId}:sac_phone` } });
       const sacPhone = sacCfg?.value ? sacCfg.value.trim() : null;
-      const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
       const toPhone = sacPhone ? PhoneNormalizer.normalize(sacPhone) : null;
       if (toPhone) {
         const customer = await prisma.customer.findUnique({ where: { id: customerId } });
@@ -843,7 +843,6 @@ router.post("/transfer", authDash, async (req, res) => {
       }
     }
 
-    const socketService = require("../services/socket.service");
     socketService.emitQueueUpdate();
     res.json({ ok: true });
   } catch (err) {
@@ -854,7 +853,6 @@ router.post("/transfer", authDash, async (req, res) => {
 // ── GET /dash/tenants (lista para selector) ────────────────────
 router.get("/tenants", authDash, async (_req, res) => {
   try {
-    const { listActive } = require("../services/tenant.service");
     const tenants = await listActive();
     res.json((tenants || []).map((t) => ({ id: t.id, name: t.name })));
   } catch (err) {
@@ -941,11 +939,6 @@ router.delete("/baileys/instances/:id", authAdmin, async (req, res) => {
 // ── POST /dash/order ───────────────────────────────────────────
 router.post("/order", authDash, async (req, res) => {
   try {
-    const { randomUUID } = require("crypto");
-    const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
-    const { recordOrder } = require("../services/customer.service");
-    const { calculate, round2 } = require("../calculators/OrderCalculator");
-
     const {
       tenantId,
       customerId,
@@ -1164,7 +1157,6 @@ router.post("/send", authDash, async (req, res) => {
     }
 
     if (customerId) {
-      const chatMemory = require("../services/chat-memory.service");
       await chatMemory.push(
         customerId,
         "attendant",
@@ -1186,7 +1178,6 @@ router.post("/send", authDash, async (req, res) => {
 // ── GET /dash/messages/:customerId ───────────────────────────
 router.get("/messages/:customerId", authDash, async (req, res) => {
   try {
-    const chatMemory = require("../services/chat-memory.service");
     const messages = await chatMemory.get(req.params.customerId);
     res.json(Array.isArray(messages) ? messages : []);
   } catch (err) {
@@ -1197,7 +1188,6 @@ router.get("/messages/:customerId", authDash, async (req, res) => {
 // ── GET /dash/customer/:id/messages ──────────────────────────
 router.get("/customer/:id/messages", authDash, async (req, res) => {
   try {
-    const chatMemory = require("../services/chat-memory.service");
     const messages = await chatMemory.get(req.params.id);
     res.json(Array.isArray(messages) ? messages : []);
   } catch (err) {
@@ -1425,7 +1415,6 @@ router.patch("/settings", authAdmin, async (req, res) => {
     if (city !== undefined) data.city = city;
     if (Object.keys(data).length) {
       await prisma.tenant.update({ where: { id: tenantId }, data });
-      const { invalidateCache } = require("../services/tenant.service");
       invalidateCache(tenantId);
     }
 
@@ -1475,7 +1464,6 @@ router.get("/meta/status", authDash, async (req, res) => {
     const tenantId = resolveTenant(req);
     if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
 
-    const metaTelemetry = require("../lib/meta-telemetry");
     const telemetry = metaTelemetry.getMetaTelemetry();
 
     const [configs, tenantRow] = await Promise.all([
@@ -2097,7 +2085,6 @@ router.get("/debug", authAdmin, async (req, res) => {
         select: { phone: true, name: true, lastInteraction: true },
       }),
     ]);
-    const metaTelemetry = require("../lib/meta-telemetry");
     const waT = metaTelemetry.getWhatsAppCloudTelemetry();
     res.json({
       tenant: { id: tenant?.id, name: tenant?.name, waPhoneNumberId: tenant?.waPhoneNumberId, active: tenant?.active },
@@ -2411,8 +2398,7 @@ router.get("/analysis", authAdmin, async (req, res) => {
 router.get("/learning", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
-    const learning = require("../services/bot-learning.service");
-    const data = await learning.getAll(tenantId);
+    const data = await botLearning.getAll(tenantId);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2425,8 +2411,7 @@ router.post("/learning/faq", authAdmin, async (req, res) => {
     const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
     const { question, answer } = req.body;
     if (!question || !answer) return res.status(400).json({ error: "question e answer obrigatórios" });
-    const learning = require("../services/bot-learning.service");
-    await learning.addFaq(tenantId, question, answer);
+    await botLearning.addFaq(tenantId, question, answer);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2437,8 +2422,7 @@ router.post("/learning/faq", authAdmin, async (req, res) => {
 router.delete("/learning/faq/:index", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
-    const learning = require("../services/bot-learning.service");
-    await learning.deleteFaq(tenantId, parseInt(req.params.index));
+    await botLearning.deleteFaq(tenantId, parseInt(req.params.index));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2449,8 +2433,7 @@ router.delete("/learning/faq/:index", authAdmin, async (req, res) => {
 router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
-    const learning = require("../services/bot-learning.service");
-    await learning.deleteCorrection(tenantId, parseInt(req.params.index));
+    await botLearning.deleteCorrection(tenantId, parseInt(req.params.index));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2461,8 +2444,7 @@ router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
 router.patch("/learning/complaint/:index", authAdmin, async (req, res) => {
   try {
     const tenantId = req.query.tenant || "tenant-pappi-001";
-    const learning = require("../services/bot-learning.service");
-    await learning.resolveComplaint(tenantId, parseInt(req.params.index));
+    await botLearning.resolveComplaint(tenantId, parseInt(req.params.index));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

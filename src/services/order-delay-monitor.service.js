@@ -4,6 +4,7 @@
 const prisma = require("../lib/db");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const log = require("../lib/logger").child({ service: "order-delay-monitor" });
+const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const { getClients, listActive } = require("./tenant.service");
 const {
   computeDailyAverages,
@@ -21,6 +22,32 @@ const ALERT_INTERVAL_MIN = 15; // 15 ou 20 min entre alertas
 const PRIORITY_MAX_MIN = 90;
 
 const CW_PROD_STATUSES = ["em_producao", "in_production"];
+
+async function sendDelayAlertMessage(tenantId, order, phone, msg, label) {
+  if (!phone) return;
+  const replyChannel = order.customerId ? await baileys.getReplyChannel(order.customerId) : null;
+
+  if (replyChannel && replyChannel.startsWith("baileys:")) {
+    const instanceId = replyChannel.split(":")[1] || "default";
+    const normalizedPhone = PhoneNormalizer.normalize(phone) || String(phone || "").replace(/\D/g, "");
+    if (normalizedPhone) {
+      const r = await baileys.sendText(normalizedPhone, msg, instanceId, true);
+      if (!r?.ok) {
+        log.warn(
+          { tenantId, orderId: order.id, instanceId, error: r?.error || "unknown" },
+          `Falha ao enviar ${label} via Baileys`,
+        );
+      } else {
+        return;
+      }
+    } else {
+      log.warn({ tenantId, orderId: order.id, phone }, `Telefone inválido para ${label} via Baileys`);
+    }
+  }
+
+  const { wa } = await getClients(tenantId);
+  await wa.sendText(phone, msg).catch((e) => log.warn({ err: e.message }, `Falha ao enviar ${label} via Cloud`));
+}
 
 async function getDelayAlertInterval(tenantId) {
   const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:delay_alert_interval_min` } });
@@ -165,27 +192,24 @@ async function processTenant(tenantId) {
 
 async function sendFirstAlert(tenantId, order, customerName, faixa, weather, phone) {
   if (!phone) return;
-  const { wa } = await getClients(tenantId);
   const msg = weather?.rain
     ? `Oi, ${customerName}. Seu pedido ainda está em produção e hoje, por conta da chuva e do ritmo mais lento da operação, a previsão foi atualizada para cerca de ${faixa}. Estou acompanhando seu pedido de perto para não te deixar sem retorno.`
     : `Oi, ${customerName}. Não quis te deixar sem atualização. Seu pedido ainda está em produção e hoje nossa operação está mais lenta que o normal. Pela média de andamento dos pedidos de hoje, a nova previsão é de cerca de ${faixa}. Fique tranquilo, estou de olho no seu pedido e sigo te atualizando por aqui.`;
-  await wa.sendText(phone, msg).catch((e) => log.warn({ err: e.message }, "Falha ao enviar 1º alerta"));
+  await sendDelayAlertMessage(tenantId, order, phone, msg, "1º alerta");
   if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
 }
 
 async function sendSecondAlert(tenantId, order, customerName, phone) {
   if (!phone) return;
-  const { wa } = await getClients(tenantId);
   const msg = `${customerName}, passando para te atualizar novamente: seu pedido ainda está em produção, e eu já deixei seu caso em atenção com o time para acompanhar mais de perto.`;
-  await wa.sendText(phone, msg).catch((e) => log.warn({ err: e.message }, "Falha ao enviar 2º alerta"));
+  await sendDelayAlertMessage(tenantId, order, phone, msg, "2º alerta");
   if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
 }
 
 async function sendThirdAlert(tenantId, order, customerName, phone) {
   if (!phone) return;
-  const { wa } = await getClients(tenantId);
   const msg = `${customerName}, sigo acompanhando seu pedido e já sinalizei a produção para dar saída o mais rápido possível. Assim que houver avanço, eu te aviso aqui.`;
-  await wa.sendText(phone, msg).catch((e) => log.warn({ err: e.message }, "Falha ao enviar 3º alerta"));
+  await sendDelayAlertMessage(tenantId, order, phone, msg, "3º alerta");
   if (order.customerId) await chatMemory.push(order.customerId, "assistant", msg, "Sistema", null, "text");
 }
 
