@@ -16,7 +16,7 @@ async function synthesizeTextToAudio(text) {
       },
       body: JSON.stringify({
         model: "tts-1",
-        voice: "echo",
+        voice: "nova",
         input: String(text),
         response_format: "opus",
       }),
