@@ -7,15 +7,19 @@
 
 const { randomUUID } = require("crypto");
 const ENV = require("../config/env");
+const prisma = require("../lib/db");
+const logger = require("../lib/logger");
 const { getClients } = require("../services/tenant.service");
 const { map: mapPayment, listFormatted: listPayments } = require("../mappers/PaymentMapper");
-const { round2 } = require("../calculators/OrderCalculator");
+const { round2, calculate } = require("../calculators/OrderCalculator");
 const AddressNormalizer = require("../normalizers/AddressNormalizer");
+const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
 const ai = require("../services/ai.service");
 const chatMemory = require("../services/chat-memory.service");
 const Maps = require("../services/maps.service");
 const sessionService = require("../services/session.service");
-const { learningKeyFromCustomer, waCloudDestination } = require("../services/customer.service");
+const customerService = require("../services/customer.service");
+const { learningKeyFromCustomer, waCloudDestination } = customerService;
 const metaCapi = require("../services/meta-capi.service");
 const { routeByTime } = require("../services/time-routing.service");
 const aviseAbertura = require("../services/avise-abertura.service");
@@ -25,6 +29,11 @@ const orderIntake = require("../services/order-intake.service");
 const aiOrchestrator = require("../services/ai-orchestrator.service");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const cartPricing = require("../services/cart-pricing.service");
+const orderService = require("../services/order.service");
+const baileys = require("../services/baileys.service");
+const socketService = require("../services/socket.service");
+const interPix = require("../services/inter-pix.service");
+const botLearning = require("../services/bot-learning.service");
 const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 
@@ -136,13 +145,12 @@ async function sendOutOfRangePrompt(wa, phone, customer, session) {
 
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
 async function handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session, message, clear = true } = {}) {
-  const { setHandoff } = require("../services/customer.service");
   const sk = sessionKey != null ? sessionKey : phone;
-  await setHandoff(customer.id, true);
+  await customerService.setHandoff(customer.id, true);
   await wa.sendText(phone, message || "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
   await chatMemory.push(customer.id, "bot", message || "Vou chamar um atendente pra te ajudar. Um momento! 👨‍💼");
   if (clear) await clearSession(tenant.id, sk);
-  require("../services/socket.service").emitQueueUpdate();
+  socketService.emitQueueUpdate();
 }
 
 async function handleStatusFlow({ wa, phone, customer, tenant, session } = {}) {
@@ -156,7 +164,6 @@ async function handleComplaintFlow({ tenant, wa, customer, phone, sessionKey, se
   await saveSession(tenant.id, sk, session);
   // Tenta localizar último pedido para dar contexto ao atendente
   try {
-    const prisma = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
       where: { customerId: customer.id },
       orderBy: { createdAt: "desc" },
@@ -167,7 +174,6 @@ async function handleComplaintFlow({ tenant, wa, customer, phone, sessionKey, se
       "Sinto muito por isso. Vou chamar um atendente pra resolver com você agora. 👨‍💼" +
       (ref ? `\n\n📦 Referência: #${ref}` : "");
     await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey: sk, session, message: m, clear: false });
-    const baileys = require("../services/baileys.service");
     baileys
       .notify(
         `🚨 *Reclamação*\n👤 ${customer.name || phone}\n📞 ${phone}\n` +
@@ -249,7 +255,6 @@ async function handleDriverFlow({ tenant, wa, customer, phone, sessionKey, sessi
   await chatMemory.push(customer.id, "bot", m);
   // Notifica interno (sem entrar no funil comercial)
   try {
-    const baileys = require("../services/baileys.service");
     baileys.notify(`🚗 *Operação/Motoboy*\n📞 ${phone}\n💬 ${String(text || "").slice(0, 200)}`).catch(() => {});
   } catch {}
 }
@@ -531,6 +536,10 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
 
+  // Resultados locais (evita vazamento de escopo/global e permite orquestrador usar sempre)
+  let triageResult = null;
+  let intakeResult = null;
+
   // FASE 1: mode (tipo de conversa) separado do step (etapa interna)
   if (!session.mode) session.mode = "TRIAGE";
 
@@ -694,44 +703,44 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
   // ── TRIAGEM ANTES DO FUNIL ──────────────────────────────────
   // Evita entrar cedo em "pizza ou lasanha" quando for status/reclamação/humano/etc.
   try {
-    const tri = inboxTriage.triage({ text, session });
+    triageResult = inboxTriage.triage({ text, session });
     const now = Date.now();
 
-    if (tri.intent === "HUMAN") {
+    if (triageResult.intent === "HUMAN") {
       session.mode = "HUMAN";
       await saveSession(tenant.id, sessionKey, session);
       await handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session });
       return;
     }
-    if (tri.intent === "ORDER_STATUS") {
+    if (triageResult.intent === "ORDER_STATUS") {
       session.mode = "STATUS";
       await saveSession(tenant.id, sessionKey, session);
       await handleStatusFlow({ wa, phone, customer, tenant, session });
       return;
     }
-    if (tri.intent === "MENU") {
+    if (triageResult.intent === "MENU") {
       await handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session, text, cw });
       return;
     }
-    if (tri.intent === "COMPLAINT") {
+    if (triageResult.intent === "COMPLAINT") {
       await handleComplaintFlow({ tenant, wa, customer, phone, session, text });
       return;
     }
-    if (tri.intent === "DRIVER") {
+    if (triageResult.intent === "DRIVER") {
       await handleDriverFlow({ tenant, wa, customer, phone, sessionKey, session, text });
       return;
     }
 
     // Se está em triagem e a mensagem não parece pedido, evita disparar o funil.
     const earlySteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"];
-    if (session.mode === "TRIAGE" && earlySteps.includes(session.step) && tri.intent === "OTHER") {
-      if (!tri.shouldWaitMore) {
+    if (session.mode === "TRIAGE" && earlySteps.includes(session.step) && triageResult.intent === "OTHER") {
+      if (!triageResult.shouldWaitMore) {
         await handleFallbackTriage({ tenant, wa, customer, phone, sessionKey, session });
         return;
       } // se shouldWaitMore, fica silencioso (buffer já consolida)
     }
 
-    if (tri.intent === "NEW_ORDER") session.mode = "ORDER";
+    if (triageResult.intent === "NEW_ORDER") session.mode = "ORDER";
   } catch {
     // triagem falhou → segue fluxo atual
   }
@@ -754,17 +763,17 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
         } catch {}
       }
 
-      intake = orderIntake.intake({ text, sizeOptions: session.sizeOptions || [] });
-      if (intake?.productType && !session.productType) session.productType = intake.productType;
-      if (intake?.fulfillment && !session.fulfillment) session.fulfillment = intake.fulfillment;
-      if (intake?.size && !session.chosenSize) session.chosenSize = intake.size;
+      intakeResult = orderIntake.intake({ text, sizeOptions: session.sizeOptions || [] });
+      if (intakeResult?.productType && !session.productType) session.productType = intakeResult.productType;
+      if (intakeResult?.fulfillment && !session.fulfillment) session.fulfillment = intakeResult.fulfillment;
+      if (intakeResult?.size && !session.chosenSize) session.chosenSize = intakeResult.size;
 
       // Fast-forward agressivo no início do funil:
       // mensagem completa (tipo+tamanho+fulfillment) não deve cair em "pizza ou lasanha" / "qual tamanho?".
-      const intakeLooksComplete = !!(intake?.productType && intake?.size && intake?.fulfillment);
+      const intakeLooksComplete = !!(intakeResult?.productType && intakeResult?.size && intakeResult?.fulfillment);
       const earlyFunnelSteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT", "ASK_SIZE"];
       if (intakeLooksComplete && earlyFunnelSteps.includes(session.step)) {
-        if (intake.fulfillment === "delivery") {
+        if (intakeResult.fulfillment === "delivery") {
           session.step = "ADDRESS";
           const m = "🛵 Perfeito! Agora me manda o endereço (Rua + Número + Bairro) ou o CEP 📍";
           await wa.sendText(phone, m);
@@ -783,14 +792,23 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
       }
 
       // Se já identificou entrega/retirada no texto, reaproveita o handler atual (endereço / startOrdering)
-      if (intake?.fulfillment && session.step === "FULFILLMENT") {
-        await handleFulfillment(wa, cw, phone, intake.fulfillment === "delivery" ? "delivery" : "takeout", t, session, customer, tenant);
+      if (intakeResult?.fulfillment && session.step === "FULFILLMENT") {
+        await handleFulfillment(
+          wa,
+          cw,
+          phone,
+          intakeResult.fulfillment === "delivery" ? "delivery" : "takeout",
+          t,
+          session,
+          customer,
+          tenant,
+        );
         await saveSession(tenant.id, sessionKey, session);
         return;
       }
 
       // Se já estamos perguntando tamanho e ele veio no texto, não repete pergunta
-      if (session.step === "ASK_SIZE" && intake?.size) {
+      if (session.step === "ASK_SIZE" && intakeResult?.size) {
         // Mantém o texto original para aproveitar sabor/complementos na mesma mensagem.
         await handleAskSize(wa, cw, phone, text, session, customer, tenant);
         await saveSession(tenant.id, sessionKey, session);
@@ -801,13 +819,13 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
       // IMPORTANTE: quando já estamos em `ASK_SIZE`, não dispare `startOrdering()`,
       // para não re-perguntar “Qual tamanho?” (o próprio `handleAskSize()` já resolve tamanho+resto na mesma mensagem).
       const early = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT"];
-      if (intake?.isOrder && intake?.confidence >= 0.7 && intake?.missing && intake.missing.length <= 3) {
+      if (intakeResult?.isOrder && intakeResult?.confidence >= 0.7 && intakeResult?.missing && intakeResult.missing.length <= 3) {
         // Se ainda não entrou em ordering, tenta iniciar (sem repetir ASK_SIZE se chosenSize já foi detectado)
         if (session.fulfillment && early.includes(session.step)) {
           await startOrdering(wa, cw, phone, session, customer, tenant);
           await saveSession(tenant.id, sessionKey, session);
           // Se já caiu em ORDERING, manda o texto direto para o interpretador existente (AI+catálogo)
-          if (session.step === "ORDERING" && intake?.isOrder) {
+          if (session.step === "ORDERING" && intakeResult?.isOrder) {
             await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
             await saveSession(tenant.id, sessionKey, session);
             return;
@@ -840,8 +858,8 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
       session,
       text,
       history,
-      triageResult: tri,
-      intakeResult: intake,
+      triageResult,
+      intakeResult,
     });
   } catch {
     // orquestrador é best-effort
@@ -997,7 +1015,6 @@ function buildSessionProgressSummary(session) {
 
 async function handleStatusQuery(wa, phone, customer, _tenant, session) {
   try {
-    const prisma = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
       where: { customerId: customer.id },
       orderBy: { createdAt: "desc" },
@@ -1043,7 +1060,6 @@ async function handleStatusQuery(wa, phone, customer, _tenant, session) {
 // ── Cancelamento ──────────────────────────────────────────────
 async function handleCancelRequest(wa, phone, customer, tenant) {
   try {
-    const prisma = require("../lib/db");
     const lastOrder = await prisma.order.findFirst({
       where: { customerId: customer.id, status: { notIn: ["delivered", "cancelled"] } },
       orderBy: { createdAt: "desc" },
@@ -1064,8 +1080,7 @@ async function handleCancelRequest(wa, phone, customer, tenant) {
       } catch {}
     }
 
-    const { updateStatus } = require("../services/order.service");
-    await updateStatus(lastOrder.id, "cancelled", "webhook", "Cancelado pelo cliente via WhatsApp");
+    await orderService.updateStatus(lastOrder.id, "cancelled", "webhook", "Cancelado pelo cliente via WhatsApp");
 
     const orderNum = lastOrder.id.slice(-6).toUpperCase();
     const m = `❌ Pedido *#${orderNum}* cancelado. Se precisar de algo, é só chamar! 😊`;
@@ -1258,8 +1273,7 @@ async function handleAskName(wa, cw, phone, text, session, customer, tenant, tim
     await wa.sendText(phone, "Pode me dizer seu nome? 😊");
     return;
   }
-  const { setName } = require("../services/customer.service");
-  const updated = await setName(customer.id, name);
+  const updated = await customerService.setName(customer.id, name);
   customer.name = updated.name;
   customer.visitCount = updated.visitCount;
 
@@ -1505,8 +1519,7 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
 
   // CORREÇÃO: persiste o endereço confirmado no banco para reutilizar na próxima vez
   if (session.address) {
-    const { touchInteraction } = require("../services/customer.service");
-    await touchInteraction(customer.id, session.address).catch(() => {});
+    await customerService.touchInteraction(customer.id, session.address).catch(() => {});
     // Atualiza objeto em memória para evitar nova busca
     customer.lastAddress = session.address.formatted;
     customer.lastStreet = session.address.street;
@@ -1710,8 +1723,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
       return;
     }
     session.step = "PAYMENT";
-    const { calculate: calcPreview } = require("../calculators/OrderCalculator");
-    const prev = calcPreview({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
+    const prev = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
     const linesOnly = cartSummary(session.cart, { omitTotal: true });
     const entregaLinha =
       session.fulfillment === "delivery"
@@ -1737,7 +1749,6 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
   session.paymentMethodName = mapped.name;
   session.step = "CONFIRM";
 
-  const { calculate } = require("../calculators/OrderCalculator");
   const calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
   session.calc = calc;
 
@@ -1765,11 +1776,6 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     await wa.sendText(phone, "Pedido cancelado. Quando quiser, é só chamar! 😊");
     return;
   }
-
-  const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
-  const { recordOrder } = require("../services/customer.service");
-  const { calculate } = require("../calculators/OrderCalculator");
-  const baileys = require("../services/baileys.service");
 
   const catalogForPrice =
     session.filteredCatalog &&
@@ -1909,7 +1915,6 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   if (!isLead && isPix) {
     pixTxid = randomUUID().replace(/-/g, "").slice(0, 32);
     try {
-      const interPix = require("../services/inter-pix.service");
       const r = await interPix.createCob({
         txid: pixTxid,
         amount: calc.expectedTotal,
@@ -1944,13 +1949,13 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   });
 
   if (pixTxid && orderPixDbCompat.hasOrderPixColumns()) {
-    await require("../lib/db").order.update({
+    await prisma.order.update({
       where: { id: order.id },
       data: { pixTxid, pixStatus: "pending" },
       select: { id: true },
     });
   } else if (pixTxid) {
-    const log = require("../lib/logger").child({ service: "bot" });
+    const log = logger.child({ service: "bot" });
     log.error(
       { orderId: order.id },
       "PIX: pedido criado mas banco sem colunas pixTxid/pixE2eId/pixStatus — migration PIX pendente; txid não persistido.",
@@ -1984,15 +1989,14 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
 
   // ── Aprendizado: captura preferências do cliente ────────
   try {
-    const learning = require("../services/bot-learning.service");
     const lk = learningKeyFromCustomer(customer);
-    await learning.learnCustomerPattern(tenant.id, lk, {
+    await botLearning.learnCustomerPattern(tenant.id, lk, {
       favoriteItems: session.cart.map((i) => ({ name: i.name })),
       paymentMethod: session.paymentMethodName,
       fulfillment: session.fulfillment,
       orderHour: new Date().getHours(),
     });
-    await learning.analyzeConversation(tenant.id, customer.id, lk);
+    await botLearning.analyzeConversation(tenant.id, customer.id, lk);
   } catch {}
 
   // ── CAPI: Purchase ────────────────────────────────────────
@@ -2021,7 +2025,16 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
       `Total: R$ ${calc.expectedTotal.toFixed(2)}\n\n` +
       (pixCopiaECola
         ? `📌 *Copia e cola:*\n${pixCopiaECola}\n\nAssim que confirmar o pagamento, seu pedido será enviado e você recebe a confirmação aqui. ✅`
-        : `Envie o PIX e responda aqui “pago” se precisar de ajuda. Assim que o webhook confirmar, enviamos ao sistema. ✅`);
+        : (() => {
+            const fallbackKey =
+              ENV.PIX_FALLBACK_KEY ||
+              "CHAVE PIX (PREENCHER) — CNPJ XX.XXX.XXX/0001-XX ou Telefone (PREENCHER)";
+            return (
+              "⚠️ Ocorreu um atraso ao gerar o código *copia e cola*.\n\n" +
+              `Você pode transferir o valor para a nossa *chave PIX*: ${fallbackKey}\n` +
+              "e enviar o comprovante aqui para conferência. ✅"
+            );
+          })());
   } else if (cwSuccess) {
     const previsao = session.fulfillment === "takeout" ? "30 a 40 min" : "60 min";
     m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: ${previsao}\n\nObrigado! 🍕`;
@@ -2180,9 +2193,7 @@ function buildCwPayload({ session, customer, calc }) {
 // opts.mediaType: text | image | audio | … (painel / histórico)
 async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waMessageId = null, opts = {}) {
   try {
-    const prisma = require("../lib/db");
-    const PhoneNormalizer = require("../normalizers/PhoneNormalizer");
-    const log = require("../lib/logger").child({ service: "bot.baileys-msg" });
+    const log = logger.child({ service: "bot.baileys-msg" });
     const { customerId, mediaType, originalTimestamp } = opts || {};
 
     let customer = null;
@@ -2219,7 +2230,7 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waM
       );
     }
   } catch (err) {
-    const log = require("../lib/logger").child({ service: "bot.baileys-msg" });
+    const log = logger.child({ service: "bot.baileys-msg" });
     log.error({ pipeline: "save_failed", err }, "[Bot] Erro ao salvar msg Baileys");
   }
 }

@@ -3,6 +3,7 @@
 // Usa Config table (sem migration) — key: conv:{customerId}
 
 const prisma = require("../lib/db");
+const logger = require("../lib/logger").child({ service: "conv-state" });
 
 const CONFIG_PREFIX = "conv:";
 const STATES = {
@@ -29,7 +30,9 @@ async function getState(customer) {
         return parsed.state;
       }
     }
-  } catch {}
+  } catch (err) {
+    logger.error({ err, customerId: customer?.id, key }, "Falha ao ler estado da conversa (prisma.config)");
+  }
 
   if (customer.handoff) {
     return customer.claimedBy ? STATES.HUMANO_ATIVO : STATES.AGUARDANDO_HUMANO;
