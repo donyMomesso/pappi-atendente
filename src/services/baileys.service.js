@@ -77,7 +77,7 @@ const DISCONNECT_NOTIFY_COOLDOWN_MS = 60_000;
 /** Backoff progressivo (ms); último valor repete após esgotar a lista. */
 const RECONNECT_BACKOFF_MS = [5000, 8000, 16_000, 32_000, 60_000, 120_000];
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
-const BOT_FRESH_WINDOW_MS = 2 * 60 * 1000;
+const BOT_FRESH_WINDOW_MS = 15 * 60 * 1000;
 const RECONNECT_NOTICE_COOLDOWN_MS = 5 * 60 * 1000;
 
 function createInstanceData(id) {
@@ -1328,55 +1328,63 @@ async function start(instanceId = "default", opts = {}) {
                   windowMs,
                   onFlush: async ({ combinedText }) => {
                     if (!combinedText) return;
-                    await botHandler.handle({
-                      tenant,
-                      wa,
-                      customer,
-                      text: combinedText,
-                      phone: waTarget,
-                      timer,
-                    });
+                    try {
+                      await botHandler.handle({
+                        tenant,
+                        wa,
+                        customer,
+                        text: combinedText,
+                        phone: waTarget,
+                        timer,
+                      });
+                    } catch (e) {
+                      log.error({ instanceId, traceKey, err: e }, "Erro no bot (onFlush)");
+                      timer.mark("bot_error");
+                      timer.log(log);
+                      try {
+                        const { incrementBotErrorAndCheckHandoff } = require("../services/customer.service");
+                        const { shouldHandoff } = await incrementBotErrorAndCheckHandoff(customer.id);
+                        const ENV = require("../config/env");
+                        const statusUrl = `${ENV.APP_URL || "https://pappiatendente.com.br"}/status`;
+
+                        let fallback;
+                        if (shouldHandoff) {
+                          const { setHandoff } = require("../services/customer.service");
+                          await setHandoff(customer.id, true);
+                          fallback =
+                            "Como a instabilidade persistiu, você será direcionado para um atendente humano. Aguarde um momento! 👨‍💼";
+                        } else {
+                          fallback = `Estamos com instabilidade no WhatsApp. Aguarde alguns minutos e tente novamente. Acompanhe: ${statusUrl}\n\nSe persistir, você será direcionado para atendimento humano.`;
+                        }
+                        const fbTo = baileysChatTarget(customer);
+                        if (fbTo) {
+                          await sendText(fbTo, fallback, instanceId, true);
+                          await botHandler.saveBaileysMessage(fbTo, fallback, tenantId, "assistant", null, {
+                            customerId: customer.id,
+                          });
+                        } else {
+                          log.warn({ instanceId, customerId: customer.id }, "Fallback bot: sem destino Baileys");
+                        }
+                        if (shouldHandoff) {
+                          const socketService = require("./socket.service");
+                          socketService.emitQueueUpdate();
+                          socketService.emitConvUpdate(customer.id);
+                        }
+                      } catch (f) {
+                        log.error({ instanceId, err: f }, "Falha ao enviar mensagem de fallback");
+                      }
+                    }
                   },
                 });
                 timer.mark("bot_handle");
                 require("./socket.service").emitConvUpdate(customer.id);
                 timer.log(log);
               } catch (e) {
-                log.error({ instanceId, traceKey, err: e }, "Erro no bot");
+                // Erros síncronos antes do flush (ex.: preparação de contexto/fila).
+                // Erros do bot.handle são tratados dentro do onFlush acima.
+                log.error({ instanceId, traceKey, err: e }, "Erro ao enfileirar execução do bot");
                 timer.mark("bot_error");
                 timer.log(log);
-                try {
-                  const { incrementBotErrorAndCheckHandoff } = require("../services/customer.service");
-                  const { shouldHandoff } = await incrementBotErrorAndCheckHandoff(customer.id);
-                  const ENV = require("../config/env");
-                  const statusUrl = `${ENV.APP_URL || "https://pappiatendente.com.br"}/status`;
-
-                  let fallback;
-                  if (shouldHandoff) {
-                    const { setHandoff } = require("../services/customer.service");
-                    await setHandoff(customer.id, true);
-                    fallback =
-                      "Como a instabilidade persistiu, você será direcionado para um atendente humano. Aguarde um momento! 👨‍💼";
-                  } else {
-                    fallback = `Estamos com instabilidade no WhatsApp. Aguarde alguns minutos e tente novamente. Acompanhe: ${statusUrl}\n\nSe persistir, você será direcionado para atendimento humano.`;
-                  }
-                  const fbTo = baileysChatTarget(customer);
-                  if (fbTo) {
-                    await sendText(fbTo, fallback, instanceId, true);
-                    await botHandler.saveBaileysMessage(fbTo, fallback, tenantId, "assistant", null, {
-                      customerId: customer.id,
-                    });
-                  } else {
-                    log.warn({ instanceId, customerId: customer.id }, "Fallback bot: sem destino Baileys");
-                  }
-                  if (shouldHandoff) {
-                    const socketService = require("./socket.service");
-                    socketService.emitQueueUpdate();
-                    socketService.emitConvUpdate(customer.id);
-                  }
-                } catch (f) {
-                  log.error({ instanceId, err: f }, "Falha ao enviar mensagem de fallback");
-                }
               }
             } else if (inst.botEnabled !== false && !canInvokeBot) {
               log.debug(

@@ -49,14 +49,16 @@ describe("reconnect/backlog guard", () => {
     }
   });
 
-  test("isFreshForBot: true dentro de 2min e false fora", () => {
+  test("isFreshForBot: true dentro de 15min e false fora", () => {
     const now = Date.now();
     const nowSpy = jest.spyOn(Date, "now").mockImplementation(() => now);
     try {
       // 90s atrás (1.5min): true
       expect(_test.isFreshForBot({ messageTimestamp: Math.floor((now - 90 * 1000) / 1000) })).toBe(true);
-      // 3min atrás: false
-      expect(_test.isFreshForBot({ messageTimestamp: Math.floor((now - 3 * 60 * 1000) / 1000) })).toBe(false);
+      // 3min atrás: true (janela atual é 15min)
+      expect(_test.isFreshForBot({ messageTimestamp: Math.floor((now - 3 * 60 * 1000) / 1000) })).toBe(true);
+      // 16min atrás: false
+      expect(_test.isFreshForBot({ messageTimestamp: Math.floor((now - 16 * 60 * 1000) / 1000) })).toBe(false);
     } finally {
       nowSpy.mockRestore();
     }
