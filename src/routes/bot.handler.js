@@ -102,6 +102,38 @@ async function enrichAddressObjectForDelivery(a, tenant, cw) {
   }
 }
 
+function extractDeliveryFeeFromResult(result) {
+  if (Number.isFinite(result)) return Number(result);
+  if (!result || typeof result !== "object") return null;
+  const candidates = [result.delivery_fee, result.fee, result.value, result.amount, result.total_fee];
+  const found = candidates.find((v) => Number.isFinite(v));
+  return Number.isFinite(found) ? Number(found) : null;
+}
+
+function indicatesOutOfRange(result) {
+  if (!result || typeof result !== "object") return false;
+  const status = String(result.status || result.code || result.reason || "")
+    .toLowerCase()
+    .trim();
+  const msg = String(result.message || result.error || result.detail || "")
+    .toLowerCase()
+    .trim();
+  if (result.is_serviceable === false) return true;
+  if (status.includes("out_of_range") || status.includes("outside")) return true;
+  if (msg.includes("fora da area") || msg.includes("fora da área")) return true;
+  return false;
+}
+
+async function sendOutOfRangePrompt(wa, phone, customer, session) {
+  const m = "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?";
+  session.step = "DELIVERY_COVERAGE_DECISION";
+  await wa.sendButtons(phone, m, [
+    { id: "oor_change_addr", title: "📍 Outro endereço" },
+    { id: "oor_takeout", title: "🏪 Retirada" },
+  ]);
+  await chatMemory.push(customer.id, "bot", m);
+}
+
 // ── FASE 3: handlers dedicados (inbox real) ────────────────────
 async function handleHumanHandoff({ tenant, wa, customer, phone, sessionKey, session, message, clear = true } = {}) {
   const { setHandoff } = require("../services/customer.service");
@@ -908,6 +940,9 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
     case "ADDRESS_CONFIRM":
       await handleAddressConfirm(wa, cw, phone, text, t, session, customer, tenant);
       break;
+    case "DELIVERY_COVERAGE_DECISION":
+      await handleDeliveryCoverageDecision(wa, cw, phone, text, t, session, customer, tenant);
+      break;
     case "ASK_SIZE":
       await handleAskSize(wa, cw, phone, text, session, customer, tenant);
       break;
@@ -1400,16 +1435,21 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
     .join(", ");
 
   let feeText = "";
+  let coverageOk = false;
   try {
     const geo = await Maps.quote(fullAddress, cw);
     if (geo) {
       addr.formatted = geo.formatted_address || fullAddress;
       addr.lat = geo.lat;
       addr.lng = geo.lng;
-      if (geo.delivery_fee != null) {
-        session.deliveryFee = geo.delivery_fee;
-        const kmStr = geo.km != null ? ` | ${geo.km} km` : "";
-        feeText = `\nTaxa: R$ ${geo.delivery_fee.toFixed(2)}${kmStr}`;
+      if (!indicatesOutOfRange(geo)) {
+        const fee = extractDeliveryFeeFromResult(geo);
+        if (Number.isFinite(fee) && fee >= 0) {
+          session.deliveryFee = fee;
+          const kmStr = geo.km != null ? ` | ${geo.km} km` : "";
+          feeText = `\nTaxa: R$ ${fee.toFixed(2)}${kmStr}`;
+          coverageOk = true;
+        }
       }
     } else {
       addr.formatted = fullAddress;
@@ -1418,14 +1458,26 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
     addr.formatted = fullAddress;
   }
 
-  if (!session.deliveryFee) {
+  if (!coverageOk) {
     try {
-      const fee = await cw.getDeliveryFee({});
-      if (fee != null) {
-        session.deliveryFee = fee;
-        feeText = `\nTaxa: R$ ${fee.toFixed(2)}`;
+      const feeResult =
+        Number.isFinite(addr?.lat) && Number.isFinite(addr?.lng)
+          ? await cw.getDeliveryFee({ lat: addr.lat, lng: addr.lng })
+          : await cw.getDeliveryFee({});
+      if (!indicatesOutOfRange(feeResult)) {
+        const fee = extractDeliveryFeeFromResult(feeResult);
+        if (Number.isFinite(fee) && fee >= 0) {
+          session.deliveryFee = fee;
+          feeText = `\nTaxa: R$ ${fee.toFixed(2)}`;
+          coverageOk = true;
+        }
       }
     } catch {}
+  }
+
+  if (!coverageOk) {
+    await sendOutOfRangePrompt(wa, phone, customer, session);
+    return;
   }
 
   session.address = addr;
@@ -1467,6 +1519,39 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
   }
 
   await startOrdering(wa, cw, phone, session, customer, tenant);
+}
+
+async function handleDeliveryCoverageDecision(wa, cw, phone, text, t, session, customer, tenant) {
+  const lower = String(text || "").toLowerCase();
+  const chooseAddress = text === "oor_change_addr" || lower.includes("outro endereco") || lower.includes("outro endereço");
+  const chooseTakeout =
+    text === "oor_takeout" ||
+    t.includes("retirada") ||
+    t.includes("retirar") ||
+    t.includes("buscar") ||
+    lower === "takeout";
+
+  if (chooseTakeout) {
+    session.fulfillment = "takeout";
+    delete session.address;
+    delete session.deliveryFee;
+    await startOrdering(wa, cw, phone, session, customer, tenant);
+    return;
+  }
+
+  if (chooseAddress) {
+    session.step = "ADDRESS";
+    delete session.address;
+    delete session.deliveryFee;
+    session.addressBuffer = [];
+    session.addressFailCount = 0;
+    const m = "Tudo bem! Me manda outro endereço (Rua + Número + Bairro) ou o CEP 📍";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
+  await sendOutOfRangePrompt(wa, phone, customer, session);
 }
 
 // ── startOrdering ─────────────────────────────────────────────
@@ -1750,14 +1835,40 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
       return;
     }
 
-    // Recalcular delivery_fee baseado em coords (fonte mestre: CW)
+    // Recalcular delivery_fee baseado em coords (fonte mestre: CW) e bloquear fora de área.
     try {
-      const fee = await cw.getDeliveryFee({ lat: a.lat, lng: a.lng });
+      const feeResult = await cw.getDeliveryFee({ lat: a.lat, lng: a.lng });
+      if (indicatesOutOfRange(feeResult)) {
+        session.step = "ADDRESS";
+        await wa.sendText(
+          phone,
+          "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?",
+        );
+        await saveSession(tenant.id, sessionKey, session);
+        return;
+      }
+      const fee = extractDeliveryFeeFromResult(feeResult);
       if (Number.isFinite(fee) && fee >= 0) {
         session.deliveryFee = fee;
         calc = calculate({ items: session.cart, deliveryFee: fee, discount: session.discount || 0 });
+      } else {
+        session.step = "ADDRESS";
+        await wa.sendText(
+          phone,
+          "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?",
+        );
+        await saveSession(tenant.id, sessionKey, session);
+        return;
       }
-    } catch {}
+    } catch {
+      session.step = "ADDRESS";
+      await wa.sendText(
+        phone,
+        "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?",
+      );
+      await saveSession(tenant.id, sessionKey, session);
+      return;
+    }
   }
 
   // Monta payload final CW (contrato preservado) e garante consistência totals/payments

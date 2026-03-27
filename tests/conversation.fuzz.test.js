@@ -446,9 +446,10 @@ describe("reconnect anti-spam/backlog (baileys.service._test)", () => {
       messageTimestamp: Math.floor((Date.now() - ageMs) / 1000),
     });
 
-    // BOT_FRESH_WINDOW_MS = 2min (ver comentário no baileys.service)
+    // BOT_FRESH_WINDOW_MS = 15min (ver comentário no baileys.service)
     expect(isFreshForBot(mkMsg(30 * 1000))).toBe(true);
-    expect(isFreshForBot(mkMsg(3 * 60 * 1000))).toBe(false);
+    expect(isFreshForBot(mkMsg(3 * 60 * 1000))).toBe(true);
+    expect(isFreshForBot(mkMsg(16 * 60 * 1000))).toBe(false);
 
     // Cooldown + suppression
     const identityKey = "tenant-pappi-001:cust_fuzz";
