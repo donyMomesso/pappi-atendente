@@ -1747,14 +1747,16 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
 
   session.orderHistory.push({ role: "bot", text: result.reply });
   if (session.prefersAudio && !result.reply.includes("👇") && !result.reply.includes("💳")) {
+    if (wa.sendPresence) await wa.sendPresence(phone, "composing");
+    await wa.sendText(phone, result.reply); // Resposta instantânea em texto para quebrar a latência
+
+    if (wa.sendPresence) await wa.sendPresence(phone, "recording"); // Altera o status para 'Gravando áudio...'
     const audioBuf = await audioSynthesis.synthesizeTextToAudio(result.reply);
     if (audioBuf && typeof wa.sendAudio === "function") {
       await wa.sendAudio(phone, audioBuf, null, true);
-      await wa.sendText(phone, result.reply);
-    } else {
-      await wa.sendText(phone, result.reply);
     }
   } else {
+    if (wa.sendPresence) await wa.sendPresence(phone, "composing");
     await wa.sendText(phone, result.reply);
   }
   await chatMemory.push(customer.id, "bot", result.reply);
