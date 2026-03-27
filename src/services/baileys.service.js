@@ -26,18 +26,35 @@ const LIMITS = { perHour: 60, perDay: 200, alertAt: 0.7 };
 
 const INSTANCES = new Map();
 
-// Cache de waMessageIds já vistos — evita query no banco para duplicatas rápidas
-const SEEN_MSG_IDS = new Set();
-const SEEN_MSG_MAX = 2000;
+// Cache de waMessageIds já vistos por instância — evita query no banco para duplicatas rápidas
+const SEEN_MSG_MAX_PER_INSTANCE = 1000;
 const RECONNECT_NOTICE_BY_CUSTOMER = new Map();
 const RECONNECT_BOT_SUPPRESS_UNTIL = new Map();
-function markMessageProcessed(waId) {
-  if (!waId) return;
-  if (SEEN_MSG_IDS.size >= SEEN_MSG_MAX) {
-    const arr = [...SEEN_MSG_IDS];
-    arr.slice(0, Math.floor(SEEN_MSG_MAX / 2)).forEach((id) => SEEN_MSG_IDS.delete(id));
+function getOrCreateInstance(instanceId = "default") {
+  let inst = INSTANCES.get(instanceId);
+  if (!inst) {
+    inst = createInstanceData(instanceId);
+    INSTANCES.set(instanceId, inst);
   }
-  SEEN_MSG_IDS.add(waId);
+  return inst;
+}
+
+function hasSeenMessage(instanceId, waId) {
+  if (!waId) return false;
+  const inst = INSTANCES.get(instanceId);
+  if (!inst?.seenMsgs) return false;
+  return inst.seenMsgs.has(waId);
+}
+
+function markMessageProcessed(instanceId, waId) {
+  if (!waId) return;
+  const inst = getOrCreateInstance(instanceId);
+  if (!(inst.seenMsgs instanceof Set)) inst.seenMsgs = new Set();
+  if (inst.seenMsgs.size >= SEEN_MSG_MAX_PER_INSTANCE) {
+    const arr = [...inst.seenMsgs];
+    arr.slice(0, Math.floor(SEEN_MSG_MAX_PER_INSTANCE / 2)).forEach((id) => inst.seenMsgs.delete(id));
+  }
+  inst.seenMsgs.add(waId);
 }
 
 // Cache da versão Baileys — evita chamar URL externa a cada reconexão
@@ -87,6 +104,10 @@ function createInstanceData(id) {
     lastDisconnectNotifyAt: 0,
     /** Após muitas falhas, não chamar start() até Conectar (force) no painel. */
     manualReconnectRequired: false,
+    // Anti-loop após 440/replaced: não tentar start automático até esse timestamp.
+    _reconnectBlockedUntil: 0,
+    // Cache de mensagens processadas por instância.
+    seenMsgs: new Set(),
     counters: {
       hour: 0,
       day: 0,
@@ -547,6 +568,44 @@ async function resolveTenantContextForInbound({ phoneDigits, remoteJid, instance
   };
 }
 
+async function forceFallbackTenantId(instanceId) {
+  // Prioriza tenant ativo; se não houver, usa qualquer tenant (last resort).
+  const activeTenant = await prisma.tenant.findFirst({
+    where: { active: true },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const fallback = activeTenant
+    ? activeTenant.id
+    : (
+        await prisma.tenant.findFirst({
+          where: {},
+          select: { id: true },
+          orderBy: { createdAt: "asc" },
+        })
+      )?.id || null;
+  if (fallback && instanceId) {
+    await bindInstanceTenant(instanceId, fallback).catch(() => {});
+  }
+  return fallback;
+}
+
+async function resolveTenantContextGuaranteed(args) {
+  const tenantCtx = await resolveTenantContextForInbound(args);
+  if (tenantCtx?.tenantId) return { ...tenantCtx, forcedFallback: false };
+  const forcedTenantId = await forceFallbackTenantId(args?.instanceId);
+  if (forcedTenantId) {
+    return {
+      ...tenantCtx,
+      tenantId: forcedTenantId,
+      criterion: "forced_active_fallback",
+      forcedFallback: true,
+      attempts: [...(tenantCtx?.attempts || []), { criterion: "forced_active_fallback", tenantId: forcedTenantId }],
+    };
+  }
+  return { ...tenantCtx, forcedFallback: false };
+}
+
 async function appendUnresolvedInboundAudit(payload) {
   try {
     const env = ENV.APP_ENV || "local";
@@ -621,11 +680,7 @@ async function getReplyChannel(customerId) {
 // ── Conexão ────────────────────────────────────────────────────
 // opts.force = true: reconexão manual após 440 — permite clicar "Conectar" no painel
 async function start(instanceId = "default", opts = {}) {
-  let inst = INSTANCES.get(instanceId);
-  if (!inst) {
-    inst = createInstanceData(instanceId);
-    INSTANCES.set(instanceId, inst);
-  }
+  const inst = getOrCreateInstance(instanceId);
   await applyInstancePrefsFromDb(instanceId, inst);
 
   const force = opts.force === true;
@@ -637,9 +692,15 @@ async function start(instanceId = "default", opts = {}) {
     );
     return;
   }
+  if (!force && Date.now() < (inst._reconnectBlockedUntil || 0)) {
+    const waitSec = Math.ceil((inst._reconnectBlockedUntil - Date.now()) / 1000);
+    log.warn({ instanceId, waitSec }, "Baileys: start bloqueado temporariamente após conflito 440");
+    return;
+  }
   if (force) {
     inst.manualReconnectRequired = false;
     inst._genericDisconnectCount = 0;
+    inst._reconnectBlockedUntil = 0;
   }
 
   if (inst.status === "conflict" && !force) return;
@@ -966,7 +1027,7 @@ async function start(instanceId = "default", opts = {}) {
 
         // Evita reprocessar: cache em memória (duplicatas) ou banco (recovery)
         if (waId) {
-          if (SEEN_MSG_IDS.has(waId)) continue;
+          if (hasSeenMessage(instanceId, waId)) continue;
           let existing = null;
           if (messageDbCompat.isMessagesTableAvailable()) {
             existing = await prisma.message.findFirst({
@@ -975,7 +1036,7 @@ async function start(instanceId = "default", opts = {}) {
             });
           }
           if (existing) {
-            markMessageProcessed(waId);
+            markMessageProcessed(instanceId, waId);
             continue;
           }
         }
@@ -1007,7 +1068,7 @@ async function start(instanceId = "default", opts = {}) {
           timer.mark("read_composing");
 
           try {
-            const tenantCtx = await resolveTenantContextForInbound({
+            const tenantCtx = await resolveTenantContextGuaranteed({
               phoneDigits: sender.phoneDigits,
               remoteJid: sender.remoteJid,
               instanceId,
@@ -1030,7 +1091,7 @@ async function start(instanceId = "default", opts = {}) {
                 fallbackAttempted: (tenantCtx?.attempts || []).length > 1,
                 reason: tenantCtx?.criterion || "tenant_not_resolved",
               };
-              log.warn(unresolved, "Tenant não encontrado — msg ignorada");
+              log.error(unresolved, "Tenant não encontrado e sem fallback — mensagem retida apenas em auditoria");
               await appendUnresolvedInboundAudit({
                 ...unresolved,
                 textPreview: String(text || "").slice(0, 160),
@@ -1039,6 +1100,18 @@ async function start(instanceId = "default", opts = {}) {
                 direction: "inbound",
               });
               continue;
+            }
+            if (tenantCtx?.forcedFallback) {
+              log.warn(
+                {
+                  instanceId,
+                  tenantId,
+                  traceKey,
+                  jid,
+                  criterion: tenantCtx?.criterion,
+                },
+                "Tenant resolvido por fallback forçado para evitar descarte de mensagem",
+              );
             }
             log.info(
               {
@@ -1060,7 +1133,13 @@ async function start(instanceId = "default", opts = {}) {
               learningKeyFromCustomer,
               baileysChatTarget,
             } = require("../services/customer.service");
-            const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+            let tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+            if (!tenant) {
+              const forcedTenantId = await forceFallbackTenantId(instanceId);
+              if (forcedTenantId && forcedTenantId !== tenantId) {
+                tenant = await prisma.tenant.findUnique({ where: { id: forcedTenantId } });
+              }
+            }
             if (!tenant) {
               log.warn(
                 {
@@ -1073,8 +1152,19 @@ async function start(instanceId = "default", opts = {}) {
                   reason: "tenant_not_found_in_database",
                   pipeline: "tenant_resolve_failed",
                 },
-                "Tenant não existe — msg ignorada",
+                "Tenant não existe mesmo após fallback — mensagem retida em auditoria",
               );
+              await appendUnresolvedInboundAudit({
+                pipeline: "tenant_resolve_failed",
+                source: "notify_upsert",
+                instanceId,
+                jid,
+                remoteJid: sender.remoteJid || null,
+                criterion: "tenant_not_found_in_database_after_fallback",
+                attempts: tenantCtx?.attempts || [],
+                keyId: waId || null,
+                textPreview: String(text || "").slice(0, 160),
+              });
               continue;
             }
             timer.mark("tenant");
@@ -1131,7 +1221,7 @@ async function start(instanceId = "default", opts = {}) {
                 originalTimestamp: resolveBaileysOriginalTimestamp(msg),
               },
             );
-            if (waId) markMessageProcessed(waId);
+            if (waId) markMessageProcessed(instanceId, waId);
             timer.mark("save_msg");
             log.info(
               { instanceId, customerId: customer.id, waMessageId: waId, pipeline: "message_saved" },
@@ -1224,6 +1314,11 @@ async function start(instanceId = "default", opts = {}) {
                 const windowMs = isFast ? messageBuffer.FAST_WINDOW_MS : messageBuffer.DEFAULT_WINDOW_MS;
                 const bufferPhoneKey = customer.phone || `cid:${customer.id}`;
                 const waTarget = baileysChatTarget(customer) || bufferPhoneKey;
+                // Sinaliza imediatamente "digitando" ao entrar na fila do bot
+                // (melhora percepção de resposta mesmo com janela do buffer ativa).
+                try {
+                  await sock.sendPresenceUpdate("composing", jid);
+                } catch {}
                 messageBuffer.enqueue({
                   tenantId,
                   phone: bufferPhoneKey,
@@ -1331,7 +1426,7 @@ async function start(instanceId = "default", opts = {}) {
 
           const identity = resolveInboundSender(msg);
           if (!identity) continue;
-          const tenantCtx = await resolveTenantContextForInbound({
+          const tenantCtx = await resolveTenantContextGuaranteed({
             phoneDigits: identity.phoneDigits,
             remoteJid: identity.remoteJid,
             instanceId,
@@ -1353,10 +1448,21 @@ async function start(instanceId = "default", opts = {}) {
             });
             continue;
           }
+          if (tenantCtx?.forcedFallback) {
+            log.warn(
+              {
+                instanceId,
+                tenantId,
+                jid,
+                criterion: tenantCtx?.criterion,
+              },
+              "History sync: tenant resolvido por fallback forçado",
+            );
+          }
 
           const waId = msg?.key?.id || null;
           if (waId) {
-            if (SEEN_MSG_IDS.has(waId)) continue;
+            if (hasSeenMessage(instanceId, waId)) continue;
             let existing = null;
             if (messageDbCompat.isMessagesTableAvailable()) {
               existing = await prisma.message.findFirst({
@@ -1365,7 +1471,7 @@ async function start(instanceId = "default", opts = {}) {
               });
             }
             if (existing) {
-              markMessageProcessed(waId);
+              markMessageProcessed(instanceId, waId);
               continue;
             }
           }
@@ -1396,7 +1502,7 @@ async function start(instanceId = "default", opts = {}) {
               originalTimestamp: resolveBaileysOriginalTimestamp(msg),
             },
           );
-          if (waId) markMessageProcessed(waId);
+          if (waId) markMessageProcessed(instanceId, waId);
           require("./socket.service").emitConvUpdate(customer.id);
         } catch (e) {
           log.warn({ instanceId, jid, err: e?.message }, "Falha ao processar item de messaging-history.set");
@@ -1501,6 +1607,9 @@ async function start(instanceId = "default", opts = {}) {
             inst.status = "conflict";
             inst._replaced440Count = (inst._replaced440Count || 0) + 1;
             inst.manualReconnectRequired = true;
+            // Bloqueio extra para evitar "ping-pong" entre processos/instâncias.
+            const conflictBackoffMs = Math.max(5 * 60_000, (ENV.BAILEYS_LOCK_TTL_MS || 60_000) * 3);
+            inst._reconnectBlockedUntil = Date.now() + conflictBackoffMs;
             log.warn(
               {
                 instanceId,
@@ -1510,6 +1619,7 @@ async function start(instanceId = "default", opts = {}) {
                 owner: baileysLock.ownerId(),
                 replaceCount: inst._replaced440Count,
                 clearAuthOn440: ENV.BAILEYS_CLEAR_AUTH_ON_440,
+                reconnectBlockedForSec: Math.floor(conflictBackoffMs / 1000),
               },
               "440 detected — sessão substituída. Possíveis causas: outro processo, prod+homolog no mesmo banco, WEB_CONCURRENCY>1. Conecte manualmente no painel.",
             );
@@ -1818,11 +1928,7 @@ async function getAllStatuses() {
 }
 
 function setNotifyNumbers(numbers, instanceId = "default") {
-  let inst = INSTANCES.get(instanceId);
-  if (!inst) {
-    inst = createInstanceData(instanceId);
-    INSTANCES.set(instanceId, inst);
-  }
+  const inst = getOrCreateInstance(instanceId);
   inst.notifyTo = Array.isArray(numbers) ? numbers : [];
 }
 
@@ -1928,8 +2034,11 @@ module.exports = {
     isFreshForBot,
     shouldSendReconnectNotice,
     isReconnectSuppressed,
+    hasSeenMessage,
     resetReconnectCaches: () => {
-      SEEN_MSG_IDS.clear();
+      for (const inst of INSTANCES.values()) {
+        if (inst?.seenMsgs) inst.seenMsgs.clear();
+      }
       RECONNECT_NOTICE_BY_CUSTOMER.clear();
       RECONNECT_BOT_SUPPRESS_UNTIL.clear();
     },

@@ -30,9 +30,15 @@ async function main() {
   }
 
   if (ENV.WEB_CONCURRENCY > 1) {
+    const allowUnsafe = String(process.env.BAILEYS_ALLOW_MULTI_PROCESS || "").toLowerCase() === "true";
+    const msg = "Baileys: WEB_CONCURRENCY>1 causa 440 e disputa de sessão. Defina WEB_CONCURRENCY=1.";
+    if (!allowUnsafe) {
+      log.error({ WEB_CONCURRENCY: ENV.WEB_CONCURRENCY }, `${msg} Encerrando bootstrap para evitar loop de reconexão.`);
+      process.exit(1);
+    }
     log.warn(
       { WEB_CONCURRENCY: ENV.WEB_CONCURRENCY },
-      "Baileys: WEB_CONCURRENCY>1 causa 440. Defina WEB_CONCURRENCY=1.",
+      `${msg} Continuando por override explícito (BAILEYS_ALLOW_MULTI_PROCESS=true).`,
     );
   }
 

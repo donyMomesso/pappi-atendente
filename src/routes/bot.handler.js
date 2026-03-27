@@ -432,6 +432,55 @@ function resolveCatalogSizeFromText(text, sizeOptions = []) {
   return { chosen, remainder };
 }
 
+function applyOrchestratorStepOverride(session, orchestration, text) {
+  if (!session || !orchestration || typeof orchestration !== "object") return false;
+
+  const validSteps = new Set([
+    "MENU",
+    "CHOOSE_PRODUCT_TYPE",
+    "ASK_NAME",
+    "FULFILLMENT",
+    "ADDRESS",
+    "ADDRESS_NUMBER",
+    "ADDRESS_CONFIRM",
+    "ASK_SIZE",
+    "ORDERING",
+    "PAYMENT",
+    "CONFIRM",
+    "DEESCALATION",
+  ]);
+
+  const normalizeStep = (s) => String(s || "").trim().toUpperCase();
+  const direct = normalizeStep(orchestration.overrideStep || orchestration.nextStep || orchestration.step);
+  if (direct && validSteps.has(direct) && direct !== session.step) {
+    session.step = direct;
+    return true;
+  }
+
+  const action = normalizeStep(orchestration.action || orchestration.intent || orchestration.decision);
+  if (action === "CHANGE_ORDER" || action === "RESTART_ORDER" || action === "MODIFY_ORDER") {
+    if (session.step !== "ORDERING") {
+      session.step = "ORDERING";
+      return true;
+    }
+  }
+
+  const t = String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const asksChange =
+    /\bmudar\b/.test(t) && /\bpedido\b/.test(t) ||
+    /\balterar\b/.test(t) && /\bpedido\b/.test(t) ||
+    /\btrocar\b/.test(t) && /\bpedido\b/.test(t);
+  if (asksChange && ["PAYMENT", "CONFIRM"].includes(String(session.step || ""))) {
+    session.step = "ORDERING";
+    return true;
+  }
+
+  return false;
+}
+
 // ── Ponto de entrada — com mutex por usuário ──────────────────
 async function handle({ tenant, wa, customer, text, phone, sessionKey, timer }) {
   const sk = sessionKey != null ? sessionKey : sessionService.discriminatorFromCustomer(customer);
@@ -678,6 +727,29 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
       if (intake?.fulfillment && !session.fulfillment) session.fulfillment = intake.fulfillment;
       if (intake?.size && !session.chosenSize) session.chosenSize = intake.size;
 
+      // Fast-forward agressivo no início do funil:
+      // mensagem completa (tipo+tamanho+fulfillment) não deve cair em "pizza ou lasanha" / "qual tamanho?".
+      const intakeLooksComplete = !!(intake?.productType && intake?.size && intake?.fulfillment);
+      const earlyFunnelSteps = ["MENU", "CHOOSE_PRODUCT_TYPE", "FULFILLMENT", "ASK_SIZE"];
+      if (intakeLooksComplete && earlyFunnelSteps.includes(session.step)) {
+        if (intake.fulfillment === "delivery") {
+          session.step = "ADDRESS";
+          const m = "🛵 Perfeito! Agora me manda o endereço (Rua + Número + Bairro) ou o CEP 📍";
+          await wa.sendText(phone, m);
+          await chatMemory.push(customer.id, "bot", m);
+          await saveSession(tenant.id, sessionKey, session);
+          return;
+        }
+        // Retirada: pula prompts iniciais e tenta ir direto para ORDERING
+        await startOrdering(wa, cw, phone, session, customer, tenant);
+        await saveSession(tenant.id, sessionKey, session);
+        if (session.step === "ORDERING") {
+          await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
+          await saveSession(tenant.id, sessionKey, session);
+        }
+        return;
+      }
+
       // Se já identificou entrega/retirada no texto, reaproveita o handler atual (endereço / startOrdering)
       if (intake?.fulfillment && session.step === "FULFILLMENT") {
         await handleFulfillment(wa, cw, phone, intake.fulfillment === "delivery" ? "delivery" : "takeout", t, session, customer, tenant);
@@ -742,6 +814,12 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer })
   } catch {
     // orquestrador é best-effort
   }
+
+  // Orquestrador pode forçar step em mudanças bruscas de contexto
+  // (ex.: cliente decide mudar pedido durante PAYMENT/CONFIRM).
+  try {
+    applyOrchestratorStepOverride(session, session._orchestration, text);
+  } catch {}
 
   // Comandos PT-BR para iniciar/menu (t já normalizado sem acentos)
   const menuTriggers = ["oi", "ola", "ola!", "menu", "inicio", "comecar", "cardapio", "opa", "e ai", "fala"];
