@@ -987,6 +987,12 @@ async function start(instanceId = "default", opts = {}) {
         );
 
         if (!msg?.message) {
+          const stubType = msg?.messageStubType;
+          const stubParams = msg?.messageStubParameters || [];
+          const isNoSession =
+            stubType === 2 ||
+            stubParams.some((p) => typeof p === "string" && p.toLowerCase().includes("no matching sessions"));
+
           log.warn(
             {
               instanceId,
@@ -994,11 +1000,23 @@ async function start(instanceId = "default", opts = {}) {
               pipeline: "message_parsed",
               parseNote: "stub_only",
               key: msg?.key,
-              messageStubType: msg?.messageStubType,
-              messageStubParameters: msg?.messageStubParameters,
+              messageStubType: stubType,
+              messageStubParameters: stubParams,
             },
             "Mensagem recebida sem payload em msg.message",
           );
+
+          // Sessão Signal corrompida (Bad MAC / No matching sessions):
+          // remove a sessão do auth state para forçar re-negociação na próxima msg.
+          if (isNoSession && jid) {
+            try {
+              await state.keys.set({ session: { [jid]: null } });
+              await saveCreds();
+              log.info({ instanceId, jid }, "Signal session limpa após Bad MAC — será re-negociada");
+            } catch (e) {
+              log.warn({ instanceId, jid, err: e.message }, "Falha ao limpar Signal session");
+            }
+          }
           continue;
         }
 
