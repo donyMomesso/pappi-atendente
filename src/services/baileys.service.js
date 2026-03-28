@@ -941,13 +941,31 @@ async function start(instanceId = "default", opts = {}) {
                     rawWaId: echoIdentity.remoteJid,
                   });
 
+            // Deduplicação: se o bot já salvou esta mensagem (mesmo waMessageId), não salva o echo
+            const echoWaId = msg?.key?.id;
+            if (echoWaId) {
+              const messageDbCompat = require("../lib/message-db-compat");
+              if (messageDbCompat.isMessagesTableAvailable()) {
+                const existing = await prisma.message.findFirst({
+                  where: { waMessageId: echoWaId },
+                  select: { id: true, role: true },
+                }).catch(() => null);
+                if (existing) {
+                  log.info(
+                    { instanceId, keyId: echoWaId, existingRole: existing.role, pipeline: "echo_dedup" },
+                    "Echo fromMe ignorado — mensagem já salva pelo bot",
+                  );
+                  continue;
+                }
+              }
+            }
             const botHandler = require("../routes/bot.handler");
             await botHandler.saveBaileysMessage(
               echoCustomer.phone || echoIdentity.remoteJid,
               echoParsed.displayText,
               echoTenantId,
               "human",
-              msg?.key?.id,
+              echoWaId,
               {
                 customerId: echoCustomer.id,
                 mediaType: echoParsed.mediaType,
