@@ -1430,7 +1430,9 @@ function appendMsgToChat(body, m) {
 
   div.innerHTML = `${senderTag}<p style="margin:0">${esc(m.text || "")}</p><div class="time">${time}${statusIcon}</div>`;
   body.appendChild(div);
-  body.scrollTop = body.scrollHeight;
+  // Só rola ao fundo se o usuário já estava perto do fundo (±120px)
+  const distFromBottom = body.scrollHeight - body.scrollTop - body.clientHeight;
+  if (distFromBottom < 120) body.scrollTop = body.scrollHeight;
 }
 
 // ── FINALIZAR CONVERSA ─────────────────────────────────────────
