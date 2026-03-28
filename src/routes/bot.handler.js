@@ -37,6 +37,7 @@ const botLearning = require("../services/bot-learning.service");
 const audioSynthesis = require("../services/audio-synthesis.service");
 const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
+const CW_ORDER_LINK = "https://app.cardapioweb.com/pappi_pizza?s=atende";
 
 function extractCepDigitsFromString(s) {
   const m = String(s || "").match(/\b(\d{5})-?(\d{3})\b/);
@@ -242,7 +243,7 @@ async function handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session,
   }
 
   // Fallback FAQ gentil
-  const m = "Claro! Me diz sua dúvida em uma frase (ex.: taxa, horário, pagamento, sabores, tamanho).";
+  const m = `Claro! Me diz sua dúvida em uma frase (ex.: taxa, horário, pagamento, sabores, tamanho).\n\nOu, se preferir, peça direto pelo link: ${CW_ORDER_LINK}`;
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
 }
@@ -1159,13 +1160,7 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
   const isVip = (customer.visitCount || 0) > 0;
   const firstName = customer.name.split(" ")[0];
 
-  let menuUrl = "";
-  try {
-    const merchant = await cw.getMerchant();
-    menuUrl = merchant?.url || merchant?.website || merchant?.catalog_url || "";
-  } catch {}
-
-  const urlLine = menuUrl ? `\n📱 Cardápio: ${menuUrl}` : "";
+  const urlLine = `\n🛒 Pedido rápido: ${CW_ORDER_LINK}`;
   const leadLine = session.isLeadOrder
     ? "\n\n⚠️ _Estamos fechados no momento. Você pode deixar seu pedido — entraremos em contato quando abrirmos!_"
     : "";
@@ -1779,11 +1774,21 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     });
     session.cart = priced.items;
     if (priced.hasUnpriced) {
-      const warn =
-        "⚠️ Não consegui fechar o *preço* desses itens no cardápio (confere tamanho e sabor?). " +
-        "Me diz de novo em uma linha: *tamanho + sabor + quantidade* ou fala com um atendente pra fechar o valor.";
-      await wa.sendText(phone, warn);
-      await chatMemory.push(customer.id, "bot", warn);
+      session._orderingRetries = (session._orderingRetries || 0) + 1;
+      if (session._orderingRetries >= 2) {
+        const warn =
+          `⚠️ Não estou conseguindo fechar o preço pelo chat. ` +
+          `Pelo nosso link é mais fácil e rápido 👇\n${CW_ORDER_LINK}`;
+        await wa.sendText(phone, warn);
+        await chatMemory.push(customer.id, "bot", warn);
+        session._orderingRetries = 0;
+      } else {
+        const warn =
+          "⚠️ Não consegui fechar o *preço* desses itens no cardápio (confere tamanho e sabor?). " +
+          `Me diz de novo: *tamanho + sabor* — ou peça direto pelo link 👇\n${CW_ORDER_LINK}`;
+        await wa.sendText(phone, warn);
+        await chatMemory.push(customer.id, "bot", warn);
+      }
       session.step = "ORDERING";
       await saveSession(tenant.id, sessionKey, session);
       return;
@@ -1885,10 +1890,11 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   const isLead = !!session.isLeadOrder;
 
   if (!isLead && calc.expectedTotal <= 0 && session.cart?.length) {
-    await wa.sendText(
-      phone,
-      "⚠️ O total ficou *R$ 0,00* — não envio pedido sem valor confirmado no cardápio. Confirma o item/tamanho ou fala com um atendente.",
-    );
+    const warn =
+      `⚠️ O total ficou *R$ 0,00* — não consigo enviar sem valor confirmado. ` +
+      `Prefere fazer o pedido direto pelo nosso link? É rápido 👇\n${CW_ORDER_LINK}`;
+    await wa.sendText(phone, warn);
+    await chatMemory.push(customer.id, "bot", warn);
     session.step = "ORDERING";
     await saveSession(tenant.id, sessionKey, session);
     return;
