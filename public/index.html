@@ -258,6 +258,9 @@
     .options-head h4{font-size:15px;font-weight:700;margin:0}
     .options-head button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1}
     .options-body{overflow-y:auto;flex:1;padding:14px}
+    .og-search{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:8px;padding:7px 10px;border:1px solid var(--border);margin-bottom:12px}
+    .og-search svg{color:#aaa;flex-shrink:0}
+    .og-search input{border:none;background:transparent;font-size:13px;outline:none;width:100%;color:#333}
     .og-section{margin-bottom:16px}
     .og-title{font-size:13px;font-weight:700;color:#333;margin-bottom:6px;display:flex;align-items:center;gap:6px}
     .og-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600}
@@ -2746,12 +2749,20 @@ function renderOptionsBody() {
   const groups = (pendingProduct.option_groups||[])
     .filter(og => og.status !== "INACTIVE" && og.options?.length)
     .sort((a,b) => (b.minimum_quantity>0?1:0) - (a.minimum_quantity>0?1:0));
-  body.innerHTML = groups.map(og => {
+  // Mostra busca só se houver algum grupo com 5+ opções
+  const hasMany = groups.some(og => og.options.filter(o=>o.status!=="INACTIVE").length >= 5);
+  const searchHtml = hasMany ? `
+    <div class="og-search">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input id="ogSearchInput" placeholder="Pesquisar sabor..." oninput="filterOgOptions(this.value)" autocomplete="off"/>
+    </div>` : "";
+
+  body.innerHTML = searchHtml + groups.map(og => {
     const isSingle = og.choice_type === "SINGLE" || og.maximum_quantity === 1;
     const required = og.minimum_quantity > 0;
     const selected = pendingSelections[og.id] || [];
     return `
-      <div class="og-section">
+      <div class="og-section" data-og-id="${og.id}">
         <div class="og-title">
           ${esc(og.name)}
           <span class="og-badge ${required?"og-required":"og-optional"}">${required?"Obrigatório":"Opcional"}</span>
@@ -2760,7 +2771,7 @@ function renderOptionsBody() {
         ${og.options.filter(o=>o.status!=="INACTIVE").map(opt => {
           const isSelected = selected.includes(opt.id);
           return `
-          <div class="og-option${isSelected?" selected":""}" onclick="toggleOption(${og.id},${opt.id},${isSingle},${og.maximum_quantity})">
+          <div class="og-option${isSelected?" selected":""}" data-opt-name="${esc(opt.name.toLowerCase())}" onclick="toggleOption(${og.id},${opt.id},${isSingle},${og.maximum_quantity})">
             <input type="${isSingle?"radio":"checkbox"}" ${isSelected?"checked":""} style="accent-color:var(--purple)" onclick="event.stopPropagation()"/>
             <div class="og-option-info">
               <div class="og-option-name">${esc(opt.name)}</div>
@@ -2771,6 +2782,21 @@ function renderOptionsBody() {
         }).join("")}
       </div>`;
   }).join("");
+}
+
+function filterOgOptions(q) {
+  const term = (q || "").toLowerCase().trim();
+  document.querySelectorAll("#optionsBody .og-section").forEach(section => {
+    let anyVisible = false;
+    section.querySelectorAll(".og-option").forEach(el => {
+      const name = el.dataset.optName || "";
+      const show = !term || name.includes(term);
+      el.style.display = show ? "" : "none";
+      if (show) anyVisible = true;
+    });
+    // Esconde a seção inteira se nenhuma opção bater
+    section.style.display = anyVisible ? "" : "none";
+  });
 }
 
 function toggleOption(groupId, optionId, isSingle, maxQty) {
