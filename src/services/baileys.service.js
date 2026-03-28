@@ -1369,7 +1369,7 @@ async function start(instanceId = "default", opts = {}) {
             const canInvokeBot =
               shouldInvokeBot &&
               isFreshForBot(msg) &&
-              (appendFreshAllowed || (!isAppend && !isReconnectSuppressed(reconnectIdentityKey)));
+              (appendFreshAllowed || !isAppend);
             if (appendFreshAllowed) {
               log.info(
                 { instanceId, customerId: customer.id, identityKey: reconnectIdentityKey, pipeline: "append_fresh_release" },
