@@ -984,23 +984,16 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
     case "MENU":
     case "CHOOSE_PRODUCT_TYPE":
     case "ASK_SIZE":
-      // Funil solto — a IA assume a conversa natural (tipo, tamanho, sabor em uma troca).
-      // Garante catálogo na sessão antes de entrar em ORDERING.
       if (!session.catalog) {
         try {
-          const rawCat = await cw.getCatalog();
-          const fullCat = rawCat?.catalog || rawCat?.data || rawCat;
-          session.catalog = fullCat;
-          session.filteredCatalog = fullCat;
-          const { sizes } = filterCatalogByProductType(fullCat, session.productType || "pizza");
-          session.sizeOptions = sizes.length ? sizes : ["Broto", "Grande", "Gigante"];
+          const rawCatalog = await cw.getCatalog();
+          session.catalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
+          session.filteredCatalog = session.catalog;
         } catch {}
       }
       session.step = "ORDERING";
       session.orderHistory = session.orderHistory || [];
-      if (!session.orderHistory.length) {
-        session.orderHistory.push({ role: "customer", text });
-      }
+      if (!session.orderHistory.length) session.orderHistory.push({ role: "customer", text });
       await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
       break;
     case "ASK_NAME":
@@ -1565,7 +1558,7 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
 
 // ── ADDRESS_CONFIRM ───────────────────────────────────────────
 async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, tenant) {
-  if (t.includes("corrig") || t.includes("errado") || text === "change_addr") {
+  if (t.includes("corrig") || t.includes("errado") || t.includes("outro") || text === "change_addr") {
     session.step = "ADDRESS";
     delete session.address;
     session.addressBuffer = [];
@@ -1631,59 +1624,16 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
   const fullCatalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
   session.catalog = fullCatalog;
 
-  const productType = session.productType || "pizza";
-  const { catalog: filteredCatalog, sizes } = filterCatalogByProductType(fullCatalog, productType);
-  session.filteredCatalog = filteredCatalog;
-  session.sizeOptions = sizes;
+  const prefix = session.fulfillment === "takeout" ? "🏪 Beleza, retirada! " : session.fulfillment === "delivery" ? "🛵 Pronto! " : "";
 
-  const prefix =
-    session.fulfillment === "takeout"
-      ? "🏪 Beleza, retirada! ⏱️ 30 a 40 min. "
-      : session.fulfillment === "delivery"
-        ? "🛵 Pronto! "
-        : "";
-
-  if (!sizes.length) {
-    session.step = "ORDERING";
-    session.orderHistory = session.orderHistory || [];
-    if (session.initialIntakeText && session.orderHistory.length === 0) {
-      session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
-    }
-    const m = `${prefix}Me diz seu pedido ${productType === "lasanha" ? "🍝" : "🍕"} (tamanho + sabor)`;
-    await wa.sendText(phone, m);
-    await chatMemory.push(customer.id, "bot", m);
-    return;
+  session.step = "ORDERING";
+  session.orderHistory = session.orderHistory || [];
+  if (session.initialIntakeText && session.orderHistory.length === 0) {
+    session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
   }
 
-  const normalizedChosenSize = resolveCatalogSizeFromText(session.chosenSize, sizes).chosen;
-  if (normalizedChosenSize) session.chosenSize = normalizedChosenSize;
-
-  // FASE 2: se já detectamos tamanho no intake, não perguntar novamente.
-  if (session.chosenSize && sizes.some((s) => String(s).toLowerCase() === String(session.chosenSize).toLowerCase())) {
-    session.step = "ORDERING";
-    session.orderHistory = session.orderHistory || [];
-    if (session.initialIntakeText && session.orderHistory.length === 0) {
-      session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
-    }
-    metaCapi.trackViewContent({ customer, tenantName: _tenant?.name }).catch(() => {});
-    const isVip = (customer.visitCount || 0) > 0;
-    const last = customer.lastOrderSummary;
-    const m =
-      isVip && last
-        ? `Me diz o sabor 🍕\n_(da última vez: ${last})_\n\nQuer o mesmo ou vai mudar?`
-        : productType === "lasanha"
-          ? `Qual sabor de lasanha? 🍝`
-          : `Me diz o sabor da pizza 🍕\n_(ou meia a meia: ex: meia Calabresa meia Frango)_`;
-    await wa.sendText(phone, m);
-    await chatMemory.push(customer.id, "bot", m);
-    return;
-  }
-
-  session.step = "ASK_SIZE";
-  const tipo = productType === "lasanha" ? "lasanha" : "pizza";
-  const m = `${prefix}Qual tamanho de ${tipo}? Escolha uma opção 👇`;
-  const buttons = sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s }));
-  await wa.sendButtons(phone, m, buttons);
+  const m = `${prefix}Me diz seu pedido completo 🍕 (tamanho e sabores)`;
+  await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
 }
 
