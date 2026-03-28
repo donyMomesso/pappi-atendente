@@ -186,7 +186,8 @@ ${catalogText}
 REGRAS DE PEDIDO:
 - Se o cliente perguntar "qual pizza tem", "quais sabores", "o que tem" — LISTE os sabores/itens do cardápio acima.
 - "meia" ou "meio" = meia pizza. GERE SEMPRE UM ÚNICO ITEM com name="½ Sabor1 / ½ Sabor2", quantity=1. NUNCA dois itens separados para meio a meio.
-- Use o cardápio para tamanhos: 8/12/16 fatias = Broto/Média/Grande. Tamanho padrão se não informado: Média ou o primeiro disponível.
+- Tamanhos Pappi: Broto (4 pedaços), Grande (8 pedaços), Gigante (16 pedaços). Se o cliente não informar, pergunte tamanho e sabor numa mesma mensagem curta.
+- Não calcule preços — apenas identifique os itens com nomes EXATOS do cardápio. Os valores serão calculados pela API.
 - MATCH POR INGREDIENTES: peperoni/pepperoni, frango com cream cheese/crem cheese/catupiry = Frango com Catupiry, calab/calabresa, marguerita, moda=Moda da Casa. Sempre mapeie para o nome EXATO do cardápio.
 - Se não houver match exato, sugira as 2-3 opções MAIS PRÓXIMAS do cardápio (por ingredientes). NUNCA responda "Pode repetir" — sempre interprete ou sugira alternativas.
 - Quando o cliente confirmar ("isso", "pode ser", "sim", "ok"), defina done:true e preencha items com nomes EXATOS do cardápio.

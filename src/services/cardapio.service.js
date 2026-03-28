@@ -305,11 +305,121 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
     return intervals.some(([s, e]) => cur >= toMin(s) && cur < toMin(e));
   }
 
+  /**
+   * Solicita ao CW um carrinho pré-preenchido com preços oficiais.
+   * POST /api/partner/v1/merchant/prefilled_order
+   *
+   * Contrato de resposta mínimo garantido:
+   *   { link: string, order_amount: number, delivery_fee: number }
+   * O array `items` com unit_price pode ou não vir — tratado defensivamente.
+   *
+   * @param {{ items, fulfillment, address, customerPhone }} opts
+   */
+  async function createPrefilledOrder({ items, fulfillment, address, customerPhone }) {
+    // Resolve IDs de produto a partir do catálogo em cache (sem nova chamada de rede)
+    const catalog = await getCatalog();
+    const allProducts = (
+      catalog?.categories ||
+      catalog?.data?.categories ||
+      catalog?.sections ||
+      (Array.isArray(catalog) ? catalog : [])
+    ).flatMap((c) => c.items || c.products || []);
+
+    const normName = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const cwItems = (items || []).map((line) => {
+      const linNorm = normName(line.name);
+      // Tenta match exato primeiro, depois por prefixo de palavra
+      const matched =
+        allProducts.find((p) => normName(p.name) === linNorm) ||
+        allProducts.find((p) => {
+          const pn = normName(p.name);
+          return linNorm.includes(pn.split(" ")[0]) || pn.includes(linNorm.split(" ")[0]);
+        });
+
+      const cwItem = {
+        name: String(line.name),
+        quantity: Math.max(1, parseInt(line.quantity, 10) || 1),
+      };
+      if (matched?.id) cwItem.product_id = String(matched.id);
+
+      if (Array.isArray(line.addons) && line.addons.length) {
+        const groups = matched?.option_groups || [];
+        cwItem.options = line.addons.map((a) => {
+          const opt = { name: String(a.name), quantity: Math.max(1, a.quantity || 1) };
+          // Tenta resolver option_id dentro dos grupos do produto
+          for (const g of groups) {
+            const found = (g.options || []).find(
+              (o) => normName(o.name) === normName(a.name),
+            );
+            if (found?.id) { opt.option_id = String(found.id); break; }
+          }
+          return opt;
+        });
+      }
+      return cwItem;
+    });
+
+    const rawPhone = String(customerPhone || "").replace(/\D/g, "");
+    const phone11 = rawPhone.startsWith("55") ? rawPhone.slice(2) : rawPhone;
+
+    const payload = {
+      order_type: fulfillment === "delivery" ? "delivery" : "takeout",
+      customer: { phone: phone11.slice(-11).padStart(11, "0") },
+      items: cwItems,
+    };
+
+    if (fulfillment === "delivery" && address?.street) {
+      payload.delivery_address = {
+        street: address.street || "",
+        number: String(address.number || ""),
+        neighborhood: address.neighborhood || "",
+        city: address.city || "",
+        state: address.state || "SP",
+        postal_code: (address.zipCode || "").replace(/\D/g, "").slice(0, 8),
+      };
+      if (Number.isFinite(address.lat) && Number.isFinite(address.lng)) {
+        payload.delivery_address.coordinates = {
+          latitude: address.lat,
+          longitude: address.lng,
+        };
+      }
+    }
+
+    return withRetry(
+      async () => {
+        const resp = await fetchWithTimeout(
+          `${base}/api/partner/v1/merchant/prefilled_order`,
+          { method: "POST", headers: headersPartner(), body: JSON.stringify(payload) },
+        );
+        const data = await safeJson(resp);
+        if (!resp.ok) {
+          const msg = Array.isArray(data?.errors)
+            ? data.errors.join(" | ")
+            : JSON.stringify(data);
+          const err = new Error(`CW prefilled_order ${resp.status}: ${msg}`);
+          err.status = resp.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      },
+      { maxAttempts: 2, baseDelayMs: 500, label: `CW:${tenantId}:prefilled_order` },
+    );
+  }
+
   return {
     getMerchant,
     getCatalog,
     getPaymentMethods,
     createOrder,
+    createPrefilledOrder,
     cancelOrder,
     changeStatus,
     getDeliveryFee,

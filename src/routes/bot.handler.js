@@ -982,10 +982,26 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
 
   switch (session.step) {
     case "MENU":
-      await sendProductTypePrompt(wa, phone, customer, session);
-      break;
     case "CHOOSE_PRODUCT_TYPE":
-      await handleChooseProductType(wa, cw, phone, text, t, session, customer, tenant);
+    case "ASK_SIZE":
+      // Funil solto — a IA assume a conversa natural (tipo, tamanho, sabor em uma troca).
+      // Garante catálogo na sessão antes de entrar em ORDERING.
+      if (!session.catalog) {
+        try {
+          const rawCat = await cw.getCatalog();
+          const fullCat = rawCat?.catalog || rawCat?.data || rawCat;
+          session.catalog = fullCat;
+          session.filteredCatalog = fullCat;
+          const { sizes } = filterCatalogByProductType(fullCat, session.productType || "pizza");
+          session.sizeOptions = sizes.length ? sizes : ["Broto", "Grande", "Gigante"];
+        } catch {}
+      }
+      session.step = "ORDERING";
+      session.orderHistory = session.orderHistory || [];
+      if (!session.orderHistory.length) {
+        session.orderHistory.push({ role: "customer", text });
+      }
+      await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
       break;
     case "ASK_NAME":
       await handleAskName(wa, cw, phone, text, session, customer, tenant, timer);
@@ -1005,9 +1021,6 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
     case "DELIVERY_COVERAGE_DECISION":
       await handleDeliveryCoverageDecision(wa, cw, phone, text, t, session, customer, tenant);
       break;
-    case "ASK_SIZE":
-      await handleAskSize(wa, cw, phone, text, session, customer, tenant);
-      break;
     case "ORDERING":
       await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
       break;
@@ -1018,7 +1031,13 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
       await handleConfirm(wa, cw, phone, text, t, session, customer, tenant, sessionKey);
       break;
     default:
-      await sendProductTypePrompt(wa, phone, customer, session);
+      // Qualquer step desconhecido cai direto em ORDERING — sem funil de botões
+      session.step = "ORDERING";
+      session.orderHistory = session.orderHistory || [];
+      if (!session.orderHistory.length) {
+        session.orderHistory.push({ role: "customer", text });
+      }
+      await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
   }
 
   if (session._cleared) {
@@ -1768,43 +1787,85 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
 
   if (result.done && result.items?.length > 0) {
     if (result.notes) session.notes = result.notes;
-    const priced = cartPricing.enrichCartFromCatalog(result.items, catalog, {
-      chosenSize: session.chosenSize,
-      productType: session.productType,
-    });
-    session.cart = priced.items;
-    if (priced.hasUnpriced) {
-      session._orderingRetries = (session._orderingRetries || 0) + 1;
-      if (session._orderingRetries >= 2) {
-        const warn =
-          `⚠️ Não estou conseguindo fechar o preço pelo chat. ` +
-          `Pelo nosso link é mais fácil e rápido 👇\n${CW_ORDER_LINK}`;
-        await wa.sendText(phone, warn);
-        await chatMemory.push(customer.id, "bot", warn);
-        session._orderingRetries = 0;
+
+    // ── Delega precificação ao CW via prefilled_order ─────────
+    // O CW é a Fonte da Verdade para totais; o cálculo local é apenas fallback de emergência.
+    const log = logger.child({ service: "bot.ordering" });
+    try {
+      const prefilled = await cw.createPrefilledOrder({
+        items: result.items,
+        fulfillment: session.fulfillment || null,
+        address: session.address || null,
+        customerPhone: customer.phone,
+      });
+
+      // Se o CW devolveu items detalhados com unit_price, atualiza o carrinho com eles.
+      // Caso contrário, mantém os itens da IA (preço local 0) — o total oficial está em cwPrefilledTotal.
+      if (Array.isArray(prefilled?.items) && prefilled.items.length > 0) {
+        session.cart = prefilled.items.map((cwItem, i) => {
+          const aiItem = result.items[i] || result.items[0] || {};
+          return {
+            ...aiItem,
+            id: cwItem.product_id || cwItem.id || aiItem.id,
+            name: cwItem.name || aiItem.name,
+            quantity: Math.max(1, parseInt(aiItem.quantity, 10) || 1),
+            unit_price: round2(parseFloat(cwItem.unit_price ?? cwItem.price ?? 0)),
+            _pricedFromCW: true,
+          };
+        });
       } else {
+        // CW confirmou o pedido mas não detalhou items — mantém os itens da IA
+        session.cart = result.items.map((i) => ({ ...i, _pricedFromCW: false }));
+      }
+
+      // Total e taxa oficiais do CW
+      if (Number.isFinite(prefilled?.order_amount) && prefilled.order_amount > 0) {
+        session.cwPrefilledTotal = round2(prefilled.order_amount);
+      }
+      if (Number.isFinite(prefilled?.delivery_fee)) {
+        session.deliveryFee = round2(prefilled.delivery_fee);
+      }
+      if (prefilled?.link) session.cwPrefilledLink = prefilled.link;
+
+      log.info({ tenantId: tenant.id, total: session.cwPrefilledTotal }, "createPrefilledOrder OK");
+    } catch (prefilledErr) {
+      // Fallback: tenta pricing local via catálogo
+      log.warn(
+        { tenantId: tenant.id, err: prefilledErr.message },
+        "createPrefilledOrder falhou — fallback para catálogo local",
+      );
+      const priced = cartPricing.enrichCartFromCatalog(result.items, catalog, {
+        chosenSize: session.chosenSize,
+        productType: session.productType,
+      });
+      session.cart = priced.items;
+
+      if (priced.hasUnpriced) {
+        // Ambos falharam — envia link direto e aguarda nova tentativa
         const warn =
-          "⚠️ Não consegui fechar o *preço* desses itens no cardápio (confere tamanho e sabor?). " +
-          `Me diz de novo: *tamanho + sabor* — ou peça direto pelo link 👇\n${CW_ORDER_LINK}`;
+          `⚠️ Estou com dificuldade de fechar o preço agora. ` +
+          `Faça o pedido diretamente pelo link (é rápido!) 👇\n${CW_ORDER_LINK}`;
         await wa.sendText(phone, warn);
         await chatMemory.push(customer.id, "bot", warn);
+        session.step = "ORDERING";
+        await saveSession(tenant.id, sessionKey, session);
+        return;
       }
-      session.step = "ORDERING";
-      await saveSession(tenant.id, sessionKey, session);
-      return;
     }
 
+    // ── Coleta fulfillment se ainda não temos ─────────────────
     if (!session.fulfillment) {
       session.step = "FULFILLMENT";
-      const msg = "Anotado! Pra fechar, deseja entrega ou retirada?";
+      const msg = "Anotado! Deseja entrega ou retirada? 👇";
       await wa.sendButtons(phone, msg, [
         { id: "delivery", title: "🚚 Entrega" },
-        { id: "takeout", title: "🏪 Retirada" },
+        { id: "takeout",  title: "🏪 Retirada" },
       ]);
       await chatMemory.push(customer.id, "bot", msg);
       return;
     }
 
+    // ── Coleta endereço se delivery e ainda não temos ─────────
     if (session.fulfillment === "delivery" && !session.address) {
       session.step = "ADDRESS";
       const msg = "🛵 Quase lá! Me manda o endereço completo ou CEP pra calcular a taxa:";
@@ -1813,20 +1874,26 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
       return;
     }
 
+    // Pagamento já veio no texto inicial ("quero pizza, pago no pix")
     if (session.paymentMethodName) {
       await handlePayment(wa, phone, session.paymentMethodName, session, customer, tenant);
       return;
     }
 
+    // ── Exibe resumo com total oficial do CW e pede pagamento ─
     session.step = "PAYMENT";
-    const prev = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
-    const linesOnly = cartSummary(session.cart, { omitTotal: true });
+    const totalParaExibir = session.cwPrefilledTotal
+      ? session.cwPrefilledTotal
+      : calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: 0 }).expectedTotal;
+
     const entregaLinha =
       session.fulfillment === "delivery"
         ? `\n🛵 Taxa entrega: *R$ ${(session.deliveryFee || 0).toFixed(2)}*`
         : "";
+
     const payMsg =
-      `💰 *Prévia (cardápio)*\n${linesOnly}${entregaLinha}\n\n✅ *Total: R$ ${prev.expectedTotal.toFixed(2)}*\n\n` +
+      `💰 *Resumo do pedido*\n${cartSummary(session.cart, { omitTotal: true })}${entregaLinha}\n\n` +
+      `✅ *Total: R$ ${totalParaExibir.toFixed(2)}*\n\n` +
       `E o pagamento vai ser como? 💳\n\n${listPayments(tenant.id)}`;
     await wa.sendText(phone, payMsg);
     await chatMemory.push(customer.id, "bot", payMsg);
@@ -1845,7 +1912,11 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
   session.paymentMethodName = mapped.name;
   session.step = "CONFIRM";
 
-  const calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
+  // Usa cwPrefilledTotal como Fonte da Verdade; calculate() apenas para estrutura do breakdown
+  let calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0 });
+  if (session.cwPrefilledTotal && session.cwPrefilledTotal > 0) {
+    calc = { ...calc, expectedTotal: round2(session.cwPrefilledTotal) };
+  }
   session.calc = calc;
 
   // ── CAPI: InitiateCheckout ────────────────────────────────
@@ -1856,8 +1927,9 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
   const addrLine =
     session.fulfillment === "delivery" && session.address ? `📍 *Endereço:* ${session.address.formatted}\n` : "";
   const feeLine = session.deliveryFee ? `🛵 *Taxa:* R$ ${session.deliveryFee.toFixed(2)}\n` : "";
+  const totalLine = `💰 *Total: R$ ${calc.expectedTotal.toFixed(2)}*\n`;
 
-  const m = `📋 *Resumo do pedido:*\n\n${cartSummary(session.cart)}\n${feeLine}${addrLine}💳 *Pagamento:* ${mapped.name}\n\nConfirmar?`;
+  const m = `📋 *Resumo do pedido:*\n\n${cartSummary(session.cart, { omitTotal: true })}\n${feeLine}${addrLine}${totalLine}\n💳 *Pagamento:* ${mapped.name}\n\nConfirmar?`;
   await wa.sendButtons(phone, m, [
     { id: "CONFIRMAR", title: "✅ Confirmar" },
     { id: "CANCELAR", title: "❌ Cancelar" },
@@ -1873,32 +1945,13 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     return;
   }
 
-  const catalogForPrice =
-    session.filteredCatalog &&
-    (session.filteredCatalog?.categories?.length || session.filteredCatalog?.sections?.length)
-      ? session.filteredCatalog
-      : session.catalog;
-  if (session.cart?.length && catalogForPrice) {
-    const rep = cartPricing.enrichCartFromCatalog(session.cart, catalogForPrice, {
-      chosenSize: session.chosenSize,
-      productType: session.productType,
-    });
-    if (!rep.hasUnpriced) session.cart = rep.items;
-  }
-
+  // Preços já foram validados pelo CW via createPrefilledOrder em handleOrdering.
+  // cwPrefilledTotal é a Fonte da Verdade; calculate() fornece apenas o breakdown por item.
   let calc = calculate({ items: session.cart, deliveryFee: session.deliveryFee || 0, discount: session.discount || 0 });
-  const isLead = !!session.isLeadOrder;
-
-  if (!isLead && calc.expectedTotal <= 0 && session.cart?.length) {
-    const warn =
-      `⚠️ O total ficou *R$ 0,00* — não consigo enviar sem valor confirmado. ` +
-      `Prefere fazer o pedido direto pelo nosso link? É rápido 👇\n${CW_ORDER_LINK}`;
-    await wa.sendText(phone, warn);
-    await chatMemory.push(customer.id, "bot", warn);
-    session.step = "ORDERING";
-    await saveSession(tenant.id, sessionKey, session);
-    return;
+  if (session.cwPrefilledTotal && session.cwPrefilledTotal > 0) {
+    calc = { ...calc, expectedTotal: round2(session.cwPrefilledTotal) };
   }
+  const isLead = !!session.isLeadOrder;
 
   await wa.sendText(phone, "⏳ Processando seu pedido...");
 
