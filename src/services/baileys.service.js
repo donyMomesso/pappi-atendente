@@ -284,6 +284,7 @@ function extractPhoneDigitsFromMessage(msg) {
     ];
 
     for (const c of candidates) {
+      if (c && typeof c === "string" && c.endsWith("@lid")) continue;
       const digits = normalizeToDigits(c);
       if (digits.length >= 10 && digits.length <= 15) return digits;
     }
