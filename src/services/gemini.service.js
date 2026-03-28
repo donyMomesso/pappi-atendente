@@ -193,6 +193,7 @@ REGRAS DE PEDIDO:
 - Quando o cliente confirmar ("isso", "pode ser", "sim", "ok"), defina done:true e preencha items com nomes EXATOS do cardápio.
 - Se o cliente mandar *tudo de uma vez* (tamanho, sabores, bebida, observação), responda em até 4 linhas: resumo + confirmação; defina done:true quando o pedido estiver claro.
 - Os valores em unit_price no JSON são *só placeholder* — o servidor recalcula pelo cardápio; use nomes fiéis ao cardápio.
+- SABORES COMO COMPLEMENTO: Se o cardápio tiver um item base (ex: "Pizza Gigante") e os sabores (ex: "Calabresa") forem opções/complementos desse item, coloque o item base em "name" e os sabores dentro do array "addons".
 - OBSERVAÇÕES: se o cliente pedir algo especial (ex: "sem cebola", "bem passado", "sem azeitona"), capture no campo "notes" do JSON.
 - Faça UMA sugestão de upsell (borda ou bebida) de forma natural.
 - Seja conciso. Máx 5-6 linhas. Emojis com moderação.
@@ -203,7 +204,7 @@ CONVERSA:
 ${safeHistory.map((m) => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${m.text}`).join("\n")}
 
 Pappi (responda APENAS JSON VÁLIDO. Formate como JSON minificado em UMA ÚNICA LINHA. NUNCA use aspas duplas dentro do texto do reply, use aspas simples. NUNCA use quebras de linha reais, use \n se precisar):
-{"reply":"...","items":[{"name":"nome do cardápio","quantity":1,"unit_price":0.00,"addons":[{"name":"sabor","quantity":1,"unit_price":0}]}],"done":false}`;
+{"reply":"...","items":[{"name":"Pizza Gigante","quantity":1,"unit_price":0.00,"addons":[{"name":"Calabresa","quantity":1,"unit_price":0}]}],"done":false}`;
 
     const { text: rawText } = await _generateWithFallback(prompt, { temperature: 0.65, maxTokens: 900 });
     const raw = rawText.replace(/```[\w]*\n?|```/g, "").trim();

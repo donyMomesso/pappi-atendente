@@ -1212,14 +1212,10 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
   await chatMemory.push(customer.id, "bot", greeting);
   session._lastGreetingAt = Date.now();
 
-  // Bloco 2 — Escolha direta (D.I.S.C.: Dominância — objetivo, claro)
-  session.step = "CHOOSE_PRODUCT_TYPE";
-  const choiceMsg = "O que vai ser hoje? Escolha uma opção 👇";
-  await wa.sendButtons(phone, choiceMsg, [
-    { id: "pizza", title: "🍕 Pizza" },
-    { id: "lasanha", title: "🍝 Lasanha" },
-  ]);
-  await chatMemory.push(customer.id, "bot", choiceMsg);
+  session.step = "ORDERING";
+  const promptMsg = "Como posso te ajudar hoje? (Pode me dizer o seu pedido completo 🍕)";
+  await wa.sendText(phone, promptMsg);
+  await chatMemory.push(customer.id, "bot", promptMsg);
 }
 
 // Pergunta Pizza ou Lasanha
@@ -1585,37 +1581,24 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
   await startOrdering(wa, cw, phone, session, customer, tenant);
 }
 
-async function handleDeliveryCoverageDecision(wa, cw, phone, text, t, session, customer, tenant) {
-  const lower = String(text || "").toLowerCase();
-  const chooseAddress = text === "oor_change_addr" || lower.includes("outro endereco") || lower.includes("outro endereço");
-  const chooseTakeout =
-    text === "oor_takeout" ||
-    t.includes("retirada") ||
-    t.includes("retirar") ||
-    t.includes("buscar") ||
-    lower === "takeout";
-
-  if (chooseTakeout) {
-    session.fulfillment = "takeout";
-    delete session.address;
-    delete session.deliveryFee;
-    await startOrdering(wa, cw, phone, session, customer, tenant);
-    return;
-  }
-
-  if (chooseAddress) {
+async function handleDeliveryCoverageDecision(wa, cw, phone, text, _t, session, customer, tenant) {
+  const tCov = text.toLowerCase();
+  if (tCov === "change_addr" || tCov.includes("outro") || tCov.includes("mudar") || tCov.includes("errado")) {
     session.step = "ADDRESS";
-    delete session.address;
-    delete session.deliveryFee;
-    session.addressBuffer = [];
-    session.addressFailCount = 0;
-    const m = "Tudo bem! Me manda outro endereço (Rua + Número + Bairro) ou o CEP 📍";
-    await wa.sendText(phone, m);
-    await chatMemory.push(customer.id, "bot", m);
-    return;
+    await wa.sendText(phone, "Certo! Por favor, digite o endereço novamente (dica: inclua o bairro ou o CEP para ajudar o GPS 📍):");
+  } else if (tCov === "takeout" || tCov.includes("retira") || tCov.includes("loja")) {
+    session.fulfillment = "takeout";
+    session.deliveryFee = 0;
+    session.step = "ORDERING";
+    await wa.sendText(phone, "Mudado para retirada na loja! 🏪");
+    await handleOrdering(wa, cw, phone, "concluir pedido", session, customer, tenant, null);
+  } else {
+    // Se o cliente tentou explicar algo (ex: "sempre peço aí"), handoff imediato!
+    session.step = "HANDOFF";
+    const handoffMsg = "Entendi! Como o GPS do sistema bloqueou a rua automaticamente, vou chamar um atendente humano aqui da loja para liberar seu pedido e verificar a taxa agora mesmo. 👨‍💼 Só um instante!";
+    await wa.sendText(phone, handoffMsg);
+    await chatMemory.push(customer.id, "bot", handoffMsg);
   }
-
-  await sendOutOfRangePrompt(wa, phone, customer, session);
 }
 
 // ── startOrdering ─────────────────────────────────────────────
