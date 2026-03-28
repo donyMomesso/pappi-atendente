@@ -1772,6 +1772,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   await chatMemory.push(customer.id, "bot", result.reply);
 
   if (result.done && result.items?.length > 0) {
+    if (result.notes) session.notes = result.notes;
     const priced = cartPricing.enrichCartFromCatalog(result.items, catalog, {
       chosenSize: session.chosenSize,
       productType: session.productType,
@@ -2105,13 +2106,14 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   const orderNum = order.id.slice(-6).toUpperCase();
   const addrLine = session.address ? `\n📍 ${session.address.formatted}` : "";
 
+  const cartOpts = { notes: session.notes || "" };
   let m;
   if (isLead) {
-    m = `✅ *Pedido #${orderNum} anotado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n\nEntraremos em contato quando abrirmos. Obrigado! 🍕`;
+    m = `✅ *Pedido #${orderNum} anotado!*\n\n${cartSummary(session.cart, cartOpts)}\n💳 ${session.paymentMethodName}${addrLine}\n\nEntraremos em contato quando abrirmos. Obrigado! 🍕`;
   } else if (isPix) {
     m =
       `💸 *PIX gerado — Pedido #${orderNum}*\n\n` +
-      `${cartSummary(session.cart)}\n` +
+      `${cartSummary(session.cart, cartOpts)}\n` +
       `Total: R$ ${calc.expectedTotal.toFixed(2)}\n\n` +
       (pixCopiaECola
         ? `📌 *Copia e cola:*\n${pixCopiaECola}\n\nAssim que confirmar o pagamento, seu pedido será enviado e você recebe a confirmação aqui. ✅`
@@ -2127,7 +2129,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
           })());
   } else if (cwSuccess) {
     const previsao = session.fulfillment === "takeout" ? "30 a 40 min" : "60 min";
-    m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: ${previsao}\n\nObrigado! 🍕`;
+    m = `✅ *Pedido #${orderNum} confirmado!*\n\n${cartSummary(session.cart, cartOpts)}\n💳 ${session.paymentMethodName}${addrLine}\n⏱️ Previsão: ${previsao}\n\nObrigado! 🍕`;
   } else {
     m = `✅ *Pedido recebido!*\n\nEstamos processando e entraremos em contato em breve. Obrigado! 🍕`;
   }
@@ -2141,6 +2143,14 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   });
   const finalMsg = `${m}\n\n${receipt}`;
   await wa.sendText(phone, finalMsg);
+  // Envia áudio da confirmação se o cliente prefere áudio
+  if (session.prefersAudio && wa.sendPresence && typeof wa.sendAudio === "function") {
+    try {
+      await wa.sendPresence(phone, "recording");
+      const audioBuf = await audioSynthesis.synthesizeTextToAudio(m);
+      if (audioBuf) await wa.sendAudio(phone, audioBuf, null, true);
+    } catch {}
+  }
   await chatMemory.push(customer.id, "bot", finalMsg);
 }
 
@@ -2155,8 +2165,9 @@ function cartSummary(cart, opts = {}) {
   const total = cart.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 1), 0);
   const totalLine = total > 0 ? `R$ ${total.toFixed(2)}` : "total a confirmar no cardápio";
   const body = lines.join("\n");
-  if (opts.omitTotal) return body;
-  return body + `\n\n*Subtotal itens: ${totalLine}*`;
+  const notesLine = opts.notes ? `\n📝 Obs: ${opts.notes}` : "";
+  if (opts.omitTotal) return body + notesLine;
+  return body + notesLine + `\n\n*Subtotal itens: ${totalLine}*`;
 }
 
 function formatMoney(v) {
@@ -2194,6 +2205,7 @@ function buildOrderReceiptMessage({ order, customer, session, calc, cwOrderId })
   const subtotal = Number(calc?.subtotal || 0);
   const finalTotal = Number(calc?.expectedTotal || subtotal);
   const payName = session?.paymentMethodName || "Não informado";
+  const obsLine = session?.notes ? `📝 Obs: ${session.notes}\n\n` : "";
   return (
     `#️⃣ Pedido Nº ${orderNo} (Integração)\n` +
     `feito em ${madeAt}${integrationLine}\n\n` +
@@ -2203,6 +2215,7 @@ function buildOrderReceiptMessage({ order, customer, session, calc, cwOrderId })
     `------ ITENS DO PEDIDO ------\n\n` +
     `${itemsText}\n\n` +
     `-----------------------------\n\n` +
+    obsLine +
     `SUBTOTAL: ${formatMoney(subtotal)}\n\n` +
     `VALOR FINAL: ${formatMoney(finalTotal)}\n\n` +
     `💲 FORMA DE PAGAMENTO\n\n` +
@@ -2223,6 +2236,7 @@ function buildCwPayload({ session, customer, calc }) {
     order_type: session.fulfillment === "delivery" ? "delivery" : "takeout",
     created_at: new Date().toISOString(),
     customer: { phone: phone11, name: customer.name || "Cliente WhatsApp" },
+    ...(session.notes ? { observation: session.notes } : {}),
     totals: {
       order_amount: calc.expectedTotal,
       delivery_fee: round2(calc.deliveryFee || 0),
