@@ -62,9 +62,20 @@ function scoreLineVsOption(lineName, optionName) {
  * @param {object} catalog
  * @param {{ chosenSize?: string }} ctx
  */
+/** Detecta "½ Sabor1 / ½ Sabor2" e retorna [sabor1, sabor2] ou null */
+function extractHalfHalf(name) {
+  const n = String(name || "");
+  // Formatos: "½ Calabresa / ½ Frango", "meia calabresa meia frango", "meia Cala / meia Frango"
+  const halfRe = /(?:½|meia?)\s+([^/|]+?)\s*[/|]\s*(?:½|meia?)?\s*([^/|]+)/i;
+  const m = n.match(halfRe);
+  if (m) return [m[1].trim(), m[2].trim()];
+  return null;
+}
+
 function priceLineFromCatalog(line, catalog, ctx = {}) {
   const chosenSize = ctx.chosenSize ? norm(ctx.chosenSize) : "";
   const lineName = String(line.name || "");
+  const halfFlavors = extractHalfHalf(lineName); // ["Calabresa","Frango"] ou null
   const flavorHint = [lineName, ctx.chosenSize].filter(Boolean).join(" ");
   const products = listProducts(catalog);
 
@@ -75,6 +86,58 @@ function priceLineFromCatalog(line, catalog, ctx = {}) {
     let bestSize = { price: 0, score: -1 };
     let bestFlavor = { price: 0, score: -1 };
     const groups = p.option_groups || [];
+
+    // Para meio a meio: encontra o preço de cada metade e usa o maior
+    if (halfFlavors) {
+      let flavorPrices = [0, 0];
+      let flavorScores = [0, 0];
+      for (const g of groups) {
+        if (g.status === "INACTIVE") continue;
+        if (isSizeGroupName(g.name || "")) {
+          // Tamanho: processa normalmente abaixo
+          if (chosenSize) {
+            for (const o of g.options || []) {
+              if (o.status === "INACTIVE") continue;
+              const pr = parseFloat(o.price || 0);
+              const on = norm(o.name);
+              let sc = 0;
+              if (on === chosenSize) sc = 500;
+              else if (on.includes(chosenSize) || chosenSize.includes(on)) sc = 400;
+              else if (/\d/.test(chosenSize) && on.includes(chosenSize.replace(/\D/g, ""))) sc = 350;
+              if (sc > bestSize.score) bestSize = { price: Number.isFinite(pr) ? pr : 0, score: sc };
+            }
+          }
+        } else {
+          for (const o of g.options || []) {
+            if (o.status === "INACTIVE") continue;
+            const pr = Number.isFinite(parseFloat(o.price)) ? parseFloat(o.price) : 0;
+            for (let fi = 0; fi < 2; fi++) {
+              const sc = scoreLineVsOption(halfFlavors[fi], o.name);
+              if (sc > flavorScores[fi]) {
+                flavorScores[fi] = sc;
+                flavorPrices[fi] = pr;
+              }
+            }
+          }
+        }
+      }
+      // Cobra o sabor mais caro (regra padrão meio a meio)
+      const halfFlavorPrice = Math.max(flavorPrices[0], flavorPrices[1]);
+      const halfScore = Math.max(flavorScores[0], flavorScores[1]);
+      if (halfScore > bestFlavor.score) bestFlavor = { price: halfFlavorPrice, score: halfScore };
+
+      const combined = base + (chosenSize ? bestSize.price : 0) + bestFlavor.price;
+      const rank = halfScore + (chosenSize ? bestSize.score : 0) * 0.1 + (combined > 0 ? 10 : 0);
+      if (combined > 0 && rank > globalBest.score) {
+        globalBest = {
+          total: combined,
+          score: rank,
+          productId: p.id,
+          breakdown: { base, size: chosenSize ? bestSize.price : 0, flavor: bestFlavor.price, addons: 0 },
+        };
+      }
+      continue; // pula o loop genérico abaixo para este produto
+    }
 
     for (const g of groups) {
       if (g.status === "INACTIVE") continue;
