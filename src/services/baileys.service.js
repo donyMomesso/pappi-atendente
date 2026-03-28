@@ -1855,7 +1855,15 @@ async function initAll() {
   });
   const cfgIds = cfgs.map((c) => c.key.replace(instancePrefix, ""));
 
-  const ids = [...new Set([...authIds, ...cfgIds, "default"])];
+  // Não iniciar "default" automaticamente se não houver auth nem config —
+  // evita loop de reconexão sem sessão que acumula WebSocket/Signal em memória.
+  const ids = [...new Set([...authIds, ...cfgIds])];
+  if (ids.length === 0) {
+    log.info("Baileys: nenhuma instância com auth ou config encontrada — aguardando setup via painel");
+    _initInProgress = false;
+    _initDone = true;
+    return;
+  }
 
   for (const id of ids) {
     try {
