@@ -1968,12 +1968,9 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     }
   }
 
-  // Monta payload final CW (contrato preservado) e garante consistência totals/payments
+  // Monta payload final CW — order_amount calculado dos itens reais (não sobrescrever)
   if (!isLead) {
     cwPayload = buildCwPayload({ session, customer, calc });
-    cwPayload.totals.order_amount = calc.expectedTotal;
-    cwPayload.totals.delivery_fee = calc.deliveryFee;
-    if (Array.isArray(cwPayload.payments) && cwPayload.payments[0]) cwPayload.payments[0].total = cwPayload.totals.order_amount;
   } else {
     // Pedido feito quando fechado (fluxo lead) — não envia ao CW, alerta operador
     const orderRef = `${customer.name || phone} — R$ ${calc.expectedTotal.toFixed(2)}`;
@@ -2226,65 +2223,86 @@ function buildOrderReceiptMessage({ order, customer, session, calc, cwOrderId })
 function buildCwPayload({ session, customer, calc }) {
   const rawPhone = customer.phone != null ? String(customer.phone) : "";
   const localPhone = rawPhone.startsWith("55") ? rawPhone.slice(2) : rawPhone;
-  const phone11 = (localPhone.replace(/\D/g, "").slice(-11) || "00000000000").slice(0, 11);
+  // API exige exatamente 11 dígitos
+  const phone11 = localPhone.replace(/\D/g, "").slice(-11).padStart(11, "0").slice(0, 11);
   const cwOrderId = randomUUID();
   const displayId = cwOrderId.slice(-6).toUpperCase();
+  const isDelivery = session.fulfillment === "delivery";
+  const deliveryFee = isDelivery ? round2(calc.deliveryFee || 0) : 0; // deve ser 0 para takeout
+  const discounts = round2(calc.discount || 0);
+
+  // Monta itens com total_price correto conforme spec:
+  // total_price = (unit_price + sum(options.qty × options.unit_price)) × quantity
+  const items = session.cart.map((i) => {
+    const qty = Math.max(1, parseInt(i.quantity, 10) || 1);
+    const unitPrice = round2(Number(i.unit_price) || 0);
+    const addons = (i.addons || []).filter(a => a.name); // remove entradas sem nome
+    const optionsSum = round2(addons.reduce((s, a) => s + round2((a.unit_price || 0) * Math.max(1, a.quantity || 1)), 0));
+    const totalPrice = round2((unitPrice + optionsSum) * qty);
+
+    const item = {
+      ...(i.id ? { item_id: String(i.id) } : {}),
+      name: String(i.name),
+      quantity: qty,
+      unit_price: unitPrice,
+      total_price: totalPrice,
+    };
+
+    // Opções: só envia se houver addons com preço > 0 (CW ignora opções de preço zero sem option_id)
+    const cwOptions = addons
+      .filter(a => (a.unit_price || 0) > 0 || a.id)
+      .map(a => ({
+        name: String(a.name),
+        quantity: Math.max(1, a.quantity || 1),
+        unit_price: round2(a.unit_price || 0),
+        ...(a.id ? { option_id: String(a.id) } : {}),
+      }));
+    if (cwOptions.length) item.options = cwOptions;
+
+    return item;
+  });
+
+  // order_amount DEVE ser exatamente sum(items.total_price) + delivery_fee + 0 - discounts
+  // Calcula a partir dos itens do payload (não de calc.expectedTotal) para evitar divergência
+  const itemsSum = round2(items.reduce((s, i) => s + i.total_price, 0));
+  const orderAmount = round2(itemsSum + deliveryFee - discounts);
 
   const payload = {
     order_id: cwOrderId,
     display_id: displayId,
-    order_type: session.fulfillment === "delivery" ? "delivery" : "takeout",
+    order_type: isDelivery ? "delivery" : "takeout",
     created_at: new Date().toISOString(),
     customer: { phone: phone11, name: customer.name || "Cliente WhatsApp" },
     ...(session.notes ? { observation: session.notes } : {}),
     totals: {
-      order_amount: calc.expectedTotal,
-      delivery_fee: round2(calc.deliveryFee || 0),
+      order_amount: orderAmount,
+      delivery_fee: deliveryFee,
       additional_fee: 0,
-      discounts: round2(calc.discount || 0),
+      discounts,
     },
-    items: session.cart.map((i) => {
-      const addons = i.addons || [];
-      const addonsSum = addons.reduce((s, a) => s + (a.unit_price || 0) * (a.quantity || 1), 0);
-      return {
-        ...(i.id ? { item_id: String(i.id) } : {}),
-        name: i.name,
-        quantity: i.quantity,
-        unit_price: i.unit_price,
-        total_price: round2((i.unit_price + addonsSum) * i.quantity),
-        ...(addons.length
-          ? {
-              options: addons.map((a) => ({
-                name: a.name,
-                quantity: a.quantity || 1,
-                unit_price: a.unit_price || 0,
-                ...(a.id ? { option_id: String(a.id) } : {}),
-              })),
-            }
-          : {}),
-      };
-    }),
+    items,
     payments: [
       {
-        total: calc.expectedTotal,
+        total: orderAmount,
         payment_method_id: parseInt(session.paymentMethodId, 10) || session.paymentMethodId,
       },
     ],
   };
 
-  if (session.fulfillment === "delivery" && session.address) {
+  if (isDelivery && session.address) {
     payload.delivery_address = {
       state: session.address.state || "SP",
       city: session.address.city || "",
       neighborhood: session.address.neighborhood || "",
       street: session.address.street || "",
-      number: session.address.number || "",
-      postal_code: (session.address.zipCode || "").replace(/\D/g, ""),
+      number: String(session.address.number || ""),
+      postal_code: (session.address.zipCode || "").replace(/\D/g, "").slice(0, 8),
       coordinates: {
-        latitude: session.address.lat ?? 0,
-        longitude: session.address.lng ?? 0,
+        latitude: Number(session.address.lat) || 0,
+        longitude: Number(session.address.lng) || 0,
       },
       ...(session.address.complement ? { complement: session.address.complement } : {}),
+      ...(session.address.reference ? { reference: session.address.reference } : {}),
     };
   }
 
