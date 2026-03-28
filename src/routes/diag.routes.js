@@ -87,6 +87,58 @@ router.get("/diag/cw", requireAdminKey, async (req, res) => {
   }
 });
 
+// Amostra do catálogo CW — mostra estrutura real de produtos/option_groups para debug de preços
+router.get("/diag/cw/catalog-sample", requireAdminKey, async (req, res) => {
+  try {
+    const tenants = await listActive();
+    if (!tenants.length) return res.json({ ok: false, error: "Nenhum tenant ativo" });
+    const tenantId = req.query.tenant || tenants[0].id;
+    const { cw } = await getClients(tenantId);
+    const catalog = await cw.getCatalog();
+    if (!catalog) return res.json({ ok: false, error: "getCatalog() retornou null" });
+
+    const cats =
+      catalog?.categories ||
+      catalog?.data?.categories ||
+      catalog?.sections ||
+      catalog?.catalog?.categories ||
+      (Array.isArray(catalog) ? catalog : []);
+
+    const maxCats = parseInt(req.query.cats || "3");
+    const maxItems = parseInt(req.query.items || "2");
+    const maxOpts = parseInt(req.query.opts || "8");
+
+    const sample = cats.slice(0, maxCats).map((c) => ({
+      categoryId: c.id,
+      categoryName: c.name,
+      items: (c.items || c.products || []).slice(0, maxItems).map((p) => ({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        promotional_price: p.promotional_price,
+        promotional_price_active: p.promotional_price_active,
+        status: p.status,
+        option_groups: (p.option_groups || []).map((og) => ({
+          id: og.id,
+          name: og.name,
+          status: og.status,
+          isSizeGroup: /\b(tamanho|tamanhos|size|fatia|peda|pedac|broto|media|grande)\b/i.test(og.name || ""),
+          options: (og.options || []).slice(0, maxOpts).map((o) => ({
+            id: o.id,
+            name: o.name,
+            price: o.price,
+            status: o.status,
+          })),
+        })),
+      })),
+    }));
+
+    res.json({ ok: true, tenantId, totalCategories: cats.length, sample });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Teste de conectividade das IAs (Gemini + OpenAI fallback)
 router.get("/diag/ai", requireAdminKey, async (_req, res) => {
   try {
