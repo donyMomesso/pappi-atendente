@@ -2,6 +2,7 @@
 
 const { withRetry } = require("../lib/retry");
 const { setMethods } = require("../mappers/PaymentMapper");
+const log = require("../lib/logger").child({ service: "cardapio" });
 
 const TIMEOUT_MS = 15000;
 const catalogCache = new Map();
@@ -76,16 +77,22 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
         if (resp.ok) {
           data = await safeJson(resp);
           if (data) break;
+        } else {
+          const body = await safeJson(resp).catch(() => null);
+          log.warn({ tenantId, status: resp.status, body }, "CW getCatalog: HTTP não-OK");
         }
-      } catch {}
+      } catch (err) {
+        log.warn({ tenantId, err: err.message }, "CW getCatalog: exceção na tentativa");
+      }
     }
 
     if (!data) {
       const stale = catalogCache.get(tenantId);
       if (stale?.catalog) {
-        console.warn(`[${tenantId}] CW catalog indisponível, usando cache expirado`);
+        log.warn({ tenantId }, "CW catalog indisponível, usando cache expirado");
         return stale.catalog;
       }
+      log.error({ tenantId }, "CW getCatalog: retornou null (sem cache) — pedidos ficam sem preço");
       return null;
     }
 

@@ -61,12 +61,17 @@ router.get("/diag/cw", requireAdminKey, async (req, res) => {
       cw.getPaymentMethods().catch((e) => ({ error: e.message })),
     ]);
 
+    const catCategories =
+      catalog?.categories?.length ?? catalog?.data?.categories?.length ?? 0;
     result.cw.catalog = catalog?.error
       ? { ok: false, error: catalog.error }
+      : !catalog
+      ? { ok: false, error: "getCatalog() retornou null — verifique as credenciais CW nos logs" }
       : {
-          ok: true,
-          categories: catalog?.categories?.length ?? catalog?.data?.categories?.length ?? 0,
-          hasData: !!catalog && (!!catalog.categories?.length || !!catalog.data?.categories?.length),
+          ok: catCategories > 0,
+          categories: catCategories,
+          hasData: catCategories > 0,
+          warning: catCategories === 0 ? "Catálogo retornou estrutura vazia ou inesperada" : undefined,
         };
     result.cw.merchant = merchant?.error ? { ok: false, error: merchant.error } : { ok: true };
     result.cw.paymentMethods = paymentMethods?.error
