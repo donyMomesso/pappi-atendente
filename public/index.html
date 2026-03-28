@@ -10,7 +10,8 @@
   <script src="/socket.io/socket.io.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+    html{height:100%;height:100dvh}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;height:100%;height:100dvh;width:100%;display:flex;flex-direction:column;overflow:hidden}
     :root{
       --orange:#FF6B35;--orange-d:#e55a20;--orange-l:#fde8d8;--orange-ll:#fff3ed;
       --violet:#7C3AED;--violet-d:#6D28D9;--violet-l:#ede9fe;
@@ -340,41 +341,47 @@
     }
     @media (max-width: 768px) {
       body{overflow-x:hidden}
-      #sidebar{width:64px!important;min-width:64px!important}
+      #appWrap{width:100vw}
+      #sidebar{width:52px!important;min-width:52px!important}
       #sidebar .sidebar-text,#sidebar .sidebar-logo span:not(.sidebar-toggle),#sidebar .sidebar-tenant,#sidebar .sidebar-foot > span,#sidebar .sidebar-section{display:none!important}
-      #sidebar .sidebar-logo{justify-content:center}
-      #sidebar .sidebar-item{justify-content:center;padding:12px}
-      #sidebar .sidebar-foot{text-align:center}
-      .layout{grid-template-columns:1fr;grid-template-rows:1fr auto}
-      .col-conv{min-height:200px;max-height:45vh}
-      .col-center{min-height:300px}
-      .col-right{max-height:220px}
-      header{flex-wrap:wrap;height:auto;min-height:54px;padding:10px 12px;gap:8px}
-      header .stats{flex-wrap:wrap;gap:8px;margin-left:0;width:100%;order:3}
+      #sidebar .sidebar-logo{justify-content:center;padding:10px}
+      #sidebar .sidebar-item{justify-content:center;padding:10px}
+      #sidebar .sidebar-foot{text-align:center;padding:8px}
+      #mainArea{min-width:0;width:100%}
+      .layout{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+      .col-conv{min-height:180px;max-height:40vh;flex-shrink:0}
+      .col-center{min-height:260px;flex:1}
+      .col-right{border-left:none;border-top:1px solid var(--border);max-height:200px;flex-shrink:0}
+      header{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:6px}
+      header .header-right{gap:8px}
       header .stat{font-size:11px}
-      header .stat strong{font-size:13px}
+      header .stat strong{font-size:12px}
       .login-box{width:min(340px, calc(100vw - 32px));padding:24px 20px}
-      .view-subnav{padding:0 12px}
-      .view-subnav-tab{padding:10px 12px;font-size:12px}
-      .settings-grid{grid-template-columns:1fr;max-width:100%}
+      .view-subnav{padding:0 8px}
+      .view-subnav-tab{padding:10px 10px;font-size:12px}
+      .settings-grid{grid-template-columns:1fr!important;max-width:100%}
       .cfg-grid-2{grid-template-columns:1fr!important}
       #waIntContainer{grid-template-columns:1fr}
-      .modal{max-width:calc(100vw - 32px);margin:8px}
-      .options-modal{max-width:calc(100vw - 32px)}
+      .modal{max-width:calc(100vw - 24px);margin:8px}
+      .options-modal{max-width:calc(100vw - 24px)}
       .grid2{grid-template-columns:1fr}
       .kpi-card .kpi-val{font-size:22px}
-      #adminDashCards{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+      #adminDashCards{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+      .admin-panel{overflow-y:auto;-webkit-overflow-scrolling:touch}
+      #viewAdmin,#viewKanban,#viewAtrasos{overflow-y:auto}
     }
     @media (max-width: 480px) {
+      #sidebar{width:44px!important;min-width:44px!important}
       .col-conv .col-header{padding:8px 10px}
       .conv-item{padding:10px 12px}
       .avatar{width:36px;height:36px;font-size:13px}
       .chat-header{padding:10px 12px}
-      .chat-body{padding:12px}
-      .msg{max-width:85%;font-size:12px}
+      .chat-body{padding:10px}
+      .msg{max-width:88%;font-size:12px}
       .order-card{margin:6px 8px}
-      .settings-card-head{font-size:12px;padding:12px 14px}
-      .btn-save-settings{padding:10px 16px;font-size:12px}
+      .settings-card-head{font-size:12px;padding:10px 14px}
+      .btn-save-settings{padding:10px 14px;font-size:12px}
+      header .header-user{display:none}
     }
   </style>
 </head>
@@ -473,7 +480,7 @@
 </div>
 
 <!-- APP WRAP (sidebar + main) -->
-<div id="appWrap" style="display:none;flex:1;flex-direction:column;height:100vh;overflow:hidden">
+<div id="appWrap" style="display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0">
   <div class="app-wrap">
     <aside id="sidebar">
       <div class="sidebar-logo">

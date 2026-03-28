@@ -1308,24 +1308,10 @@ async function start(instanceId = "default", opts = {}) {
             } catch {}
             timer.mark("sentiment");
 
-            const baileysTo = baileysChatTarget(customer);
-
             const reconnectIdentityKey = `${tenantId}:${customer.id || customer.phone || sender.remoteJid || "unknown"}`;
             if (isAppend && !recoverySent.has(reconnectIdentityKey) && shouldSendReconnectNotice(reconnectIdentityKey)) {
               recoverySent.add(reconnectIdentityKey);
-              const recovery = "Voltei! Desculpe a demora, estava reconectando. Analisando suas mensagens...";
-              try {
-                if (!baileysTo) {
-                  log.warn({ instanceId, customerId: customer.id }, "Recovery: sem JID/telefone para envio Baileys");
-                } else {
-                  await sendText(baileysTo, recovery, instanceId, true);
-                  await botHandler.saveBaileysMessage(baileysTo, recovery, tenantId, "assistant", null, {
-                    customerId: customer.id,
-                  });
-                }
-              } catch (e) {
-                log.warn({ instanceId, customerId: customer.id, err: e }, "Falha ao enviar msg de retomada");
-              }
+              // Mensagem de "Voltei!" removida — bot retoma sem avisar o cliente
             }
 
             const appendFreshAllowed =
