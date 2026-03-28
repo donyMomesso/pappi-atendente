@@ -941,7 +941,7 @@ async function start(instanceId = "default", opts = {}) {
                     rawWaId: echoIdentity.remoteJid,
                   });
 
-            // Deduplicação: se o bot já salvou esta mensagem (mesmo waMessageId), não salva o echo
+            // Deduplicação 1: mesmo waMessageId já salvo no banco
             const echoWaId = msg?.key?.id;
             if (echoWaId) {
               const messageDbCompat = require("../lib/message-db-compat");
@@ -958,6 +958,16 @@ async function start(instanceId = "default", opts = {}) {
                   continue;
                 }
               }
+            }
+
+            // Deduplicação 2: texto igual/prefixo do que o bot acabou de enviar (ex.: botões que appendam rótulos)
+            const { shouldSkipOutboundEcho } = require("../services/chat-memory.service");
+            if (shouldSkipOutboundEcho(echoCustomer.id, echoParsed.displayText || "")) {
+              log.info(
+                { instanceId, keyId: echoWaId, pipeline: "echo_dedup_text" },
+                "Echo fromMe ignorado por texto (startsWith)",
+              );
+              continue;
             }
             const botHandler = require("../routes/bot.handler");
             await botHandler.saveBaileysMessage(

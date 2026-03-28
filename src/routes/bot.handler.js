@@ -425,16 +425,16 @@ function resolveCatalogSizeFromText(text, sizeOptions = []) {
         chosen = byNum.original;
         matchedToken = num;
       } else {
-        // Catálogo sem número explícito (ex.: Broto/Média/Grande): mapeia por faixa.
+        // Catálogo sem número explícito (ex.: Broto/Grande/Gigante): mapeia por faixa de pedaços.
         const value = Number(num);
-          // Usa `includes` em vez de regex com `\b` para evitar falhas por limites de palavra
-          // (ex.: tamanhos tipo "Broto/Média/Grande" que chegam sem números explícitos no catálogo).
-          const bySmall = normalizedOptions.find((o) => o.norm.includes("brot") || o.norm.includes("pequen") || o.norm.includes("mini"));
-          const byMedium = normalizedOptions.find((o) => o.norm.includes("med") || o.norm.includes("media"));
-          const byLarge = normalizedOptions.find((o) => o.norm.includes("grand") || o.norm.includes("famil"));
+        const bySmall = normalizedOptions.find((o) => o.norm.includes("brot") || o.norm.includes("pequen") || o.norm.includes("mini"));
+        const byLarge = normalizedOptions.find((o) => o.norm.includes("grand") || o.norm.includes("famil"));
+        const byGigante = normalizedOptions.find((o) => o.norm.includes("gigant"));
         if (Number.isFinite(value)) {
-          if (value <= 19 && bySmall) chosen = bySmall.original;
-          else if (value <= 32 && byMedium) chosen = byMedium.original;
+          // Pappi: Broto=4p, Grande=8p, Gigante=16p
+          if (value <= 6 && bySmall) chosen = bySmall.original;
+          else if (value <= 12 && byLarge) chosen = byLarge.original;
+          else if (byGigante) chosen = byGigante.original;
           else if (byLarge) chosen = byLarge.original;
           if (chosen) matchedToken = num;
         }
@@ -444,9 +444,9 @@ function resolveCatalogSizeFromText(text, sizeOptions = []) {
 
   if (!chosen) {
     const aliasRules = [
-      { rx: /\bbrot(?:o|inho)?\b/, keys: ["brot", "pequen", "16"] },
-      { rx: /\bmed(?:ia|io)?\b/, keys: ["med", "30"] },
-      { rx: /\bgrand(?:e|ao)?\b/, keys: ["grand", "35"] },
+      { rx: /\bbrot(?:o|inho)?\b/, keys: ["brot", "pequen", "mini"] },
+      { rx: /\bgigant(?:e|ao)?\b/, keys: ["gigant"] },
+      { rx: /\bgrand(?:e|ao)?\b/, keys: ["grand", "famil"] },
     ];
     for (const rule of aliasRules) {
       if (!rule.rx.test(norm)) continue;
@@ -1256,9 +1256,9 @@ function filterCatalogByProductType(catalog, productType) {
 
   function optionLooksLikeSizeOption(name) {
     const n = normalizeText(String(name || ""));
-    // Tamanhos comuns no PAppi: Broto/Média/Grande ou números/pedaços (8/16/20P, 16 pedaços etc).
+    // Tamanhos Pappi: Broto/Grande/Gigante ou números/pedaços (4/8/16 pedaços etc).
     return (
-      /\b(broto|media|grande)\b/i.test(n) ||
+      /\b(broto|media|grande|gigante|gigant)\b/i.test(n) ||
       /\b\d{1,3}\b/.test(n) ||
       /\b\d{1,3}\s*p\b/i.test(n) ||
       /peda(c|ç)os/.test(n) ||
@@ -1287,7 +1287,7 @@ function filterCatalogByProductType(catalog, productType) {
       }
     }
   }
-  const sizeList = [...sizes].length ? [...sizes] : ["Broto", "Média", "Grande"];
+  const sizeList = [...sizes].length ? [...sizes] : ["Broto", "Grande", "Gigante"];
   const outCatalog = filtered.length ? { categories: filtered } : catalog;
   return { catalog: outCatalog, sizes: sizeList };
 }

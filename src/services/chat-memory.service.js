@@ -44,6 +44,9 @@ function shouldSkipOutboundEcho(customerId, echoText) {
   for (let i = arr.length - 1; i >= 0; i--) {
     if (now - arr[i].at > OUTBOUND_ECHO_DEDUP_TTL_MS) continue;
     if (arr[i].norm === norm) return true;
+    // Baileys appends button labels to the body text in the echo (e.g. "Msg 👇 Btn1 | Btn2").
+    // Match if the echo text STARTS WITH our recorded outbound body (min 10 chars to avoid false positives).
+    if (arr[i].norm.length >= 10 && norm.startsWith(arr[i].norm)) return true;
   }
   return false;
 }

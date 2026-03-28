@@ -39,7 +39,7 @@ function productBasePrice(item) {
 
 function isSizeGroupName(groupName) {
   const g = norm(groupName);
-  return /\b(tamanho|tamanhos|size|fatia|peda|pedac|broto|media|grande)\b/.test(g) || /tamanho/.test(g);
+  return /\b(tamanho|tamanhos|size|fatia|peda|pedac|broto|media|grande|gigante)\b/.test(g) || /tamanho/.test(g);
 }
 
 function scoreLineVsOption(lineName, optionName) {
