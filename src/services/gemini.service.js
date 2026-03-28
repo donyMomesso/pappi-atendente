@@ -222,26 +222,13 @@ Pappi (responda APENAS JSON VÁLIDO. Formate como JSON minificado em UMA ÚNICA 
     const notes = typeof parsed.notes === "string" && parsed.notes.trim() ? parsed.notes.trim() : "";
 
     let reply = parsed.reply?.trim();
-    if (!reply) {
-      const lastMsg = history?.filter((m) => m.role === "customer").pop()?.text || "";
-      const scanned = _scanCatalog(lastMsg, catalog);
-      reply = scanned.length
-        ? `Encontrei no cardápio: ${scanned.join(", ")}. Qual tamanho? (Broto, Média ou Grande)`
-        : "Qual sabor você quer? Me diz o tamanho e o sabor, ou meia a meia 😊";
-    }
+    if (!reply) { reply = "Pode me dizer o tamanho e o sabor que você quer? 😊"; }
 
     return { reply, items, done, notes };
   } catch (err) {
     const hasKey = !!(ENV.GEMINI_API_KEY && ENV.GEMINI_API_KEY.length > 10);
-    console.warn("[Gemini] chatOrder falhou:", err.message, hasKey ? "" : "(GEMINI_API_KEY ausente ou inválido)");
-    const catalogOk = catalog && _formatCatalog(catalog) !== "Cardápio indisponível";
-    const lastMsg = history?.filter((m) => m.role === "customer").pop()?.text || "";
-    const scanned = catalogOk && lastMsg ? _scanCatalog(lastMsg, catalog) : [];
-    const reply = catalogOk
-      ? scanned.length
-        ? `Encontrei no cardápio: ${scanned.join(", ")}. Qual tamanho? (Broto, Média ou Grande)`
-        : "Qual sabor você quer? Me diz o tamanho e o sabor, ou meia a meia 😊"
-      : "O cardápio está indisponível no momento. Tente novamente em instantes. 😊";
+    console.warn("[Gemini] chatOrder falhou:", err.message);
+    const reply = "Tive uma pequena falha de conexão aqui 😅. Pode me repetir o que você deseja pedir? (Tamanho e sabor)";
     return { reply, items: [], done: false };
   }
 }
