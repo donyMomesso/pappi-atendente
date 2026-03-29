@@ -38,6 +38,7 @@ const audioSynthesis = require("../services/audio-synthesis.service");
 const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 const CW_ORDER_LINK = "https://app.cardapioweb.com/pappi_pizza?s=atende";
+const DELIVERY_SOFT_RADIUS_KM = Number(process.env.DELIVERY_SOFT_RADIUS_KM || 8);
 
 function extractCepDigitsFromString(s) {
   const m = String(s || "").match(/\b(\d{5})-?(\d{3})\b/);
@@ -133,6 +134,20 @@ function indicatesOutOfRange(result) {
   if (status.includes("out_of_range") || status.includes("outside")) return true;
   if (msg.includes("fora da area") || msg.includes("fora da área")) return true;
   return false;
+}
+
+function hasSoftDeliveryCoverage(geo) {
+  if (!geo || typeof geo !== "object") return false;
+  return Number.isFinite(geo.km) && geo.km <= DELIVERY_SOFT_RADIUS_KM;
+}
+
+async function sendAddressReviewPrompt(wa, phone, customer, session) {
+  const m =
+    "Não consegui validar a taxa desse endereço agora, mas vamos seguir 😊\n" +
+    "Se quiser agilizar, me manda também o CEP ou a localização 📍.";
+  session.step = "ADDRESS";
+  await wa.sendText(phone, m);
+  await chatMemory.push(customer.id, "bot", m);
 }
 
 async function sendOutOfRangePrompt(wa, phone, customer, session) {
@@ -293,13 +308,8 @@ async function handleFallbackTriage({ tenant, wa, customer, phone, sessionKey, s
   const lastAt = session._lastTriagePromptAt || 0;
   if (now - lastAt < 60 * 1000) return; // anti-repetição
   session._lastTriagePromptAt = now;
-  const m = "Como posso te ajudar? Escolha uma opção 👇";
-  await wa.sendButtons(phone, m, [
-    { id: "TRIAGE_NEW_ORDER", title: "🍕 Fazer pedido" },
-    { id: "TRIAGE_STATUS", title: "📦 Status do pedido" },
-    { id: "TRIAGE_MENU", title: "📱 Cardápio" },
-    { id: "TRIAGE_HUMAN", title: "👩‍💼 Atendente" },
-  ]);
+  const m = `Tô por aqui 😊 Você pode me mandar seu pedido do jeito que vier na cabeça, perguntar horário, cardápio ou status.\n\nPedido rápido: ${CW_ORDER_LINK}`;
+  await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
   await saveSession(tenant.id, sk, session);
 }
@@ -635,30 +645,11 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
       delete session._beforeDeescalationStep;
       session.step = prev;
       let m;
-      if (prev === "ORDERING") m = "Beleza! Me diz seu pedido 🍕 (tamanho + sabor, ou meia a meia)";
-      else if (prev === "ASK_SIZE")
-        m = `Qual tamanho de ${session.productType === "lasanha" ? "lasanha" : "pizza"}?`; // será enviado com botões abaixo
-      else if (prev === "FULFILLMENT") m = "Beleza! Deseja entrega ou retirada?";
-      else m = "Beleza! Pizza ou lasanha?";
-      if (prev === "ORDERING") {
-        await wa.sendText(phone, m);
-      } else if (prev === "ASK_SIZE" && session.sizeOptions?.length) {
-        await wa.sendButtons(
-          phone,
-          m,
-          session.sizeOptions.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })),
-        );
-      } else if (prev === "FULFILLMENT") {
-        await wa.sendButtons(phone, m, [
-          { id: "delivery", title: "🚚 Entrega" },
-          { id: "takeout", title: "🏪 Retirada" },
-        ]);
-      } else {
-        await wa.sendButtons(phone, m, [
-          { id: "pizza", title: "🍕 Pizza" },
-          { id: "lasanha", title: "🍝 Lasanha" },
-        ]);
-      }
+      if (prev === "ORDERING") m = "Beleza! Me fala seu pedido do jeito que preferir 🍕";
+      else if (prev === "ASK_SIZE") m = `Perfeito. Qual tamanho de ${session.productType === "lasanha" ? "lasanha" : "pizza"}?`;
+      else if (prev === "FULFILLMENT") m = "Beleza. Vai ser entrega ou retirada?";
+      else m = "Beleza. Me fala o que você quer pedir que eu sigo com você por aqui.";
+      await wa.sendText(phone, m);
       await chatMemory.push(customer.id, "bot", m);
       await saveSession(tenant.id, sessionKey, session);
       return;
@@ -855,7 +846,7 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
 
       if (!intakeLooksComplete && intakeResult?.productType && ["MENU", "CHOOSE_PRODUCT_TYPE"].includes(session.step)) {
         session.step = "FULFILLMENT";
-        const msg = "Anotado! Deseja entrega ou retirada? 👇";
+        const msg = "Perfeito. Vai ser entrega ou retirada?";
         await wa.sendButtons(phone, msg, [
           { id: "delivery", title: "🚚 Entrega" },
           { id: "takeout", title: "🏪 Retirada" },
@@ -1194,26 +1185,21 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
     return;
   }
 
-  // ── CAPI: Contact (lead novo) ─────────────────────────────
   metaCapi.trackContact({ customer }).catch(() => {});
 
   const isVip = (customer.visitCount || 0) > 0;
   const firstName = customer.name.split(" ")[0];
-
-  const urlLine = `\n🛒 Pedido rápido: ${CW_ORDER_LINK}`;
-  const leadLine = session.isLeadOrder
-    ? "\n\n⚠️ _Estamos fechados no momento. Você pode deixar seu pedido — entraremos em contato quando abrirmos!_"
-    : "";
-
-  // Bloco 1 — Saudação base (programada) + frase de impacto (IA ou fallback)
   const visits = customer.visitCount || 0;
-  const baseGreeting = isVip
-    ? `Oi ${firstName}! Que bom te ver de novo! 🍕`
-    : `Olá, ${firstName}! 👋 Prazer em te conhecer!`;
+
+  const urlLine = `\n\n🛒 Se quiser pedir rapidinho, aqui está seu link: ${CW_ORDER_LINK}`;
+  const leadLine = session.isLeadOrder
+    ? "\n\n⚠️ _Estamos fechados no momento, mas pode me deixar seu pedido por aqui que eu organizo tudo pra você._"
+    : "";
+  const baseGreeting = isVip ? `Oi ${firstName}, tudo bem? 😊` : `Olá, ${firstName}! Tudo bem? 😊`;
 
   const FALLBACK_PHRASES = {
-    new: "A noite pede pizza. Ou lasanha. E a gente tá pronta! 🍕",
-    vip: "A noite pede pizza. Ou lasanha. E a gente tá pronta! 🍕",
+    new: "Me fala o que você está com vontade hoje que eu já vou montando seu pedido.",
+    vip: "Que bom te ver de volta. Me fala o que vai querer hoje que eu agilizo por aqui.",
   };
 
   let impactPhrase = FALLBACK_PHRASES[isVip ? "vip" : "new"];
@@ -1235,19 +1221,12 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
     timer?.mark("greeting_fallback");
   }
 
-  const greeting = `${baseGreeting}\n${impactPhrase}${urlLine}${leadLine}`;
+  const greeting = `${baseGreeting}
+${impactPhrase}${urlLine}${leadLine}`;
   await wa.sendText(phone, greeting);
   await chatMemory.push(customer.id, "bot", greeting);
   session._lastGreetingAt = Date.now();
-
-  // Bloco 2 — Escolha direta (D.I.S.C.: Dominância — objetivo, claro)
-  session.step = "CHOOSE_PRODUCT_TYPE";
-  const choiceMsg = "O que vai ser hoje? Escolha uma opção 👇";
-  await wa.sendButtons(phone, choiceMsg, [
-    { id: "pizza", title: "🍕 Pizza" },
-    { id: "lasanha", title: "🍝 Lasanha" },
-  ]);
-  await chatMemory.push(customer.id, "bot", choiceMsg);
+  session.step = "MENU";
 }
 
 // Pergunta Pizza ou Lasanha
@@ -1258,11 +1237,8 @@ async function sendProductTypePrompt(wa, phone, customer, session) {
     return;
   }
   session.step = "CHOOSE_PRODUCT_TYPE";
-  const m = "O que vai ser hoje? Escolha uma opção 👇";
-  await wa.sendButtons(phone, m, [
-    { id: "pizza", title: "🍕 Pizza" },
-    { id: "lasanha", title: "🍝 Lasanha" },
-  ]);
+  const m = "Me fala o que você quer hoje — pizza, lasanha, bebida ou até seu pedido completo 😊";
+  await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
   session._lastMenuPromptAt = Date.now();
 }
@@ -1270,11 +1246,8 @@ async function sendProductTypePrompt(wa, phone, customer, session) {
 // Pergunta Entrega ou Retirada
 async function sendFulfillmentPromptOnly(wa, phone, customer, tenant, session) {
   session.step = "FULFILLMENT";
-  const m = "Deseja entrega ou retirada? Escolha uma opção abaixo 👇";
-  await wa.sendButtons(phone, m, [
-    { id: "delivery", title: "🚚 Entrega" },
-    { id: "takeout", title: "🏪 Retirada" },
-  ]);
+  const m = "Perfeito. Vai ser entrega ou retirada?";
+  await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
 }
 
@@ -1426,7 +1399,7 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant, tim
   if (isFulfillmentClick && isShortMessage) {
     session.addressBuffer = [];
     session.addressFailCount = 0;
-    const m = "🛵 Me manda o CEP ou Rua + Número + Bairro (ou localização 📍) pra calcular a taxa:";
+    const m = "Perfeito. Me manda o endereço do jeito que ficar mais fácil pra você: CEP, rua com número e bairro, ou localização 📍";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -1470,15 +1443,15 @@ async function handleAddress(wa, cw, phone, text, session, customer, tenant, tim
     const minLenToReply = 8;
     if (combined.length < minLenToReply && session.addressBuffer.length < 2) {
       // Fragmento curto — não repetir "não entendi", só pedir o resto
-      const m = "Pode mandar o endereço completo? Ex: Rua X, 123, Bairro — ou só o CEP";
+      const m = "Pode me mandar o restante do endereço? Ex.: Rua X, 123, Bairro — ou só o CEP.";
       await wa.sendText(phone, m);
       await chatMemory.push(customer.id, "bot", m);
       return;
     }
     const isRepeat = session.addressFailCount >= 2;
     const m = isRepeat
-      ? "Tenta o *CEP* (8 números, ex: 13051135) — é mais rápido! Ou Rua, Número, Bairro."
-      : "Não consegui identificar. Me manda o *CEP* ou *Rua, Número, Bairro*:";
+      ? "Pra eu acertar de primeira, me manda o *CEP* ou a *localização*. Se preferir, pode mandar Rua, Número e Bairro."
+      : "Ainda não consegui montar esse endereço certinho. Me manda *CEP* ou *Rua, Número e Bairro*, por favor.";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -1529,18 +1502,24 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
 
   let feeText = "";
   let coverageOk = false;
+  let explicitOutOfRange = false;
+  let geo = null;
   try {
-    const geo = await Maps.quote(fullAddress, cw);
+    geo = await Maps.quote(fullAddress, cw);
     if (geo) {
       addr.formatted = geo.formatted_address || fullAddress;
       addr.lat = geo.lat;
       addr.lng = geo.lng;
-      if (!indicatesOutOfRange(geo)) {
+      explicitOutOfRange = indicatesOutOfRange(geo);
+      if (!explicitOutOfRange) {
         const fee = extractDeliveryFeeFromResult(geo);
         if (Number.isFinite(fee) && fee >= 0) {
           session.deliveryFee = fee;
           const kmStr = geo.km != null ? ` | ${geo.km} km` : "";
           feeText = `\nTaxa: R$ ${fee.toFixed(2)}${kmStr}`;
+          coverageOk = true;
+        } else if (hasSoftDeliveryCoverage(geo)) {
+          feeText = "\nTaxa: vou te confirmar certinho no fechamento do pedido.";
           coverageOk = true;
         }
       }
@@ -1551,25 +1530,34 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
     addr.formatted = fullAddress;
   }
 
-  if (!coverageOk) {
+  if (!coverageOk && !explicitOutOfRange) {
     try {
       const feeResult =
         Number.isFinite(addr?.lat) && Number.isFinite(addr?.lng)
           ? await cw.getDeliveryFee({ lat: addr.lat, lng: addr.lng })
           : await cw.getDeliveryFee({});
-      if (!indicatesOutOfRange(feeResult)) {
+      explicitOutOfRange = indicatesOutOfRange(feeResult);
+      if (!explicitOutOfRange) {
         const fee = extractDeliveryFeeFromResult(feeResult);
         if (Number.isFinite(fee) && fee >= 0) {
           session.deliveryFee = fee;
           feeText = `\nTaxa: R$ ${fee.toFixed(2)}`;
+          coverageOk = true;
+        } else if (hasSoftDeliveryCoverage(geo || addr)) {
+          feeText = "\nTaxa: vou te confirmar certinho no fechamento do pedido.";
           coverageOk = true;
         }
       }
     } catch {}
   }
 
-  if (!coverageOk) {
+  if (!coverageOk && explicitOutOfRange) {
     await sendOutOfRangePrompt(wa, phone, customer, session);
+    return;
+  }
+
+  if (!coverageOk) {
+    await sendAddressReviewPrompt(wa, phone, customer, session);
     return;
   }
 
@@ -1591,7 +1579,7 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
     delete session.address;
     session.addressBuffer = [];
     session.addressFailCount = 0;
-    await wa.sendText(phone, "Tudo bem! Me manda o endereço correto:");
+    await wa.sendText(phone, "Sem problema. Me manda o endereço correto do jeito que ficar melhor pra você:");
     return;
   }
   // confirm_addr, "confirma", "sim", "ok" — segue para startOrdering abaixo
@@ -1637,7 +1625,7 @@ async function handleDeliveryCoverageDecision(wa, cw, phone, text, t, session, c
     delete session.deliveryFee;
     session.addressBuffer = [];
     session.addressFailCount = 0;
-    const m = "Tudo bem! Me manda outro endereço (Rua + Número + Bairro) ou o CEP 📍";
+    const m = "Tudo bem. Me manda outro endereço, o CEP ou a localização 📍";
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -1652,7 +1640,7 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
   const fullCatalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
   session.catalog = fullCatalog;
 
-  const prefix = session.fulfillment === "takeout" ? "🏪 Beleza, retirada! " : session.fulfillment === "delivery" ? "🛵 Pronto! " : "";
+  const prefix = session.fulfillment === "takeout" ? "🏪 Fechado, retirada então. " : session.fulfillment === "delivery" ? "🛵 Perfeito, entrega então. " : "";
 
   session.step = "ORDERING";
   session.orderHistory = session.orderHistory || [];
@@ -1660,7 +1648,10 @@ async function startOrdering(wa, cw, phone, session, customer, _tenant) {
     session.orderHistory.push({ role: "customer", text: session.initialIntakeText });
   }
 
-  const m = `${prefix}Me diz seu pedido completo 🍕 (tamanho e sabores)`;
+  const m = `${prefix}Pode me mandar seu pedido do jeito que você falaria pra um atendente 😊
+Ex.: pizza grande meia calabresa meia portuguesa, coca 2L, pagamento no pix.
+
+Se preferir pedido rapidinho: ${CW_ORDER_LINK}`;
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
 }
@@ -1672,12 +1663,8 @@ async function handleAskSize(wa, cw, phone, text, session, customer, tenant) {
   const chosen = sizeResolution.chosen;
 
   if (!chosen && sizes.length) {
-    const m = `Qual tamanho? Escolha uma opção 👇`;
-    await wa.sendButtons(
-      phone,
-      m,
-      sizes.slice(0, 3).map((s) => ({ id: `size_${s}`, title: s })),
-    );
+    const m = `Qual tamanho você prefere? ${sizes.slice(0, 4).join(", ")}`;
+    await wa.sendText(phone, m);
     return;
   }
 
@@ -1837,7 +1824,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     // ── Coleta fulfillment se ainda não temos ─────────────────
     if (!session.fulfillment) {
       session.step = "FULFILLMENT";
-      const msg = "Anotado! Deseja entrega ou retirada? 👇";
+      const msg = "Perfeito. Vai ser entrega ou retirada?";
       await wa.sendButtons(phone, msg, [
         { id: "delivery", title: "🚚 Entrega" },
         { id: "takeout",  title: "🏪 Retirada" },
@@ -1849,7 +1836,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     // ── Coleta endereço se delivery e ainda não temos ─────────
     if (session.fulfillment === "delivery" && !session.address) {
       session.step = "ADDRESS";
-      const msg = "🛵 Quase lá! Me manda o endereço completo ou CEP pra calcular a taxa:";
+      const msg = "🛵 Quase lá! Me manda o endereço do jeito que preferir: completo, CEP ou localização 📍";
       await wa.sendText(phone, msg);
       await chatMemory.push(customer.id, "bot", msg);
       return;
@@ -1976,11 +1963,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     try {
       const feeResult = await cw.getDeliveryFee({ lat: a.lat, lng: a.lng });
       if (indicatesOutOfRange(feeResult)) {
-        session.step = "ADDRESS";
-        await wa.sendText(
-          phone,
-          "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?",
-        );
+        await sendOutOfRangePrompt(wa, phone, customer, session);
         await saveSession(tenant.id, sessionKey, session);
         return;
       }
@@ -1988,23 +1971,9 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
       if (Number.isFinite(fee) && fee >= 0) {
         session.deliveryFee = fee;
         calc = calculate({ items: session.cart, deliveryFee: fee, discount: session.discount || 0 });
-      } else {
-        session.step = "ADDRESS";
-        await wa.sendText(
-          phone,
-          "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?",
-        );
-        await saveSession(tenant.id, sessionKey, session);
-        return;
       }
     } catch {
-      session.step = "ADDRESS";
-      await wa.sendText(
-        phone,
-        "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?",
-      );
-      await saveSession(tenant.id, sessionKey, session);
-      return;
+      // Se a taxa não vier agora, seguimos e deixamos o CW validar no fechamento.
     }
   }
 

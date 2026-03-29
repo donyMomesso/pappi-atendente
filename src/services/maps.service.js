@@ -55,7 +55,7 @@ async function quote(address, cw, store = {}) {
     km,
     eta_minutes: eta,
     delivery_fee: fee,
-    is_serviceable: fee !== null,
+    is_serviceable: Number.isFinite(fee) ? true : undefined,
   };
 }
 
