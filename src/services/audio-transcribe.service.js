@@ -13,6 +13,8 @@ const ENV = require("../config/env");
 
 const SUPPORTED_TYPES = ["audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm", "audio/opus"];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MIN_SIZE_BYTES = 1024; // evita tentar transcrever silêncio/artefatos muito curtos
+const DOWNLOAD_TIMEOUT_MS = 20000;
 
 /**
  * Baixa o áudio da URL do WhatsApp e transcreve via Motor de IA.
@@ -24,13 +26,17 @@ const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 async function transcribeAudio(mediaUrl, token) {
   if (!mediaUrl) return null;
 
-  const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY || !!ENV.GROQ_API_KEY;
+  const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY;
   if (!hasTranscribe) return null;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
     const audioResp = await fetch(mediaUrl, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!audioResp.ok) {
       console.warn("[AudioTranscribe] Falha ao baixar áudio:", audioResp.status);
@@ -49,8 +55,13 @@ async function transcribeAudio(mediaUrl, token) {
 
 async function transcribeAudioBuffer(buffer, contentType = "audio/ogg") {
   if (!buffer || !Buffer.isBuffer(buffer) || !buffer.byteLength) return null;
-  const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY || !!ENV.GROQ_API_KEY;
+  const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY;
   if (!hasTranscribe) return null;
+
+  if (buffer.byteLength < MIN_SIZE_BYTES) {
+    console.warn("[AudioTranscribe] Áudio muito curto para transcrição:", buffer.byteLength, "bytes");
+    return null;
+  }
 
   if (buffer.byteLength > MAX_SIZE_BYTES) {
     console.warn("[AudioTranscribe] Áudio muito grande:", buffer.byteLength, "bytes");

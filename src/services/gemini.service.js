@@ -193,7 +193,6 @@ REGRAS DE PEDIDO:
 - Quando o cliente confirmar ("isso", "pode ser", "sim", "ok"), defina done:true e preencha items com nomes EXATOS do cardápio.
 - Se o cliente mandar *tudo de uma vez* (tamanho, sabores, bebida, observação), responda em até 4 linhas: resumo + confirmação; defina done:true quando o pedido estiver claro.
 - Os valores em unit_price no JSON são *só placeholder* — o servidor recalcula pelo cardápio; use nomes fiéis ao cardápio.
-- SABORES COMO COMPLEMENTO: Se o cardápio tiver um item base (ex: "Pizza Gigante") e os sabores (ex: "Calabresa") forem opções/complementos desse item, coloque o item base em "name" e os sabores dentro do array "addons".
 - OBSERVAÇÕES: se o cliente pedir algo especial (ex: "sem cebola", "bem passado", "sem azeitona"), capture no campo "notes" do JSON.
 - Faça UMA sugestão de upsell (borda ou bebida) de forma natural.
 - Seja conciso. Máx 5-6 linhas. Emojis com moderação.
@@ -204,7 +203,7 @@ CONVERSA:
 ${safeHistory.map((m) => `${m.role === "customer" ? "Cliente" : "Pappi"}: ${m.text}`).join("\n")}
 
 Pappi (responda APENAS JSON VÁLIDO. Formate como JSON minificado em UMA ÚNICA LINHA. NUNCA use aspas duplas dentro do texto do reply, use aspas simples. NUNCA use quebras de linha reais, use \n se precisar):
-{"reply":"...","items":[{"name":"Pizza Gigante","quantity":1,"unit_price":0.00,"addons":[{"name":"Calabresa","quantity":1,"unit_price":0}]}],"done":false}`;
+{"reply":"...","items":[{"name":"nome do cardápio","quantity":1,"unit_price":0.00,"addons":[{"name":"sabor","quantity":1,"unit_price":0}]}],"done":false}`;
 
     const { text: rawText } = await _generateWithFallback(prompt, { temperature: 0.65, maxTokens: 900 });
     const raw = rawText.replace(/```[\w]*\n?|```/g, "").trim();
@@ -223,13 +222,26 @@ Pappi (responda APENAS JSON VÁLIDO. Formate como JSON minificado em UMA ÚNICA 
     const notes = typeof parsed.notes === "string" && parsed.notes.trim() ? parsed.notes.trim() : "";
 
     let reply = parsed.reply?.trim();
-    if (!reply) { reply = "Pode me dizer o tamanho e o sabor que você quer? 😊"; }
+    if (!reply) {
+      const lastMsg = history?.filter((m) => m.role === "customer").pop()?.text || "";
+      const scanned = _scanCatalog(lastMsg, catalog);
+      reply = scanned.length
+        ? `Encontrei no cardápio: ${scanned.join(", ")}. Qual tamanho? (Broto, Média ou Grande)`
+        : "Qual sabor você quer? Me diz o tamanho e o sabor, ou meia a meia 😊";
+    }
 
     return { reply, items, done, notes };
   } catch (err) {
     const hasKey = !!(ENV.GEMINI_API_KEY && ENV.GEMINI_API_KEY.length > 10);
-    console.warn("[Gemini] chatOrder falhou:", err.message);
-    const reply = "Tive uma pequena falha de conexão aqui 😅. Pode me repetir o que você deseja pedir? (Tamanho e sabor)";
+    console.warn("[Gemini] chatOrder falhou:", err.message, hasKey ? "" : "(GEMINI_API_KEY ausente ou inválido)");
+    const catalogOk = catalog && _formatCatalog(catalog) !== "Cardápio indisponível";
+    const lastMsg = history?.filter((m) => m.role === "customer").pop()?.text || "";
+    const scanned = catalogOk && lastMsg ? _scanCatalog(lastMsg, catalog) : [];
+    const reply = catalogOk
+      ? scanned.length
+        ? `Encontrei no cardápio: ${scanned.join(", ")}. Qual tamanho? (Broto, Média ou Grande)`
+        : "Qual sabor você quer? Me diz o tamanho e o sabor, ou meia a meia 😊"
+      : "O cardápio está indisponível no momento. Tente novamente em instantes. 😊";
     return { reply, items: [], done: false };
   }
 }

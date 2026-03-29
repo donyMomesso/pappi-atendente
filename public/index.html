@@ -1268,6 +1268,7 @@ let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
 let orderTroco = null;
+let orderObservation = "";
 let refreshTimer = null;
 let waIntRefreshTimer = null;
 
@@ -2461,7 +2462,7 @@ function renderOrders(orders) {
   el.innerHTML = orders.map((o,i) => {
     const items = getItems(o);
     const total = typeof o.total === "number" ? o.total : parseFloat(o.total) || 0;
-    const itemStr = items.slice(0,3).map(it=>`${it.quantity||1}x ${esc(it.name||"item")}`).join(", ");
+    const itemStr = items.slice(0,3).map(it=>`${it.quantity||1}x ${esc(it.name||"item")}${it.note?` (${esc(it.note)})`:""}`).join(", ");
     return `
     <div class="order-card">
       <div class="oc-head">
@@ -2472,6 +2473,7 @@ function renderOrders(orders) {
       <div class="oc-body">
         <div>${(o.fulfillment||"delivery")==="takeout"?"🏪 Retirada":"🛵 Entrega"} · ${esc(o.paymentMethodName||"—")}</div>
         <div class="oc-items">${itemStr}${items.length>3?` +${items.length-3} itens`:""}</div>
+        ${o.observation?`<div style="font-size:11px;color:#6B3FA0;margin-top:4px">📝 ${esc(o.observation)}</div>`:""}
         <div style="font-size:11px;color:#aaa;margin-top:3px">${new Date(o.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
       </div>
     </div>
@@ -2545,6 +2547,7 @@ function openOrder() {
   } : {};
   orderPayment = null;
   orderTroco = null;
+  orderObservation = "";
   // Abre inline no col-center em vez de popup
   const el = document.getElementById("colCenter");
   el.innerHTML = `
@@ -2950,6 +2953,10 @@ function renderPaymentStep(body) {
         `).join("")}
       </div>
     </div>
+    <div class="field-group">
+      <label>Observação do pedido <span style="font-weight:400;color:#888">(opcional)</span></label>
+      <textarea id="orderObservationInput" placeholder="Ex: sem cebola, cortar em 8, borda recheada..." style="min-height:74px;resize:vertical" oninput="orderObservation=this.value">${orderObservation||""}</textarea>
+    </div>
     ${orderPayment&&/dinheiro|dinero|cash/i.test(orderPayment.name||orderPayment.payment_method||"")?`
     <div class="field-group">
       <label>Troco para quanto? <span style="font-weight:400;color:#888">(opcional)</span></label>
@@ -2958,13 +2965,15 @@ function renderPaymentStep(body) {
   `;
 }
 
-function selectPayment(p) { orderPayment = p; const inp=document.getElementById('orderTrocoInput'); if(inp) orderTroco=inp.value; renderStep(); }
+function selectPayment(p) { orderPayment = p; const inp=document.getElementById('orderTrocoInput'); if(inp) orderTroco=inp.value; const obs=document.getElementById('orderObservationInput'); if(obs) orderObservation=obs.value; renderStep(); }
 
 async function confirmOrder() {
   if (!orderPayment) { alert("Selecione a forma de pagamento"); return; }
   if (!selectedCustomer) return;
   const trocoInp = document.getElementById("orderTrocoInput");
   if (trocoInp) orderTroco = trocoInp.value?.replace(/[^0-9,.]/g, "").replace(",", ".") || null;
+  const obsInp = document.getElementById("orderObservationInput");
+  if (obsInp) orderObservation = obsInp.value?.trim() || "";
 
   const btn = document.getElementById("btnNext");
   btn.textContent = "Enviando...";
@@ -2994,6 +3003,7 @@ async function confirmOrder() {
     deliveryFee: 0,
     discount: 0,
     trocoPara: orderTroco || null,
+    observation: orderObservation || null,
   };
 
   const result = await api("/order", { method:"POST", body: JSON.stringify(body) });

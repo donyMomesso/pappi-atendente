@@ -8,6 +8,57 @@ const TIMEOUT_MS = 15000;
 const catalogCache = new Map();
 const CATALOG_TTL = 5 * 60 * 1000;
 
+function normalizeText(input) {
+  return String(input || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractCatalogCategories(catalog) {
+  if (!catalog) return [];
+  const candidates = [
+    catalog.categories,
+    catalog.data?.categories,
+    catalog.sections,
+    catalog.catalog?.categories,
+    Array.isArray(catalog) ? catalog : null,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length) return candidate;
+  }
+  return [];
+}
+
+function normalizeCatalog(catalog) {
+  const categories = extractCatalogCategories(catalog).map((cat, index) => {
+    const items = Array.isArray(cat?.items)
+      ? cat.items
+      : Array.isArray(cat?.products)
+        ? cat.products
+        : [];
+    return {
+      id: cat?.id || `cat_${index + 1}`,
+      name: cat?.name || cat?.title || cat?.category || `Categoria ${index + 1}`,
+      items,
+      raw: cat,
+    };
+  });
+
+  const products = categories.flatMap((cat) =>
+    cat.items.map((item) => ({
+      ...item,
+      _normalizedCategoryId: cat.id,
+      _normalizedCategoryName: cat.name,
+      _normalizedKey: normalizeText(item?.name || item?.title || item?.description || item?.id),
+    })),
+  );
+
+  return { categories, products };
+}
+
 async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -63,7 +114,7 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
 
   async function getCatalog() {
     const cached = catalogCache.get(tenantId);
-    if (cached && Date.now() - cached.fetchedAt < CATALOG_TTL) return cached.catalog;
+    if (cached?.catalog && Date.now() - (cached.catalogFetchedAt || 0) < CATALOG_TTL) return cached.catalog;
 
     const attempts = [
       () => fetchWithTimeout(`${base}/api/partner/v1/catalog`, { headers: headersPartner() }),
@@ -96,14 +147,16 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
       return null;
     }
 
+    const normalized = normalizeCatalog(data);
+    const enriched = { ...data, _normalized: normalized };
     const entry = catalogCache.get(tenantId) || {};
-    catalogCache.set(tenantId, { ...entry, catalog: data, fetchedAt: Date.now() });
-    return data;
+    catalogCache.set(tenantId, { ...entry, catalog: enriched, catalogFetchedAt: Date.now() });
+    return enriched;
   }
 
   async function getPaymentMethods() {
     const cached = catalogCache.get(tenantId);
-    if (cached?.paymentMethods && Date.now() - cached.fetchedAt < CATALOG_TTL) return cached.paymentMethods;
+    if (cached?.paymentMethods && Date.now() - (cached.paymentMethodsFetchedAt || 0) < CATALOG_TTL) return cached.paymentMethods;
 
     try {
       const resp = await withRetry(
@@ -114,7 +167,7 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
       const methods = Array.isArray(data) ? data : data?.data || [];
       setMethods(tenantId, methods);
       const entry = catalogCache.get(tenantId) || {};
-      catalogCache.set(tenantId, { ...entry, paymentMethods: methods, fetchedAt: Date.now() });
+      catalogCache.set(tenantId, { ...entry, paymentMethods: methods, paymentMethodsFetchedAt: Date.now() });
       return methods;
     } catch {
       return catalogCache.get(tenantId)?.paymentMethods || [];
@@ -318,20 +371,10 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
   async function createPrefilledOrder({ items, fulfillment, address, customerPhone }) {
     // Resolve IDs de produto a partir do catálogo em cache (sem nova chamada de rede)
     const catalog = await getCatalog();
-    const allProducts = (
-      catalog?.categories ||
-      catalog?.data?.categories ||
-      catalog?.sections ||
-      (Array.isArray(catalog) ? catalog : [])
-    ).flatMap((c) => c.items || c.products || []);
+    const normalizedCatalog = catalog?._normalized || normalizeCatalog(catalog);
+    const allProducts = normalizedCatalog.products || [];
 
-    const normName = (s) =>
-      String(s || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
+    const normName = normalizeText;
 
     const cwItems = (items || []).map((line) => {
       const linNorm = normName(line.name);
@@ -417,6 +460,7 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
   return {
     getMerchant,
     getCatalog,
+    normalizeCatalog: () => normalizeCatalog(catalogCache.get(tenantId)?.catalog),
     getPaymentMethods,
     createOrder,
     createPrefilledOrder,

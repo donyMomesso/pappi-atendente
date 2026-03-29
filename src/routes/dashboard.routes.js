@@ -579,6 +579,33 @@ router.get("/orders/failed", authAdmin, async (req, res) => {
   }
 });
 
+function extractOrderObservation(order) {
+  if (!order || typeof order !== "object") return "";
+  const direct = String(order.observation || order.notes || "").trim();
+  if (direct) return direct;
+
+  try {
+    const itemsRaw = order.itemsSnapshot ? JSON.parse(order.itemsSnapshot) : order.items;
+    if (Array.isArray(itemsRaw)) {
+      const perItem = itemsRaw
+        .map((item) => {
+          const note = String(item?.note || item?.notes || "").trim();
+          return note ? `${item?.name || "Item"}: ${note}` : "";
+        })
+        .filter(Boolean);
+      if (perItem.length) return perItem.join("; ");
+    }
+  } catch {}
+
+  try {
+    const payload = order.cwPayload && typeof order.cwPayload === "string" ? JSON.parse(order.cwPayload) : order.cwPayload;
+    const payloadObs = String(payload?.observation || payload?.notes || "").trim();
+    if (payloadObs) return payloadObs;
+  } catch {}
+
+  return "";
+}
+
 // ── POST /dash/orders/retry — reprocessa um pedido específico ─
 router.post("/orders/retry", authAdmin, async (req, res) => {
   try {
@@ -950,6 +977,7 @@ router.post("/order", authDash, async (req, res) => {
       deliveryFee = 0,
       discount = 0,
       trocoPara,
+      observation,
     } = req.body;
 
     const tid = resolveTenant(req) || tenantId;
@@ -1029,9 +1057,12 @@ router.post("/order", authDash, async (req, res) => {
           ...(trocoPara && parseFloat(trocoPara) > calc.expectedTotal ? { change_for: parseFloat(trocoPara) } : {}),
         },
       ],
-      ...(trocoPara && parseFloat(trocoPara) > 0
-        ? { observation: `Troco para R$ ${parseFloat(trocoPara).toFixed(2)}` }
-        : {}),
+      ...(() => {
+        const parts = [];
+        if (observation && String(observation).trim()) parts.push(String(observation).trim());
+        if (trocoPara && parseFloat(trocoPara) > 0) parts.push(`Troco para R$ ${parseFloat(trocoPara).toFixed(2)}`);
+        return parts.length ? { observation: parts.join("; ") } : {};
+      })(),
     };
 
     if (fulfillment === "delivery" && address) {
@@ -1254,6 +1285,7 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
           name: i.name || i.product_name || i.description || "Item",
         })),
         createdAt: o.created_at || o.createdAt,
+        observation: extractOrderObservation(o),
       };
     };
 
@@ -1343,6 +1375,7 @@ router.get("/orders/kanban", authDash, async (req, res) => {
         paymentMethodName: o.paymentMethodName,
         createdAt: o.createdAt,
         items,
+        observation: extractOrderObservation(o),
       });
     }
     res.json(columns);

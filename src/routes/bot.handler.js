@@ -321,6 +321,79 @@ function normalizeText(input) {
     .trim();
 }
 
+function extractObservationCandidate(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  const normalized = normalizeText(raw);
+
+  const explicit = raw.match(/(?:^|\b)(?:obs(?:\.|:)?|observa(?:cao|ção)?[: -]?)(.+)$/i);
+  if (explicit?.[1]) return explicit[1].trim();
+
+  if (/^(sem|tirar|retirar|acrescentar|adicionar|com\s+extra|bem\s+passad)/i.test(raw)) return raw;
+
+  const noteSignals = [
+    /\bsem\s+[\p{L}0-9]/iu,
+    /\bextra\s+[\p{L}0-9]/iu,
+    /\bborda\s+[\p{L}0-9]/iu,
+    /\bsem\s+cebola\b/iu,
+    /\bsem\s+azeitona\b/iu,
+    /\bbem\s+passad[ao]\b/iu,
+  ];
+  if (noteSignals.some((re) => re.test(raw))) return raw;
+
+  if (normalized.includes("observacao") || normalized.includes("observaçao") || normalized.includes("obs")) return raw;
+
+  return "";
+}
+
+function mergeObservationNotes(currentValue, incomingValue) {
+  const current = String(currentValue || "").trim();
+  const incoming = String(incomingValue || "").trim();
+  if (!incoming) return current;
+  if (!current) return incoming;
+
+  const currentNorm = normalizeText(current);
+  const incomingNorm = normalizeText(incoming);
+  if (currentNorm === incomingNorm || currentNorm.includes(incomingNorm)) return current;
+  if (incomingNorm.includes(currentNorm)) return incoming;
+
+  return `${current}; ${incoming}`;
+}
+
+function shouldSendAudioReply(session, text, wa) {
+  if (!session?.prefersAudio) return false;
+  if (!wa?.sendAudio || !wa?.sendPresence) return false;
+  const raw = String(text || "");
+  if (!raw.trim()) return false;
+  if (raw.length > 420) return false;
+  if (/https?:\/\//i.test(raw)) return false;
+  if (/👇|💳|pix|copia e cola|qr code|cardapio/i.test(raw)) return false;
+  return true;
+}
+
+function parseOrderObservation(order) {
+  if (!order || typeof order !== "object") return "";
+  const direct = String(order.observation || order.notes || "").trim();
+  if (direct) return direct;
+
+  const itemNotes = [];
+  const items = Array.isArray(order.items) ? order.items : [];
+  for (const item of items) {
+    const note = String(item?.note || item?.notes || "").trim();
+    if (note) itemNotes.push(`${item?.name || "Item"}: ${note}`);
+  }
+
+  if (itemNotes.length) return itemNotes.join("; ");
+
+  try {
+    const payload = order.cwPayload && typeof order.cwPayload === "string" ? JSON.parse(order.cwPayload) : order.cwPayload;
+    const payloadObs = String(payload?.observation || payload?.notes || "").trim();
+    if (payloadObs) return payloadObs;
+  } catch {}
+
+  return "";
+}
+
 function extractAddressNumber(text) {
   const m = String(text || "").match(/\b(\d{1,6}[a-zA-Z]?)\b/);
   return m ? m[1] : "";
@@ -534,7 +607,11 @@ async function handle({ tenant, wa, customer, text, phone, sessionKey, timer, is
 
 async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, isAudioInput = false }) {
   const session = await getSession(tenant.id, sessionKey);
-  session.prefersAudio = isAudioInput;
+  if (typeof session.prefersAudio !== "boolean") session.prefersAudio = false;
+  if (isAudioInput) {
+    session.prefersAudio = true;
+    session.prefersAudioUpdatedAt = Date.now();
+  }
   timer?.mark("session");
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
@@ -980,6 +1057,26 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
     } catch {}
   }
 
+  const detectedObservation = extractObservationCandidate(text);
+  if (detectedObservation && ["ORDERING", "PAYMENT", "CONFIRM"].includes(String(session.step || ""))) {
+    session.notes = mergeObservationNotes(session.notes, detectedObservation);
+    if (session.step === "PAYMENT") {
+      const msg = `📝 Observação anotada: ${session.notes}\n\nAgora me diga a forma de pagamento 👇\n\n${listPayments(tenant.id)}`;
+      await wa.sendText(phone, msg);
+      await chatMemory.push(customer.id, "bot", msg);
+      return;
+    }
+    if (session.step === "CONFIRM") {
+      const msg = `📝 Observação anotada no pedido: ${session.notes}\n\nSe estiver tudo certo, clique em *Confirmar*.`;
+      await wa.sendButtons(phone, msg, [
+        { id: "CONFIRMAR", title: "✅ Confirmar" },
+        { id: "CANCELAR", title: "❌ Cancelar" },
+      ]);
+      await chatMemory.push(customer.id, "bot", msg);
+      return;
+    }
+  }
+
   switch (session.step) {
     case "MENU":
     case "CHOOSE_PRODUCT_TYPE":
@@ -1212,10 +1309,14 @@ async function sendGreeting(wa, cw, phone, customer, tenant, session, timer) {
   await chatMemory.push(customer.id, "bot", greeting);
   session._lastGreetingAt = Date.now();
 
-  session.step = "ORDERING";
-  const promptMsg = "Como posso te ajudar hoje? (Pode me dizer o seu pedido completo 🍕)";
-  await wa.sendText(phone, promptMsg);
-  await chatMemory.push(customer.id, "bot", promptMsg);
+  // Bloco 2 — Escolha direta (D.I.S.C.: Dominância — objetivo, claro)
+  session.step = "CHOOSE_PRODUCT_TYPE";
+  const choiceMsg = "O que vai ser hoje? Escolha uma opção 👇";
+  await wa.sendButtons(phone, choiceMsg, [
+    { id: "pizza", title: "🍕 Pizza" },
+    { id: "lasanha", title: "🍝 Lasanha" },
+  ]);
+  await chatMemory.push(customer.id, "bot", choiceMsg);
 }
 
 // Pergunta Pizza ou Lasanha
@@ -1581,24 +1682,37 @@ async function handleAddressConfirm(wa, cw, phone, text, t, session, customer, t
   await startOrdering(wa, cw, phone, session, customer, tenant);
 }
 
-async function handleDeliveryCoverageDecision(wa, cw, phone, text, _t, session, customer, tenant) {
-  const tCov = text.toLowerCase();
-  if (tCov === "change_addr" || tCov.includes("outro") || tCov.includes("mudar") || tCov.includes("errado")) {
-    session.step = "ADDRESS";
-    await wa.sendText(phone, "Certo! Por favor, digite o endereço novamente (dica: inclua o bairro ou o CEP para ajudar o GPS 📍):");
-  } else if (tCov === "takeout" || tCov.includes("retira") || tCov.includes("loja")) {
+async function handleDeliveryCoverageDecision(wa, cw, phone, text, t, session, customer, tenant) {
+  const lower = String(text || "").toLowerCase();
+  const chooseAddress = text === "oor_change_addr" || lower.includes("outro endereco") || lower.includes("outro endereço");
+  const chooseTakeout =
+    text === "oor_takeout" ||
+    t.includes("retirada") ||
+    t.includes("retirar") ||
+    t.includes("buscar") ||
+    lower === "takeout";
+
+  if (chooseTakeout) {
     session.fulfillment = "takeout";
-    session.deliveryFee = 0;
-    session.step = "ORDERING";
-    await wa.sendText(phone, "Mudado para retirada na loja! 🏪");
-    await handleOrdering(wa, cw, phone, "concluir pedido", session, customer, tenant, null);
-  } else {
-    // Se o cliente tentou explicar algo (ex: "sempre peço aí"), handoff imediato!
-    session.step = "HANDOFF";
-    const handoffMsg = "Entendi! Como o GPS do sistema bloqueou a rua automaticamente, vou chamar um atendente humano aqui da loja para liberar seu pedido e verificar a taxa agora mesmo. 👨‍💼 Só um instante!";
-    await wa.sendText(phone, handoffMsg);
-    await chatMemory.push(customer.id, "bot", handoffMsg);
+    delete session.address;
+    delete session.deliveryFee;
+    await startOrdering(wa, cw, phone, session, customer, tenant);
+    return;
   }
+
+  if (chooseAddress) {
+    session.step = "ADDRESS";
+    delete session.address;
+    delete session.deliveryFee;
+    session.addressBuffer = [];
+    session.addressFailCount = 0;
+    const m = "Tudo bem! Me manda outro endereço (Rua + Número + Bairro) ou o CEP 📍";
+    await wa.sendText(phone, m);
+    await chatMemory.push(customer.id, "bot", m);
+    return;
+  }
+
+  await sendOutOfRangePrompt(wa, phone, customer, session);
 }
 
 // ── startOrdering ─────────────────────────────────────────────
@@ -1703,7 +1817,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   timer?.mark("chatOrder");
 
   session.orderHistory.push({ role: "bot", text: result.reply });
-  if (session.prefersAudio && !result.reply.includes("👇") && !result.reply.includes("💳")) {
+  if (shouldSendAudioReply(session, result.reply, wa)) {
     if (wa.sendPresence) await wa.sendPresence(phone, "composing");
     await wa.sendText(phone, result.reply); // Resposta instantânea em texto para quebrar a latência
 
@@ -1719,7 +1833,9 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   await chatMemory.push(customer.id, "bot", result.reply);
 
   if (result.done && result.items?.length > 0) {
-    if (result.notes) session.notes = result.notes;
+    if (result.notes) session.notes = mergeObservationNotes(session.notes, result.notes);
+    const inlineObservation = extractObservationCandidate(text);
+    if (inlineObservation) session.notes = mergeObservationNotes(session.notes, inlineObservation);
 
     // ── Delega precificação ao CW via prefilled_order ─────────
     // O CW é a Fonte da Verdade para totais; o cálculo local é apenas fallback de emergência.
@@ -2133,7 +2249,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   const finalMsg = `${m}\n\n${receipt}`;
   await wa.sendText(phone, finalMsg);
   // Envia áudio da confirmação se o cliente prefere áudio
-  if (session.prefersAudio && wa.sendPresence && typeof wa.sendAudio === "function") {
+  if (shouldSendAudioReply(session, m, wa)) {
     try {
       await wa.sendPresence(phone, "recording");
       const audioBuf = await audioSynthesis.synthesizeTextToAudio(m);
