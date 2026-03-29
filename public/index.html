@@ -3431,6 +3431,8 @@ async function fetchAprendizado() {
       { val: data.stats.totalCorrections, lbl: "Correções registradas", icon: "✏️", color: "#f59e0b" },
       { val: data.stats.totalComplaints || 0, lbl: "Reclamações abertas", icon: "🚨", color: "#ef4444" },
       { val: data.stats.totalPatterns, lbl: "Perfis de clientes", icon: "👤", color: "#6366f1" },
+      { val: data.stats.openWindowCustomers || 0, lbl: "Janela 24h aberta", icon: "🕓", color: "#0ea5e9" },
+      { val: data.stats.pendingActions || 0, lbl: "Ações sugeridas", icon: "📌", color: "#8b5cf6" },
     ];
     statsEl.innerHTML = cards.map(c => `
       <div style="background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-top:3px solid ${c.color};text-align:center">
@@ -3469,10 +3471,23 @@ async function fetchAprendizado() {
     `).join("") : '<div style="color:#aaa">Nenhuma correção registrada. Quando um atendente responder diferente do bot, o sistema captura automaticamente.</div>';
   }
 
-  // Complaints
+  // Complaints + gargalos
   const compEl = document.getElementById("aprendizadoComplaints");
   if (compEl && data.complaints) {
-    compEl.innerHTML = data.complaints.length ? data.complaints.map((c, i) => `
+    const bucketsHtml = (data.problemBuckets || []).length ? `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:14px">
+        ${(data.problemBuckets || []).map(b => `
+          <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px">
+            <div style="font-size:11px;color:#9a3412;font-weight:700">${esc(b.label)}</div>
+            <div style="font-size:24px;font-weight:800;color:#ea580c">${b.count}</div>
+          </div>
+        `).join("")}
+      </div>` : "";
+    const insightsHtml = (data.insights || []).length ? `
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        ${(data.insights || []).map(i => `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px;font-size:12px;color:#334155">${esc(i.text)}</div>`).join("")}
+      </div>` : "";
+    const complaintsHtml = data.complaints.length ? data.complaints.map((c, i) => `
       <div style="border-bottom:1px solid #f0f0f0;padding:10px 0;display:flex;align-items:flex-start;gap:10px;${c.resolved?"opacity:.5":""}">
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
@@ -3481,16 +3496,34 @@ async function fetchAprendizado() {
             ${c.resolved?'<span style="background:#dcfce7;color:#22c55e;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600">Resolvido</span>':'<span style="background:#fee2e2;color:#ef4444;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600">Aberta</span>'}
           </div>
           <div style="color:#ef4444">"${esc(c.text)}"</div>
-          <div style="font-size:10px;color:#aaa;margin-top:2px">${(c.tags||[]).map(t=>'<span style="background:#f5f5f5;padding:1px 5px;border-radius:4px;margin-right:4px">'+t+'</span>').join("")} · ${c.createdAt?new Date(c.createdAt).toLocaleString("pt-BR"):""}</div>
+          <div style="font-size:10px;color:#aaa;margin-top:2px">${(c.tags||[]).map(t=>'<span style="background:#f5f5f5;padding:1px 5px;border-radius:4px;margin-right:4px">'+esc(t)+'</span>').join("")} · ${c.createdAt?new Date(c.createdAt).toLocaleString("pt-BR"):""}</div>
         </div>
         ${!c.resolved?`<button onclick="resolveComplaint(${i})" style="background:#dcfce7;color:#22c55e;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;flex-shrink:0;font-weight:600">✅ Resolver</button>`:""}
       </div>
     `).join("") : '<div style="color:#aaa">Nenhuma reclamação detectada. O sistema analisa automaticamente cada mensagem do cliente em busca de insatisfação.</div>';
+    compEl.innerHTML = bucketsHtml + insightsHtml + complaintsHtml;
   }
 
-  // Patterns
+  // Patterns + fila de ações
   if (patEl) {
-    patEl.innerHTML = data.patterns.length ? `
+    const actionQueueHtml = (data.actionQueue || []).length ? `
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;font-weight:800;color:#334155;margin-bottom:8px">Fila recomendada de ação</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${(data.actionQueue || []).map(row => `
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px">
+              <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                <div style="font-size:12px;font-weight:700;color:#0f172a">${esc(row.name || row.phone || 'Cliente')}</div>
+                <div style="font-size:10px;color:#64748b">${row.lastInteraction ? new Date(row.lastInteraction).toLocaleString('pt-BR') : '—'}</div>
+              </div>
+              <div style="font-size:12px;color:#475569;margin-top:4px">${esc(row.reason || '')}</div>
+              ${row.latestText ? `<div style="font-size:11px;color:#64748b;margin-top:4px">Última msg: ${esc(row.latestText)}</div>` : ''}
+              <div style="font-size:10px;color:#7c3aed;margin-top:6px;font-weight:700;text-transform:uppercase">${esc((row.recommendedAction || '').replace(/_/g, ' '))}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>` : '';
+    const patternsTable = data.patterns.length ? `
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <tr style="border-bottom:2px solid #eee"><th style="text-align:left;padding:6px;color:#888">Cliente</th><th style="text-align:center;padding:6px;color:#888">Pedidos</th><th style="text-align:left;padding:6px;color:#888">Favoritos</th><th style="text-align:left;padding:6px;color:#888">Pagamento</th><th style="text-align:left;padding:6px;color:#888">Tipo</th></tr>
         ${data.patterns.slice(0,20).map(p => `
@@ -3504,6 +3537,7 @@ async function fetchAprendizado() {
         `).join("")}
       </table>
     ` : '<div style="color:#aaa">Nenhum padrão de cliente capturado. O bot aprende as preferências a cada pedido confirmado.</div>';
+    patEl.innerHTML = actionQueueHtml + patternsTable;
   }
 }
 

@@ -16,12 +16,15 @@ const { getWeatherForCity } = require("./weather.service");
 const chatMemory = require("./chat-memory.service");
 const baileys = require("./baileys.service");
 const socketService = require("./socket.service");
+const auditLog = require("./audit-log.service");
 
 const DELAY_THRESHOLD_MIN = 60;
 const ALERT_INTERVAL_MIN = 15; // 15 ou 20 min entre alertas
 const PRIORITY_MAX_MIN = 90;
 
 const CW_PROD_STATUSES = ["em_producao", "in_production"];
+const delayConfigCache = new Map();
+const DELAY_CONFIG_TTL_MS = 60000;
 
 async function sendDelayAlertMessage(tenantId, order, phone, msg, label) {
   if (!phone) return;
@@ -49,16 +52,39 @@ async function sendDelayAlertMessage(tenantId, order, phone, msg, label) {
   await wa.sendText(phone, msg).catch((e) => log.warn({ err: e.message }, `Falha ao enviar ${label} via Cloud`));
 }
 
-async function getDelayAlertInterval(tenantId) {
-  const cfg = await prisma.config.findUnique({ where: { key: `${tenantId}:delay_alert_interval_min` } });
-  return cfg ? parseInt(cfg.value, 10) || ALERT_INTERVAL_MIN : ALERT_INTERVAL_MIN;
+
+
+async function getDelayConfig(tenantId, force = false) {
+  const cached = delayConfigCache.get(tenantId);
+  if (!force && cached && Date.now() - cached.at < DELAY_CONFIG_TTL_MS) return cached.value;
+  const keys = [
+    ['firstThresholdMin', `${tenantId}:delay_first_alert_min`, DELAY_THRESHOLD_MIN],
+    ['alertIntervalMin', `${tenantId}:delay_alert_interval_min`, ALERT_INTERVAL_MIN],
+    ['priorityThresholdMin', `${tenantId}:delay_priority_max_min`, PRIORITY_MAX_MIN],
+    ['sacPhone', `${tenantId}:sac_phone`, ''],
+  ];
+  const rows = await prisma.config.findMany({
+    where: { key: { in: keys.map(([, key]) => key) } },
+    select: { key: true, value: true },
+  }).catch(() => []);
+  const byKey = new Map(rows.map((row) => [row.key, row.value]));
+  const cfg = {};
+  keys.forEach(([name, _key, fallback], idx) => {
+    const raw = byKey.get(_key);
+    cfg[name] = typeof fallback === 'number' ? (parseInt(raw, 10) || fallback) : (raw || fallback);
+  });
+  delayConfigCache.set(tenantId, { at: Date.now(), value: cfg });
+  return cfg;
 }
 
 async function processTenant(tenantId) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant?.active) return;
 
-  const intervalMin = await getDelayAlertInterval(tenantId);
+  const delayCfg = await getDelayConfig(tenantId);
+  const intervalMin = delayCfg.alertIntervalMin;
+  const firstThresholdMin = delayCfg.firstThresholdMin;
+  const priorityThresholdMin = delayCfg.priorityThresholdMin;
 
   // Pedidos em em_producao com cwOrderId (usa status — rode `npx prisma generate` para usar cardapiowebStatus)
   const orders = await prisma.order.findMany({
@@ -83,7 +109,7 @@ async function processTenant(tenantId) {
     const timeInProdMs = now - new Date(statusChangedAt).getTime();
     const timeInProdMin = Math.floor(timeInProdMs / 60_000);
 
-    if (timeInProdMin < DELAY_THRESHOLD_MIN) continue;
+    if (timeInProdMin < firstThresholdMin) continue;
 
     const { min: estMin, max: estMax } = computeEstimatedRemaining({
       timeInProdMinutes: timeInProdMin,
@@ -116,7 +142,7 @@ async function processTenant(tenantId) {
     const delayAlertSentAt = order.delayAlertSentAt ? new Date(order.delayAlertSentAt).getTime() : 0;
     const secondDelayAlertSentAt = order.secondDelayAlertSentAt ? new Date(order.secondDelayAlertSentAt).getTime() : 0;
 
-    // 1º alerta: 60 min
+    // 1º alerta: limiar configurável
     if (!order.delayAlertSentAt) {
       await sendFirstAlert(tenantId, order, customerName, faixa, weather, phone);
       await prisma.order.update({
@@ -168,14 +194,14 @@ async function processTenant(tenantId) {
       continue;
     }
 
-    // 90+ min: prioridade máxima, escalar para humano
-    if (timeInProdMin >= PRIORITY_MAX_MIN && riskLevel !== "escalado_para_humano") {
+    // prioridade máxima: escalar para humano / SAC
+    if (timeInProdMin >= priorityThresholdMin && riskLevel !== "escalado_para_humano") {
       await prisma.order.update({
         where: { id: order.id },
         data: { deliveryRiskLevel: "prioridade_maxima", watchedByAttendant: "system" },
         select: { id: true },
       });
-      await notifyAttendantPriority(tenantId, order, timeInProdMin, orderRef, customerName, phone);
+      await notifyAttendantPriority(tenantId, order, timeInProdMin, orderRef, customerName, phone, delayCfg.sacPhone);
       socketService.emitDelayAlert(tenantId, {
         orderId: order.id,
         orderRef,

@@ -8,6 +8,7 @@
 // 3. Preferências: padrões de pedido por cliente (sabores, horários, pagamento)
 
 const prisma = require("../lib/db");
+const messageDbCompat = require("../lib/message-db-compat");
 
 const KEYS = {
   faq: (tenantId) => `learn:${tenantId}:faq`,
@@ -311,17 +312,187 @@ async function getAll(tenantId) {
     _load(KEYS.patterns(tenantId)),
     _load(KEYS.complaints(tenantId)),
   ]);
+
+  const sortedFaq = faq.sort((a, b) => (b.count || 0) - (a.count || 0));
+  const sortedPatterns = patterns.sort((a, b) => (b.orderCount || 0) - (a.orderCount || 0));
+  const sortedComplaints = complaints.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const now = new Date();
+  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const since72h = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+  const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  let recentCustomers = [];
+  let openWindowCustomers = 0;
+  let handoffCustomers = 0;
+  let recentOrders = [];
+  let cwFailedCount7d = 0;
+  let delayedOrders = 0;
+  let recentInboundByCustomer = new Map();
+
+  try {
+    [recentCustomers, openWindowCustomers, handoffCustomers, recentOrders, cwFailedCount7d, delayedOrders] = await Promise.all([
+      prisma.customer.findMany({
+        where: {
+          tenantId,
+          OR: [{ lastInteraction: { gte: since72h } }, { handoff: true }],
+        },
+        orderBy: { lastInteraction: 'desc' },
+        take: 80,
+        select: { id: true, name: true, phone: true, lastInteraction: true, handoff: true, claimedBy: true },
+      }),
+      prisma.customer.count({ where: { tenantId, lastInteraction: { gte: since24h } } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+      prisma.order.findMany({
+        where: { tenantId, createdAt: { gte: since7d } },
+        orderBy: { createdAt: 'desc' },
+        take: 120,
+        select: {
+          id: true,
+          customerId: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          totalPrice: true,
+          deliveryRiskLevel: true,
+          observation: true,
+          customer: { select: { name: true, phone: true } },
+        },
+      }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: since7d }, status: 'cw_failed' } }),
+      prisma.order.count({ where: { tenantId, deliveryRiskLevel: { in: ['alto', 'critico', 'prioridade_maxima'] }, status: { notIn: ['cancelled', 'concluded', 'delivered'] } } }),
+    ]);
+  } catch (err) {
+    console.error('[Learning] getAll/db:', err.message);
+  }
+
+  if (messageDbCompat.isMessagesTableAvailable()) {
+    try {
+      const inbound = await prisma.message.findMany({
+        where: {
+          createdAt: { gte: since24h },
+          customer: { tenantId },
+          role: { in: ['customer', 'user'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { customerId: true, text: true, createdAt: true },
+        take: 500,
+      });
+      recentInboundByCustomer = inbound.reduce((acc, msg) => {
+        if (!acc.has(msg.customerId)) acc.set(msg.customerId, []);
+        acc.get(msg.customerId).push(msg);
+        return acc;
+      }, new Map());
+    } catch (err) {
+      console.error('[Learning] getAll/messages:', err.message);
+    }
+  }
+
+  const complaintTagCount = new Map();
+  for (const c of sortedComplaints.filter((c) => !c.resolved)) {
+    for (const tag of c.tags || []) complaintTagCount.set(tag, (complaintTagCount.get(tag) || 0) + 1);
+  }
+
+  const statusBuckets = recentOrders.reduce((acc, order) => {
+    const key = order.status || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const complaintByPhone = new Map();
+  for (const c of sortedComplaints) {
+    if (!c.resolved && c.phone && !complaintByPhone.has(c.phone)) complaintByPhone.set(c.phone, c);
+  }
+
+  const orderByCustomerId = new Map();
+  for (const order of recentOrders) {
+    if (order.customerId && !orderByCustomerId.has(order.customerId)) orderByCustomerId.set(order.customerId, order);
+  }
+
+  const actionQueue = recentCustomers.map((customer) => {
+    const lastMsgs = recentInboundByCustomer.get(customer.id) || [];
+    const latestText = (lastMsgs[0]?.text || '').trim();
+    const lastOrder = orderByCustomerId.get(customer.id);
+    const complaint = complaintByPhone.get(customer.phone);
+    const hoursSinceInteraction = customer.lastInteraction ? Math.max(0, Math.round((now - new Date(customer.lastInteraction)) / 36e5)) : null;
+    let recommendedAction = 'acompanhar';
+    let reason = 'Cliente recente sem ação imediata';
+    let priority = 1;
+
+    if (complaint) {
+      recommendedAction = 'encaminhar_sac';
+      reason = `Reclamação aberta${complaint.tags?.length ? ` (${complaint.tags.join(', ')})` : ''}`;
+      priority = 5;
+    } else if (lastOrder && ['cw_failed', 'cancelled'].includes(lastOrder.status)) {
+      recommendedAction = 'recuperar_pedido';
+      reason = `Último pedido com status ${lastOrder.status}`;
+      priority = 4;
+    } else if (lastOrder && ['in_preparation', 'confirmed', 'dispatched', 'ready'].includes(lastOrder.status)) {
+      recommendedAction = 'acompanhar_pedido';
+      reason = `Pedido ativo em ${lastOrder.status}`;
+      priority = 4;
+    } else if (customer.handoff) {
+      recommendedAction = 'responder_humano';
+      reason = customer.claimedBy ? 'Conversa em handoff aguardando retorno' : 'Conversa na fila sem dono';
+      priority = 4;
+    } else if (hoursSinceInteraction != null && hoursSinceInteraction <= 24) {
+      recommendedAction = 'janela_24h';
+      reason = 'Cliente dentro da janela de 24h, bom momento para follow-up';
+      priority = 3;
+    }
+
+    return {
+      customerId: customer.id,
+      name: customer.name || customer.phone,
+      phone: customer.phone,
+      lastInteraction: customer.lastInteraction,
+      latestText: latestText.slice(0, 180),
+      latestOrderStatus: lastOrder?.status || null,
+      latestOrderId: lastOrder?.id || null,
+      complaintTags: complaint?.tags || [],
+      priority,
+      recommendedAction,
+      reason,
+    };
+  }).sort((a, b) => b.priority - a.priority || new Date(b.lastInteraction || 0) - new Date(a.lastInteraction || 0)).slice(0, 20);
+
+  const problemBuckets = [
+    { key: 'complaints_open', label: 'Reclamações abertas', count: sortedComplaints.filter((c) => !c.resolved).length },
+    { key: 'handoff_open', label: 'Conversas em handoff', count: handoffCustomers },
+    { key: 'cw_failed_7d', label: 'Falhas Cardápio Web (7d)', count: cwFailedCount7d },
+    { key: 'delay_risk', label: 'Pedidos com risco de atraso', count: delayedOrders },
+  ].filter((item) => item.count > 0);
+
+  const insights = [];
+  if (problemBuckets.length === 0) {
+    insights.push({ type: 'success', text: 'Nenhum gargalo crítico detectado agora. Dá para usar a janela de 24h para reengajar clientes mornos.' });
+  } else {
+    if (problemBuckets[0]) insights.push({ type: 'warning', text: `${problemBuckets[0].label}: ${problemBuckets[0].count}. Vale atacar isso primeiro.` });
+    const topComplaintTag = [...complaintTagCount.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (topComplaintTag) insights.push({ type: 'danger', text: `Tema mais sensível nas conversas: ${topComplaintTag[0]} (${topComplaintTag[1]} ocorrência(s)).` });
+    if (openWindowCustomers > 0) insights.push({ type: 'info', text: `${openWindowCustomers} cliente(s) falaram nas últimas 24h e podem receber follow-up humano ou recuperação de pedido.` });
+  }
+
   return {
-    faq: faq.sort((a, b) => (b.count || 0) - (a.count || 0)),
+    faq: sortedFaq,
     corrections,
-    patterns: patterns.sort((a, b) => (b.orderCount || 0) - (a.orderCount || 0)),
-    complaints: complaints.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    patterns: sortedPatterns,
+    complaints: sortedComplaints,
+    actionQueue,
+    problemBuckets,
+    insights,
+    statusBuckets,
     stats: {
-      totalFaq: faq.length,
+      totalFaq: sortedFaq.length,
       totalCorrections: corrections.length,
-      totalPatterns: patterns.length,
-      totalComplaints: complaints.filter((c) => !c.resolved).length,
-      totalComplaintsResolved: complaints.filter((c) => c.resolved).length,
+      totalPatterns: sortedPatterns.length,
+      totalComplaints: sortedComplaints.filter((c) => !c.resolved).length,
+      totalComplaintsResolved: sortedComplaints.filter((c) => c.resolved).length,
+      openWindowCustomers,
+      handoffOpen: handoffCustomers,
+      cwFailed7d: cwFailedCount7d,
+      delayedOrders,
+      pendingActions: actionQueue.filter((row) => row.priority >= 3).length,
     },
   };
 }

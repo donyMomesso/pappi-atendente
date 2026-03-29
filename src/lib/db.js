@@ -5,7 +5,6 @@
 const { PrismaClient } = require("@prisma/client");
 
 const globalForPrisma = globalThis;
-
 const isDev = process.env.NODE_ENV !== "production";
 
 function buildPrismaClient() {
@@ -14,23 +13,38 @@ function buildPrismaClient() {
   });
 }
 
-// Em dev (nodemon/hot reload), reutiliza via global para não recriar pool.
-// Em prod, instância única por processo é suficiente (sem depender de global).
-const prisma = isDev ? (globalForPrisma.__prisma ||= buildPrismaClient()) : buildPrismaClient();
+const prisma = globalForPrisma.__pappiPrisma || buildPrismaClient();
+if (!globalForPrisma.__pappiPrisma) globalForPrisma.__pappiPrisma = prisma;
 
-// Alerta operacional: em produção, configure pool no DATABASE_URL para aguentar rajadas.
-// Ex.: postgresql://.../db?connection_limit=20&pool_timeout=15
-try {
-  const url = process.env.DATABASE_URL || "";
-  if (!isDev && url && !globalForPrisma.__prismaPoolWarned) {
+function warnPoolConfig() {
+  try {
+    const url = process.env.DATABASE_URL || "";
+    if (!url || globalForPrisma.__prismaPoolWarned) return;
     globalForPrisma.__prismaPoolWarned = true;
-    if (!/connection_limit=\d+/i.test(url) || !/pool_timeout=\d+/i.test(url)) {
+    const hasConnectionLimit = /(?:\?|&)connection_limit=\d+/i.test(url);
+    const hasPoolTimeout = /(?:\?|&)pool_timeout=\d+/i.test(url);
+    if (!hasConnectionLimit || !hasPoolTimeout) {
       // eslint-disable-next-line no-console
       console.warn(
-        "[prisma] Sugestão: adicione `?connection_limit=20&pool_timeout=15` ao DATABASE_URL em produção para evitar gargalos.",
+        "[prisma] Sugestão de produção: adicione `?connection_limit=5&pool_timeout=30` ao DATABASE_URL do serviço web. " +
+          "Em split runtime, use limites menores por processo para evitar esgotar o banco.",
       );
     }
-  }
-} catch {}
+  } catch {}
+}
+
+warnPoolConfig();
+
+if (!globalForPrisma.__pappiPrismaHooksInstalled) {
+  globalForPrisma.__pappiPrismaHooksInstalled = true;
+  const close = async () => {
+    try {
+      await prisma.$disconnect();
+    } catch {}
+  };
+  process.once("beforeExit", close);
+  process.once("SIGTERM", close);
+  process.once("SIGINT", close);
+}
 
 module.exports = prisma;

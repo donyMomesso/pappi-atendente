@@ -5,6 +5,17 @@
 const ENV = require("./config/env");
 const log = require("./lib/logger").child({ service: "startup" });
 
+function schedule(name, delayMs, fn) {
+  setTimeout(() => {
+    try {
+      fn();
+      log.info({ name, delayMs }, "Startup: tarefa iniciada com atraso controlado");
+    } catch (e) {
+      log.warn({ err: e, name }, "[Startup] falha ao iniciar tarefa");
+    }
+  }, delayMs);
+}
+
 function startBaileys() {
   if (!ENV.RUN_BAILEYS) {
     log.info("Baileys: desligado (RUN_BAILEYS=false)");
@@ -30,18 +41,20 @@ function startJobs() {
   }
   try {
     const retentionSvc = require("./services/retention.service");
-    retentionSvc.startScheduler();
     const cwRetrySvc = require("./services/cw-retry.service");
-    cwRetrySvc.startScheduler();
     const orderDelayMonitor = require("./services/order-delay-monitor.service");
-    orderDelayMonitor.startScheduler();
     const messageRetention = require("./services/message-retention.service");
-    messageRetention.startScheduler();
     const aviseScheduler = require("./services/avise-abertura-scheduler");
-    aviseScheduler.startScheduler();
     const handoffTimeout = require("./services/handoff-timeout-scheduler");
-    handoffTimeout.start();
-    log.info("Jobs: schedulers ativos (retention, cw-retry, order-delay, message-retention, avise-abertura, handoff-timeout)");
+
+    schedule("retention", 250, () => retentionSvc.startScheduler());
+    schedule("cw-retry", 1250, () => cwRetrySvc.startScheduler());
+    schedule("order-delay", 2500, () => orderDelayMonitor.startScheduler());
+    schedule("message-retention", 3750, () => messageRetention.startScheduler());
+    schedule("avise-abertura", 5000, () => aviseScheduler.startScheduler());
+    schedule("handoff-timeout", 6250, () => handoffTimeout.start());
+
+    log.info("Jobs: agendados com startup escalonado (retention, cw-retry, order-delay, message-retention, avise-abertura, handoff-timeout)");
   } catch (e) {
     log.warn({ err: e }, "[Startup] scheduler error");
   }
@@ -59,6 +72,7 @@ function runStartup() {
       runBaileys: ENV.RUN_BAILEYS,
       runJobs: ENV.RUN_JOBS,
       baileysEnabled: ENV.BAILEYS_ENABLED,
+      appRuntime: ENV.APP_RUNTIME,
       webConcurrency: ENV.WEB_CONCURRENCY,
     },
     "Startup: monólito (index.js) — ordem Baileys + jobs",

@@ -18,6 +18,16 @@ function envFlag(name, defaultValue = true) {
 }
 
 // APP_ENV: prod | staging | dev | local — isolamento de sessão Baileys entre ambientes
+function resolveRuntime() {
+  const v = (process.env.APP_RUNTIME || process.env.RUNTIME_ROLE || '').trim().toLowerCase();
+  if (['mono', 'monolith', 'web', 'worker', 'jobs', 'baileys'].includes(v)) {
+    if (v === 'monolith') return 'mono';
+    if (v === 'jobs') return 'worker';
+    return v;
+  }
+  return 'mono';
+}
+
 function resolveAppEnv() {
   const v = (process.env.APP_ENV || "").trim().toLowerCase();
   if (["prod", "production", "staging", "homolog", "dev", "development", "local"].includes(v)) {
@@ -29,9 +39,14 @@ function resolveAppEnv() {
   return process.env.NODE_ENV === "production" ? "prod" : process.env.NODE_ENV === "development" ? "dev" : "local";
 }
 
+const APP_RUNTIME = resolveRuntime();
+const defaultRunJobs = APP_RUNTIME === 'mono' || APP_RUNTIME === 'worker';
+const defaultRunBaileys = APP_RUNTIME === 'mono' || APP_RUNTIME === 'baileys';
+
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
   APP_ENV: resolveAppEnv(),
+  APP_RUNTIME,
   PORT: toNumber(process.env.PORT, 10000),
   APP_URL: (process.env.APP_URL || "https://pappiatendente.com.br").replace(/\/$/, ""),
   WEBHOOK_VERIFY_TOKEN: process.env.WEBHOOK_VERIFY_TOKEN || "",
@@ -104,8 +119,8 @@ module.exports = {
   BAILEYS_PROCESS_NAME: process.env.BAILEYS_PROCESS_NAME || "pappi-baileys",
   BAILEYS_HOSTNAME: process.env.BAILEYS_HOSTNAME || require("os").hostname(),
   WEB_CONCURRENCY: toNumber(process.env.WEB_CONCURRENCY, 1),
-  RUN_JOBS: envFlag("RUN_JOBS", true),
-  RUN_BAILEYS: envFlag("RUN_BAILEYS", true),
+  RUN_JOBS: envFlag("RUN_JOBS", defaultRunJobs),
+  RUN_BAILEYS: envFlag("RUN_BAILEYS", defaultRunBaileys),
   LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   HEALTHCHECK_TOKEN: process.env.HEALTHCHECK_TOKEN || "",
   REDIS_URL: process.env.REDIS_URL || "",

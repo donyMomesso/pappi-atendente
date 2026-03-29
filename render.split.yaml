@@ -1,0 +1,26 @@
+# Render — arquitetura estável de produção (split runtime)
+# Use 2 ou 3 serviços para evitar esgotar o pool do Postgres.
+# Ajuste DATABASE_URL com connection_limit menor por processo, ex.:
+# web:    ?connection_limit=5&pool_timeout=30
+# worker: ?connection_limit=3&pool_timeout=30
+# baileys:?connection_limit=2&pool_timeout=30
+
+services:
+  - type: web
+    name: pappi-web
+    runtime: node
+    buildCommand: npm install && npx prisma generate && npx prisma db push
+    startCommand: APP_RUNTIME=web npm run start:web
+    healthCheckPath: /health
+
+  - type: worker
+    name: pappi-worker
+    runtime: node
+    buildCommand: npm install && npx prisma generate
+    startCommand: APP_RUNTIME=worker npm run start:jobs
+
+  - type: worker
+    name: pappi-baileys
+    runtime: node
+    buildCommand: npm install && npx prisma generate
+    startCommand: APP_RUNTIME=baileys npm run start:baileys
