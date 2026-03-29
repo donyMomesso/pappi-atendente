@@ -749,10 +749,24 @@
   </div>
 
   <!-- Painel: Auditoria -->
-  <div id="adminPanelAudit" class="admin-panel" style="display:none">
-    <div style="padding:28px;max-width:900px;margin:0 auto;width:100%">
-      <div style="margin-top:40px;text-align:center;color:#bbb;font-size:48px">🤖</div>
-      <div style="text-align:center;color:#bbb;font-size:14px;margin-top:12px">Em breve — IA avalia cada conversa e gera score de qualidade (Fase 3)</div>
+  <div id="adminPanelAudit" class="admin-panel" style="display:none;flex:1;overflow-y:auto;background:#f8fafc">
+    <div style="padding:24px;max-width:1100px;margin:0 auto;width:100%">
+      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:16px">
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#222">Auditoria do sistema</div>
+          <div style="font-size:12px;color:#777">Ações administrativas e operacionais recentes</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="auditLimit" onchange="fetchAuditLogs()" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;font-size:12px">
+            <option value="50">50 registros</option>
+            <option value="100">100 registros</option>
+            <option value="200">200 registros</option>
+          </select>
+          <button onclick="fetchAuditLogs()" style="background:var(--purple);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer">🔄 Atualizar</button>
+        </div>
+      </div>
+      <div id="auditMeta" style="font-size:12px;color:#777;margin-bottom:12px"></div>
+      <div id="auditList" style="display:flex;flex-direction:column;gap:10px"></div>
     </div>
   </div>
 
@@ -1268,7 +1282,7 @@ let orderFulfillment = "delivery";
 let orderAddress = {};
 let orderPayment = null;
 let orderTroco = null;
-let orderObservation = "";
+let orderNotes = "";
 let refreshTimer = null;
 let waIntRefreshTimer = null;
 
@@ -2313,10 +2327,11 @@ async function loadChatHistory(customerId) {
     return;
   }
   body.innerHTML = msgs.map(m => {
-    const isOut = m.role === "attendant" || m.role === "human";
     const isBot = m.role === "bot" || m.role === "assistant";
+    const isHumanOut = m.role === "attendant" || m.role === "human";
+    const isOut = isHumanOut || isBot;
     const cls = isOut ? "msg out" : "msg in";
-    const senderTag = isOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isOut ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
+    const senderTag = isHumanOut && m.sender ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 ${esc(m.sender)}</div>` : isHumanOut ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">👤 Humano</div>` : isBot ? `<div style="font-size:10px;opacity:.7;margin-bottom:2px">🤖 Bot</div>` : "";
     const time = resolveMessageDate(m).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
     // Lógica de Mídia
     let content = `<p style="margin:0">${esc(m.text)}</p>`;
@@ -2462,7 +2477,7 @@ function renderOrders(orders) {
   el.innerHTML = orders.map((o,i) => {
     const items = getItems(o);
     const total = typeof o.total === "number" ? o.total : parseFloat(o.total) || 0;
-    const itemStr = items.slice(0,3).map(it=>`${it.quantity||1}x ${esc(it.name||"item")}${it.note?` (${esc(it.note)})`:""}`).join(", ");
+    const itemStr = items.slice(0,3).map(it=>`${it.quantity||1}x ${esc(it.name||"item")}`).join(", ");
     return `
     <div class="order-card">
       <div class="oc-head">
@@ -2473,7 +2488,7 @@ function renderOrders(orders) {
       <div class="oc-body">
         <div>${(o.fulfillment||"delivery")==="takeout"?"🏪 Retirada":"🛵 Entrega"} · ${esc(o.paymentMethodName||"—")}</div>
         <div class="oc-items">${itemStr}${items.length>3?` +${items.length-3} itens`:""}</div>
-        ${o.observation?`<div style="font-size:11px;color:#6B3FA0;margin-top:4px">📝 ${esc(o.observation)}</div>`:""}
+        ${o.observation?`<div style="font-size:11px;color:#ff6b35;margin-top:6px">📝 ${esc(o.observation)}</div>`:""}
         <div style="font-size:11px;color:#aaa;margin-top:3px">${new Date(o.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
       </div>
     </div>
@@ -2547,7 +2562,7 @@ function openOrder() {
   } : {};
   orderPayment = null;
   orderTroco = null;
-  orderObservation = "";
+  orderNotes = "";
   // Abre inline no col-center em vez de popup
   const el = document.getElementById("colCenter");
   el.innerHTML = `
@@ -2688,6 +2703,7 @@ function renderCatalogStep(body) {
           <div class="ci-name">
             ${esc(i.name)}
             ${(i.options||[]).length?`<div style="font-size:10px;color:#888;margin-top:2px">${i.options.map(o=>esc(o.name)).join(", ")}</div>`:""}
+            ${i.note?`<div style="font-size:10px;color:#ff6b35;margin-top:2px">📝 ${esc(i.note)}</div>`:""}
           </div>
           <div class="ci-qty">
             <button onclick="event.stopPropagation();changeQty('${i.id}',-1)">−</button>
@@ -2695,7 +2711,7 @@ function renderCatalogStep(body) {
             <button onclick="event.stopPropagation();changeQty('${i.id}',1)">+</button>
           </div>
           <div class="ci-price">R$ ${(i.unit_price*i.quantity).toFixed(2)}</div>
-          <button class="ci-remove" onclick="event.stopPropagation();removeFromCart('${i.id}')">×</button>
+          <button type="button" title="Editar observação do item" style="background:none;border:none;color:#8e44ad;cursor:pointer;font-size:14px;padding:0 2px" onclick="event.stopPropagation();editItemNote('${i.id}')">📝</button><button class="ci-remove" onclick="event.stopPropagation();removeFromCart('${i.id}')">×</button>
         </div>
       `).join("")}
       <div class="cart-total"><span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span></div>
@@ -2862,6 +2878,14 @@ function changeQty(id, delta) {
   renderStep();
 }
 function removeFromCart(id) { cart = cart.filter(i=>i.id!==id); renderStep(); }
+function editItemNote(id) {
+  const item = cart.find(i => i.id === id);
+  if (!item) return;
+  const next = prompt(`Observação para ${item.name}:`, item.note || "");
+  if (next === null) return;
+  item.note = next.trim();
+  renderStep();
+}
 
 function renderAddressStep(body) {
   body.innerHTML = `
@@ -2936,7 +2960,7 @@ function renderPaymentStep(body) {
     <div class="field-group">
       <label>Resumo do pedido</label>
       <div style="background:var(--purple-ll);border-radius:8px;padding:12px;font-size:13px">
-        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${i.quantity}x ${esc(i.name)}${(i.options||[]).length?` (${i.options.map(o=>esc(o.name)).join(", ")})`:""}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
+        ${cart.map(i=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px;gap:8px"><span>${i.quantity}x ${esc(i.name)}${(i.options||[]).length?` (${i.options.map(o=>esc(o.name)).join(", ")})`:""}${i.note?`<div style="font-size:11px;color:#ff6b35;margin-top:2px">📝 ${esc(i.note)}</div>`:""}</span><span>R$ ${(i.unit_price*i.quantity).toFixed(2)}</span></div>`).join("")}
         <div style="border-top:1px solid #ddd;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-weight:700">
           <span>Total</span><span style="color:var(--purple)">R$ ${cartTotal.toFixed(2)}</span>
         </div>
@@ -2954,8 +2978,8 @@ function renderPaymentStep(body) {
       </div>
     </div>
     <div class="field-group">
-      <label>Observação do pedido <span style="font-weight:400;color:#888">(opcional)</span></label>
-      <textarea id="orderObservationInput" placeholder="Ex: sem cebola, cortar em 8, borda recheada..." style="min-height:74px;resize:vertical" oninput="orderObservation=this.value">${orderObservation||""}</textarea>
+      <label>Observação do pedido <span style="font-weight:400;color:#888">(vai para a loja e para o painel)</span></label>
+      <textarea id="orderNotesInput" rows="3" placeholder="Ex: sem cebola, cliente alérgico, tocar interfone..." oninput="orderNotes=this.value">${esc(orderNotes||"")}</textarea>
     </div>
     ${orderPayment&&/dinheiro|dinero|cash/i.test(orderPayment.name||orderPayment.payment_method||"")?`
     <div class="field-group">
@@ -2965,15 +2989,15 @@ function renderPaymentStep(body) {
   `;
 }
 
-function selectPayment(p) { orderPayment = p; const inp=document.getElementById('orderTrocoInput'); if(inp) orderTroco=inp.value; const obs=document.getElementById('orderObservationInput'); if(obs) orderObservation=obs.value; renderStep(); }
+function selectPayment(p) { orderPayment = p; const inp=document.getElementById('orderTrocoInput'); if(inp) orderTroco=inp.value; renderStep(); }
 
 async function confirmOrder() {
   if (!orderPayment) { alert("Selecione a forma de pagamento"); return; }
   if (!selectedCustomer) return;
   const trocoInp = document.getElementById("orderTrocoInput");
   if (trocoInp) orderTroco = trocoInp.value?.replace(/[^0-9,.]/g, "").replace(",", ".") || null;
-  const obsInp = document.getElementById("orderObservationInput");
-  if (obsInp) orderObservation = obsInp.value?.trim() || "";
+  const notesInp = document.getElementById("orderNotesInput");
+  if (notesInp) orderNotes = notesInp.value?.trim() || "";
 
   const btn = document.getElementById("btnNext");
   btn.textContent = "Enviando...";
@@ -3003,7 +3027,7 @@ async function confirmOrder() {
     deliveryFee: 0,
     discount: 0,
     trocoPara: orderTroco || null,
-    observation: orderObservation || null,
+    observation: orderNotes || null,
   };
 
   const result = await api("/order", { method:"POST", body: JSON.stringify(body) });
@@ -3539,6 +3563,7 @@ function adminTab(tab) {
   if (tab === "dash")  fetchAdminDash();
   if (tab === "stats") fetchStatsPanel();
   if (tab === "rel") fetchRelatorioRange();
+  if (tab === "audit") fetchAuditLogs();
   if (tab === "analista") fetchAnalista();
   if (tab === "aprendizado") fetchAprendizado();
   if (tab === "cfg" || tab === "atend" || tab === "sac") loadAdminSettings();
@@ -3577,6 +3602,42 @@ function initRelDatesIfEmpty() {
   from.setDate(from.getDate() - 7);
   fromEl.value = formatDateISO(from);
   toEl.value = formatDateISO(to);
+}
+
+async function fetchAuditLogs() {
+  const listEl = document.getElementById("auditList");
+  const metaEl = document.getElementById("auditMeta");
+  if (!listEl || !metaEl) return;
+  listEl.innerHTML = '<div style="color:#999;font-size:12px;padding:16px;text-align:center">Carregando auditoria...</div>';
+  const limit = parseInt(document.getElementById("auditLimit")?.value || "50", 10) || 50;
+  const rows = await api(`/audit-logs?tenant=${encodeURIComponent(TENANT)}&limit=${limit}`);
+  if (!Array.isArray(rows)) {
+    metaEl.textContent = "Falha ao carregar auditoria";
+    listEl.innerHTML = '<div style="color:#c00;font-size:12px;padding:16px;text-align:center">Não foi possível carregar os logs.</div>';
+    return;
+  }
+  metaEl.textContent = `${rows.length} registro(s) carregados`;
+  if (!rows.length) {
+    listEl.innerHTML = '<div style="color:#999;font-size:12px;padding:16px;text-align:center">Nenhum log encontrado.</div>';
+    return;
+  }
+  listEl.innerHTML = rows.map((row) => {
+    const when = new Date(row.createdAt).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    const meta = row.metadata && typeof row.metadata === "object" ? JSON.stringify(row.metadata, null, 2) : "";
+    return `
+      <div style="background:#fff;border:1px solid #e9edf3;border-radius:14px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.04)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:800;color:#222">${esc(row.action || "ação")}</div>
+          <div style="font-size:11px;color:#777">${when}</div>
+        </div>
+        <div style="font-size:12px;color:#555;display:flex;gap:12px;flex-wrap:wrap">
+          <span><strong>Tenant:</strong> ${esc(row.tenantId || "—")}</span>
+          <span><strong>Usuário:</strong> ${esc(row.userId || "—")}</span>
+          <span><strong>Recurso:</strong> ${esc(row.resourceType || "—")}${row.resourceId ? ` / ${esc(row.resourceId)}` : ""}</span>
+        </div>
+        ${meta ? `<pre style="margin:10px 0 0;background:#f7f8fb;border-radius:10px;padding:10px;font-size:11px;color:#555;overflow:auto;white-space:pre-wrap">${esc(meta)}</pre>` : ""}
+      </div>`;
+  }).join("");
 }
 
 async function fetchRelatorioRange() {

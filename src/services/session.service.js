@@ -84,7 +84,14 @@ async function _clear(k) {
 }
 
 function newSession() {
-  return { step: "MENU", cart: [], orderHistory: [], _updatedAt: Date.now() };
+  return {
+    step: "MENU",
+    cart: [],
+    orderHistory: [],
+    prefersAudio: false,
+    lastInputWasAudio: false,
+    _updatedAt: Date.now(),
+  };
 }
 
 /** Parte estável da chave de sessão: telefone (ou id social) ou cid interno. */

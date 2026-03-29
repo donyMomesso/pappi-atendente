@@ -13,8 +13,17 @@ const ENV = require("../config/env");
 
 const SUPPORTED_TYPES = ["audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm", "audio/opus"];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-const MIN_SIZE_BYTES = 1024; // evita tentar transcrever silêncio/artefatos muito curtos
-const DOWNLOAD_TIMEOUT_MS = 20000;
+const DOWNLOAD_TIMEOUT_MS = 30000;
+
+async function fetchAudioWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 /**
  * Baixa o áudio da URL do WhatsApp e transcreve via Motor de IA.
@@ -30,13 +39,9 @@ async function transcribeAudio(mediaUrl, token) {
   if (!hasTranscribe) return null;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-    const audioResp = await fetch(mediaUrl, {
+    const audioResp = await fetchAudioWithTimeout(mediaUrl, {
       headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
     });
-    clearTimeout(timeout);
 
     if (!audioResp.ok) {
       console.warn("[AudioTranscribe] Falha ao baixar áudio:", audioResp.status);
@@ -44,6 +49,11 @@ async function transcribeAudio(mediaUrl, token) {
     }
 
     const contentType = audioResp.headers.get("content-type") || "audio/ogg";
+    const contentLength = parseInt(audioResp.headers.get("content-length") || "0", 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_SIZE_BYTES) {
+      console.warn("[AudioTranscribe] Áudio muito grande no download:", contentLength, "bytes");
+      return null;
+    }
     const arrayBuf = await audioResp.arrayBuffer();
     const buffer = Buffer.from(arrayBuf);
     return transcribeAudioBuffer(buffer, contentType);
@@ -57,11 +67,6 @@ async function transcribeAudioBuffer(buffer, contentType = "audio/ogg") {
   if (!buffer || !Buffer.isBuffer(buffer) || !buffer.byteLength) return null;
   const hasTranscribe = !!ENV.GEMINI_API_KEY || !!ENV.OPENAI_API_KEY;
   if (!hasTranscribe) return null;
-
-  if (buffer.byteLength < MIN_SIZE_BYTES) {
-    console.warn("[AudioTranscribe] Áudio muito curto para transcrição:", buffer.byteLength, "bytes");
-    return null;
-  }
 
   if (buffer.byteLength > MAX_SIZE_BYTES) {
     console.warn("[AudioTranscribe] Áudio muito grande:", buffer.byteLength, "bytes");

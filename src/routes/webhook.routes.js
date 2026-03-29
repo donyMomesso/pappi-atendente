@@ -374,13 +374,6 @@ async function processMessage({ tenant, wa, msg, contacts }) {
         null,
         originalTimestamp,
       );
-      const socketService = require("../services/socket.service");
-      socketService.emitMessage(customer.id, {
-        role: "human",
-        text: echoText,
-        sender: "WhatsApp App",
-        at: (originalTimestamp || new Date()).toISOString(),
-      });
     }
     return;
   }

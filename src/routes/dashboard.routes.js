@@ -54,6 +54,124 @@ function outboundSucceeded(result) {
   return true;
 }
 
+function combineObservationParts(...parts) {
+  const normalized = parts
+    .flatMap((part) => {
+      if (!part) return [];
+      if (Array.isArray(part)) return part;
+      return String(part).split(/\n+/);
+    })
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+
+  return normalized.length ? Array.from(new Set(normalized)).join("\n") : null;
+}
+
+function extractOrderObservation(order) {
+  if (!order || typeof order !== "object") return null;
+  const direct = typeof order.observation === "string" ? order.observation.trim() : "";
+  if (direct) return direct;
+
+  const itemNotes = [];
+  const pushItemNotes = (items) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      const note = String(item?.note || item?.observation || "").trim();
+      if (note) itemNotes.push(`${item?.quantity || 1}x ${item?.name || "Item"}: ${note}`);
+    }
+  };
+
+  try {
+    if (order.itemsSnapshot) pushItemNotes(JSON.parse(order.itemsSnapshot));
+  } catch {}
+  pushItemNotes(order.items);
+  pushItemNotes(order.order_items);
+
+  try {
+    if (order.cwPayload) {
+      const payload = typeof order.cwPayload === "string" ? JSON.parse(order.cwPayload) : order.cwPayload;
+      const payloadObs = String(payload?.observation || "").trim();
+      if (payloadObs) return combineObservationParts(payloadObs, itemNotes);
+    }
+  } catch {}
+
+  return combineObservationParts(itemNotes);
+}
+
+async function backfillOrdersFromCardapioWeb({ tenantId, customerId, cwOrders = [] }) {
+  if (!tenantId || !customerId || !Array.isArray(cwOrders) || !cwOrders.length) return 0;
+  let created = 0;
+  for (const raw of cwOrders) {
+    const cwOrderId = String(raw?.id || raw?.order_id || "").trim();
+    if (!cwOrderId) continue;
+    const existing = await prisma.order.findFirst({ where: { tenantId, cwOrderId }, select: { id: true } });
+    const statusRaw = String(raw?.status || "").trim().toLowerCase();
+    const internalStatus =
+      statusRaw.includes("confirm") ? "confirmed" :
+      statusRaw.includes("prepar") ? "in_preparation" :
+      (statusRaw.includes("conclu") || statusRaw === "delivered") ? "concluded" :
+      statusRaw.includes("cancel") ? "cancelled" :
+      statusRaw.includes("dispatch") ? "dispatched" :
+      (statusRaw.includes("pronto") || statusRaw === "ready") ? "ready" :
+      "waiting_confirmation";
+    const rawItems = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw?.order_items) ? raw.order_items : [];
+    const items = rawItems.map((i) => ({
+      id: String(i?.id || i?.product_id || i?.sku || `${cwOrderId}:${i?.name || 'item'}`),
+      name: i?.name || i?.product_name || i?.description || "Item",
+      quantity: Number(i?.quantity || 1) || 1,
+      unit_price: Number(i?.unit_price ?? i?.price ?? i?.total_price ?? 0) || 0,
+      note: String(i?.note || i?.observation || "").trim(),
+      addons: Array.isArray(i?.addons) ? i.addons : [],
+    }));
+    const total = parseFloat(raw?.total ?? raw?.totals?.order_amount ?? raw?.order_amount ?? 0) || 0;
+    const payloadObs = String(raw?.observation || raw?.notes || "").trim();
+    const cwPayload = payloadObs ? { observation: payloadObs } : null;
+    const data = {
+      tenantId,
+      customerId,
+      idempotencyKey: `cw:${cwOrderId}`,
+      status: internalStatus,
+      total,
+      deliveryFee: parseFloat(raw?.totals?.delivery_fee ?? raw?.delivery_fee ?? 0) || 0,
+      discount: parseFloat(raw?.totals?.discount ?? raw?.discount ?? 0) || 0,
+      totalValidated: true,
+      totalExpected: total,
+      fulfillment: (raw?.order_type || raw?.fulfillment || "delivery") === "takeout" ? "takeout" : "delivery",
+      paymentMethodId: raw?.payment_method_id != null ? String(raw.payment_method_id) : null,
+      paymentMethodName: raw?.payment_method_name || null,
+      itemsSnapshot: JSON.stringify(items),
+      addressSnapshot: raw?.delivery_address ? JSON.stringify(raw.delivery_address) : null,
+      cwOrderId,
+      cwPayload: cwPayload ? JSON.stringify(cwPayload) : null,
+      cwResponse: JSON.stringify(raw),
+      cardapiowebStatus: statusRaw || null,
+      statusChangedAt: raw?.updated_at ? new Date(raw.updated_at) : new Date(),
+      createdAt: raw?.created_at ? new Date(raw.created_at) : undefined,
+    };
+    if (existing?.id) {
+      await prisma.order.update({ where: { id: existing.id }, data: {
+        status: data.status,
+        total: data.total,
+        deliveryFee: data.deliveryFee,
+        discount: data.discount,
+        fulfillment: data.fulfillment,
+        paymentMethodId: data.paymentMethodId,
+        paymentMethodName: data.paymentMethodName,
+        itemsSnapshot: data.itemsSnapshot,
+        addressSnapshot: data.addressSnapshot,
+        cwPayload: data.cwPayload,
+        cwResponse: data.cwResponse,
+        cardapiowebStatus: data.cardapiowebStatus,
+        statusChangedAt: data.statusChangedAt,
+      } });
+      continue;
+    }
+    await prisma.order.create({ data });
+    created += 1;
+  }
+  return created;
+}
+
 function parseSocialPhone(phone) {
   if (!phone || typeof phone !== "string") return null;
   const s = String(phone).trim();
@@ -470,9 +588,9 @@ router.put("/handoff", authDash, async (req, res) => {
     }
     if (!customerId) return res.status(400).json({ error: "customerId ou phone obrigatório" });
     await setHandoff(customerId, !!enabled);
-    // Quando atendente desliga o bot (handoff=true), assume e envia saudação
-    if (!!enabled && attendant) {
-      const attendantName = attendant || req.attendant?.name || "Atendente";
+    // Quando o painel ativa handoff, assume imediatamente para o bot realmente parar.
+    if (!!enabled) {
+      const attendantName = attendant || req.attendant?.name || req.staffUser?.name || "Atendente";
       await claimFromQueue(customerId, attendantName);
       try {
         await sendAttendantGreeting(customerId, attendantName, tenantId, req.attendant?.email || null);
@@ -578,33 +696,6 @@ router.get("/orders/failed", authAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-function extractOrderObservation(order) {
-  if (!order || typeof order !== "object") return "";
-  const direct = String(order.observation || order.notes || "").trim();
-  if (direct) return direct;
-
-  try {
-    const itemsRaw = order.itemsSnapshot ? JSON.parse(order.itemsSnapshot) : order.items;
-    if (Array.isArray(itemsRaw)) {
-      const perItem = itemsRaw
-        .map((item) => {
-          const note = String(item?.note || item?.notes || "").trim();
-          return note ? `${item?.name || "Item"}: ${note}` : "";
-        })
-        .filter(Boolean);
-      if (perItem.length) return perItem.join("; ");
-    }
-  } catch {}
-
-  try {
-    const payload = order.cwPayload && typeof order.cwPayload === "string" ? JSON.parse(order.cwPayload) : order.cwPayload;
-    const payloadObs = String(payload?.observation || payload?.notes || "").trim();
-    if (payloadObs) return payloadObs;
-  } catch {}
-
-  return "";
-}
 
 // ── POST /dash/orders/retry — reprocessa um pedido específico ─
 router.post("/orders/retry", authAdmin, async (req, res) => {
@@ -1007,6 +1098,7 @@ router.post("/order", authDash, async (req, res) => {
         name: i.name,
         quantity: parseInt(i.quantity, 10) || 1,
         unit_price: basePrice,
+        note: String(i.note || i.observation || "").trim(),
         addons,
       };
     });
@@ -1017,6 +1109,15 @@ router.post("/order", authDash, async (req, res) => {
     const cwOrderId = randomUUID();
     const displayId = cwOrderId.slice(-6).toUpperCase();
     const phone11 = (customer.phone || "").replace(/\D/g, "").slice(-11);
+
+    const itemObservationLines = cart
+      .filter((i) => i.note)
+      .map((i) => `${i.quantity}x ${i.name}: ${i.note}`);
+    const finalObservation = combineObservationParts(
+      observation,
+      itemObservationLines,
+      trocoPara && parseFloat(trocoPara) > 0 ? `Troco para R$ ${parseFloat(trocoPara).toFixed(2)}` : null,
+    );
 
     const cwPayload = {
       order_id: cwOrderId,
@@ -1037,6 +1138,7 @@ router.post("/order", authDash, async (req, res) => {
           name: i.name,
           quantity: i.quantity,
           unit_price: i.unit_price,
+          ...(i.note ? { observation: i.note } : {}),
           total_price: round2((i.unit_price + addonsSum) * i.quantity),
           ...((i.addons || []).length
             ? {
@@ -1057,12 +1159,7 @@ router.post("/order", authDash, async (req, res) => {
           ...(trocoPara && parseFloat(trocoPara) > calc.expectedTotal ? { change_for: parseFloat(trocoPara) } : {}),
         },
       ],
-      ...(() => {
-        const parts = [];
-        if (observation && String(observation).trim()) parts.push(String(observation).trim());
-        if (trocoPara && parseFloat(trocoPara) > 0) parts.push(`Troco para R$ ${parseFloat(trocoPara).toFixed(2)}`);
-        return parts.length ? { observation: parts.join("; ") } : {};
-      })(),
+      ...(finalObservation ? { observation: finalObservation } : {}),
     };
 
     if (fulfillment === "delivery" && address) {
@@ -1103,6 +1200,7 @@ router.post("/order", authDash, async (req, res) => {
       name: i.name,
       quantity: i.quantity,
       unit_price: i.unit_price,
+      note: i.note || "",
       addons: i.addons,
     }));
 
@@ -1273,6 +1371,7 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
           name: i.name || i.product_name || i.description || "Item",
         }));
       }
+      const observation = extractOrderObservation(o);
       return {
         id: o.id,
         cwOrderId: o.id || o.cwOrderId || o.order_id,
@@ -1283,9 +1382,10 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
         items: items.map((i) => ({
           quantity: i.quantity || 1,
           name: i.name || i.product_name || i.description || "Item",
+          note: i.note || i.observation || "",
         })),
+        observation,
         createdAt: o.created_at || o.createdAt,
-        observation: extractOrderObservation(o),
       };
     };
 
@@ -1320,6 +1420,10 @@ router.get("/customer/:id/orders", authDash, async (req, res) => {
         merged.push(toDisplayFormat(o, "cw"));
       }
     }
+
+    await backfillOrdersFromCardapioWeb({ tenantId, customerId, cwOrders }).catch((e) => {
+      console.warn("[Customer orders] backfill CW->DB:", e.message);
+    });
 
     merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     res.json(merged.slice(0, 30));
@@ -1366,6 +1470,7 @@ router.get("/orders/kanban", authDash, async (req, res) => {
           return [];
         }
       })();
+      const observation = extractOrderObservation(o);
       columns[col].push({
         id: o.id,
         cwOrderId: o.cwOrderId,
@@ -1375,7 +1480,7 @@ router.get("/orders/kanban", authDash, async (req, res) => {
         paymentMethodName: o.paymentMethodName,
         createdAt: o.createdAt,
         items,
-        observation: extractOrderObservation(o),
+        observation,
       });
     }
     res.json(columns);

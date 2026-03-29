@@ -235,8 +235,7 @@ async function handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session,
 
   // Horário (usa time-routing para responder “aberto/fechado” sem entrar no funil)
   if (t.includes("horario") || t.includes("horário") || t.includes("aberto") || t.includes("fecha") || t.includes("funciona")) {
-    const slot = routeByTime();
-    const m = slot?.isOpen ? "✅ Estamos abertos agora." : (slot?.message || "No momento estamos fechados.");
+    const m = await buildStoreHoursMessage(cw);
     await wa.sendText(phone, m);
     await chatMemory.push(customer.id, "bot", m);
     return;
@@ -247,6 +246,33 @@ async function handleFaqFlow({ tenant, wa, customer, phone, sessionKey, session,
   await wa.sendText(phone, m);
   await chatMemory.push(customer.id, "bot", m);
 }
+
+function formatMerchantHours(openingHours) {
+  if (!openingHours || typeof openingHours !== "object") return [];
+  const labels = {
+    sunday: "Domingo",
+    monday: "Segunda",
+    tuesday: "Terça",
+    wednesday: "Quarta",
+    thursday: "Quinta",
+    friday: "Sexta",
+    saturday: "Sábado",
+  };
+  return Object.entries(labels).map(([key, label]) => {
+    const intervals = Array.isArray(openingHours[key]) ? openingHours[key] : [];
+    const text = intervals.length ? intervals.map((pair) => Array.isArray(pair) ? `${pair[0]} às ${pair[1]}` : String(pair)).join(" · ") : "Fechado";
+    return `• ${label}: ${text}`;
+  });
+}
+
+async function buildStoreHoursMessage(cw) {
+  const slot = routeByTime();
+  const merchant = await cw.getMerchant().catch(() => null);
+  const hours = formatMerchantHours(merchant?.opening_hours);
+  const header = slot?.isOpen ? "✅ Estamos abertos agora." : (slot?.message || "No momento estamos fechados.");
+  return hours.length ? header + "\n\n🕒 *Horários de atendimento*\n" + hours.join("\n") : header;
+}
+
 
 async function handleDriverFlow({ tenant, wa, customer, phone, sessionKey, session, text } = {}) {
   const sk = sessionKey != null ? sessionKey : phone;
@@ -319,79 +345,6 @@ function normalizeText(input) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
-}
-
-function extractObservationCandidate(input) {
-  const raw = String(input || "").trim();
-  if (!raw) return "";
-  const normalized = normalizeText(raw);
-
-  const explicit = raw.match(/(?:^|\b)(?:obs(?:\.|:)?|observa(?:cao|ção)?[: -]?)(.+)$/i);
-  if (explicit?.[1]) return explicit[1].trim();
-
-  if (/^(sem|tirar|retirar|acrescentar|adicionar|com\s+extra|bem\s+passad)/i.test(raw)) return raw;
-
-  const noteSignals = [
-    /\bsem\s+[\p{L}0-9]/iu,
-    /\bextra\s+[\p{L}0-9]/iu,
-    /\bborda\s+[\p{L}0-9]/iu,
-    /\bsem\s+cebola\b/iu,
-    /\bsem\s+azeitona\b/iu,
-    /\bbem\s+passad[ao]\b/iu,
-  ];
-  if (noteSignals.some((re) => re.test(raw))) return raw;
-
-  if (normalized.includes("observacao") || normalized.includes("observaçao") || normalized.includes("obs")) return raw;
-
-  return "";
-}
-
-function mergeObservationNotes(currentValue, incomingValue) {
-  const current = String(currentValue || "").trim();
-  const incoming = String(incomingValue || "").trim();
-  if (!incoming) return current;
-  if (!current) return incoming;
-
-  const currentNorm = normalizeText(current);
-  const incomingNorm = normalizeText(incoming);
-  if (currentNorm === incomingNorm || currentNorm.includes(incomingNorm)) return current;
-  if (incomingNorm.includes(currentNorm)) return incoming;
-
-  return `${current}; ${incoming}`;
-}
-
-function shouldSendAudioReply(session, text, wa) {
-  if (!session?.prefersAudio) return false;
-  if (!wa?.sendAudio || !wa?.sendPresence) return false;
-  const raw = String(text || "");
-  if (!raw.trim()) return false;
-  if (raw.length > 420) return false;
-  if (/https?:\/\//i.test(raw)) return false;
-  if (/👇|💳|pix|copia e cola|qr code|cardapio/i.test(raw)) return false;
-  return true;
-}
-
-function parseOrderObservation(order) {
-  if (!order || typeof order !== "object") return "";
-  const direct = String(order.observation || order.notes || "").trim();
-  if (direct) return direct;
-
-  const itemNotes = [];
-  const items = Array.isArray(order.items) ? order.items : [];
-  for (const item of items) {
-    const note = String(item?.note || item?.notes || "").trim();
-    if (note) itemNotes.push(`${item?.name || "Item"}: ${note}`);
-  }
-
-  if (itemNotes.length) return itemNotes.join("; ");
-
-  try {
-    const payload = order.cwPayload && typeof order.cwPayload === "string" ? JSON.parse(order.cwPayload) : order.cwPayload;
-    const payloadObs = String(payload?.observation || payload?.notes || "").trim();
-    if (payloadObs) return payloadObs;
-  } catch {}
-
-  return "";
 }
 
 function extractAddressNumber(text) {
@@ -607,11 +560,9 @@ async function handle({ tenant, wa, customer, text, phone, sessionKey, timer, is
 
 async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, isAudioInput = false }) {
   const session = await getSession(tenant.id, sessionKey);
+  session.lastInputWasAudio = !!isAudioInput;
+  if (isAudioInput) session.prefersAudio = true;
   if (typeof session.prefersAudio !== "boolean") session.prefersAudio = false;
-  if (isAudioInput) {
-    session.prefersAudio = true;
-    session.prefersAudioUpdatedAt = Date.now();
-  }
   timer?.mark("session");
   const { cw } = await getClients(tenant.id);
   timer?.mark("clients");
@@ -1055,26 +1006,6 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
         return;
       }
     } catch {}
-  }
-
-  const detectedObservation = extractObservationCandidate(text);
-  if (detectedObservation && ["ORDERING", "PAYMENT", "CONFIRM"].includes(String(session.step || ""))) {
-    session.notes = mergeObservationNotes(session.notes, detectedObservation);
-    if (session.step === "PAYMENT") {
-      const msg = `📝 Observação anotada: ${session.notes}\n\nAgora me diga a forma de pagamento 👇\n\n${listPayments(tenant.id)}`;
-      await wa.sendText(phone, msg);
-      await chatMemory.push(customer.id, "bot", msg);
-      return;
-    }
-    if (session.step === "CONFIRM") {
-      const msg = `📝 Observação anotada no pedido: ${session.notes}\n\nSe estiver tudo certo, clique em *Confirmar*.`;
-      await wa.sendButtons(phone, msg, [
-        { id: "CONFIRMAR", title: "✅ Confirmar" },
-        { id: "CANCELAR", title: "❌ Cancelar" },
-      ]);
-      await chatMemory.push(customer.id, "bot", msg);
-      return;
-    }
   }
 
   switch (session.step) {
@@ -1817,14 +1748,17 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   timer?.mark("chatOrder");
 
   session.orderHistory.push({ role: "bot", text: result.reply });
-  if (shouldSendAudioReply(session, result.reply, wa)) {
-    if (wa.sendPresence) await wa.sendPresence(phone, "composing");
-    await wa.sendText(phone, result.reply); // Resposta instantânea em texto para quebrar a latência
-
-    if (wa.sendPresence) await wa.sendPresence(phone, "recording"); // Altera o status para 'Gravando áudio...'
+  if (session.prefersAudio && !result.reply.includes("👇") && !result.reply.includes("💳")) {
+    let sentAudio = false;
+    if (wa.sendPresence) await wa.sendPresence(phone, "recording");
     const audioBuf = await audioSynthesis.synthesizeTextToAudio(result.reply);
     if (audioBuf && typeof wa.sendAudio === "function") {
       await wa.sendAudio(phone, audioBuf, null, true);
+      sentAudio = true;
+    }
+    if (!sentAudio) {
+      if (wa.sendPresence) await wa.sendPresence(phone, "composing");
+      await wa.sendText(phone, result.reply);
     }
   } else {
     if (wa.sendPresence) await wa.sendPresence(phone, "composing");
@@ -1833,9 +1767,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   await chatMemory.push(customer.id, "bot", result.reply);
 
   if (result.done && result.items?.length > 0) {
-    if (result.notes) session.notes = mergeObservationNotes(session.notes, result.notes);
-    const inlineObservation = extractObservationCandidate(text);
-    if (inlineObservation) session.notes = mergeObservationNotes(session.notes, inlineObservation);
+    if (result.notes) session.notes = result.notes;
 
     // ── Delega precificação ao CW via prefilled_order ─────────
     // O CW é a Fonte da Verdade para totais; o cálculo local é apenas fallback de emergência.
@@ -2249,7 +2181,7 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
   const finalMsg = `${m}\n\n${receipt}`;
   await wa.sendText(phone, finalMsg);
   // Envia áudio da confirmação se o cliente prefere áudio
-  if (shouldSendAudioReply(session, m, wa)) {
+  if (session.prefersAudio && wa.sendPresence && typeof wa.sendAudio === "function") {
     try {
       await wa.sendPresence(phone, "recording");
       const audioBuf = await audioSynthesis.synthesizeTextToAudio(m);
