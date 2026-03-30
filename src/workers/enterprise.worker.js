@@ -1,15 +1,91 @@
-const { Worker } = require("bullmq");
-const { getRedis } = require("../lib/redis");
-const queueNames = require("../queues/names");
-const log = require("../lib/logger").child({ service: "enterprise-worker" });
+const { Worker } = require('bullmq');
+const { getRedis } = require('../lib/redis');
+const logger = require('../lib/logger');
+
+let workerInstance = null;
 
 async function startWorker() {
+  if (workerInstance) return workerInstance;
+
   const connection = getRedis();
-  if (!connection) { log.warn("REDIS_URL ausente; worker enterprise não iniciado."); return null; }
-  const worker = new Worker(queueNames.inboundMessages, async (job) => { log.info({ jobId: job.id, name: job.name }, "Processando job inbound-messages"); return { ok: true }; }, { connection });
-  worker.on("failed", (job, err) => log.error({ jobId: job?.id, err }, "Job falhou"));
-  worker.on("completed", (job) => log.info({ jobId: job.id }, "Job concluído"));
-  return worker;
+
+  workerInstance = new Worker(
+    'enterprise',
+    async (job) => {
+      logger.info(
+        {
+          service: 'enterprise-worker',
+          jobId: job.id,
+          jobName: job.name,
+        },
+        'Processando job'
+      );
+
+      switch (job.name) {
+        case 'ping':
+          return { ok: true, pong: true };
+
+        default:
+          logger.warn(
+            {
+              service: 'enterprise-worker',
+              jobId: job.id,
+              jobName: job.name,
+            },
+            'Job sem handler específico'
+          );
+          return { ok: true, skipped: true, jobName: job.name };
+      }
+    },
+    {
+      connection,
+      concurrency: 5,
+    }
+  );
+
+  workerInstance.on('ready', () => {
+    logger.info(
+      { service: 'enterprise-worker' },
+      'Worker enterprise pronto'
+    );
+  });
+
+  workerInstance.on('completed', (job) => {
+    logger.info(
+      {
+        service: 'enterprise-worker',
+        jobId: job.id,
+        jobName: job.name,
+      },
+      'Job concluído'
+    );
+  });
+
+  workerInstance.on('failed', (job, err) => {
+    logger.error(
+      {
+        service: 'enterprise-worker',
+        jobId: job?.id,
+        jobName: job?.name,
+        err,
+      },
+      'Job falhou'
+    );
+  });
+
+  workerInstance.on('error', (err) => {
+    logger.error(
+      {
+        service: 'enterprise-worker',
+        err,
+      },
+      'Erro no worker enterprise'
+    );
+  });
+
+  return workerInstance;
 }
 
-module.exports = { startWorker };
+module.exports = {
+  startWorker,
+};

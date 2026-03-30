@@ -1,14 +1,12 @@
-const { Queue } = require("bullmq");
-const { getRedis } = require("../lib/redis");
-const cache = new Map();
+const { Queue } = require('bullmq');
+const { getRedis } = require('../lib/redis');
 
-function getQueue(name) {
-  if (cache.has(name)) return cache.get(name);
-  const connection = getRedis();
-  if (!connection) return null;
-  const queue = new Queue(name, { connection });
-  cache.set(name, queue);
-  return queue;
+function makeQueue(name) {
+  return new Queue(name, {
+    connection: getRedis(),
+  });
 }
 
-module.exports = { getQueue };
+module.exports = {
+  makeQueue,
+};

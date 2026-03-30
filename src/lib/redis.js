@@ -1,24 +1,51 @@
-const IORedis = require("ioredis");
-const ENV = require("../config/env");
-const log = require("./logger").child({ service: "redis" });
+const IORedis = require('ioredis');
+const logger = require('./logger');
 
-let client = null;
+let redis = null;
 
 function getRedis() {
-  if (!ENV.REDIS_URL) return null;
-  if (client) return client;
-  client = new IORedis(ENV.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
-  client.on("error", (err) => log.warn({ err: err.message }, "Redis error"));
-  client.on("connect", () => log.info("Redis conectado"));
-  return client;
-}
+  if (redis) return redis;
 
-async function connectRedisIfConfigured() {
-  const redis = getRedis();
-  if (!redis) return null;
-  if (redis.status === "ready" || redis.status === "connect") return redis;
-  await redis.connect().catch((err) => { log.warn({ err: err.message }, "Falha ao conectar no Redis"); });
+  if (!process.env.REDIS_URL) {
+    throw new Error('REDIS_URL não configurada');
+  }
+
+  redis = new IORedis(process.env.REDIS_URL, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+
+  redis.on('connect', () => {
+    logger.info({ service: 'redis' }, 'Redis conectado');
+  });
+
+  redis.on('ready', () => {
+    logger.info({ service: 'redis' }, 'Redis pronto');
+  });
+
+  redis.on('error', (err) => {
+    logger.warn({ service: 'redis', err: err.message }, 'Redis error');
+  });
+
+  redis.on('close', () => {
+    logger.warn({ service: 'redis' }, 'Conexão Redis fechada');
+  });
+
   return redis;
 }
 
-module.exports = { getRedis, connectRedisIfConfigured };
+async function connectRedisIfConfigured() {
+  if (!process.env.REDIS_URL) {
+    logger.warn({ service: 'redis' }, 'REDIS_URL ausente; Redis não será iniciado.');
+    return null;
+  }
+
+  const client = getRedis();
+  await client.ping();
+  return client;
+}
+
+module.exports = {
+  getRedis,
+  connectRedisIfConfigured,
+};
