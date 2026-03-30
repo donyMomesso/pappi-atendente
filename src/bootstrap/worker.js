@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const logger = require('../lib/logger');
 const { connectRedisIfConfigured } = require('../lib/redis');
 const { startWorker } = require('../workers/enterprise.worker');
