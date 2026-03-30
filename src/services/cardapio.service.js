@@ -265,18 +265,38 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
           body: JSON.stringify({ latitude: lat, longitude: lng }),
         });
         const data = await safeJson(resp);
-        if (resp.ok && data != null) {
-          const fee = parseFloat(data?.delivery_fee ?? data?.fee ?? data?.value ?? data);
-          if (Number.isFinite(fee)) return fee;
+        if (data != null) {
+          const fee = parseFloat(
+            data?.delivery_fee ?? data?.fee ?? data?.value ?? data?.amount ?? data?.data?.delivery_fee ?? data?.data?.fee,
+          );
+          if (resp.ok && Number.isFinite(fee)) {
+            return {
+              delivery_fee: fee,
+              is_serviceable: data?.is_serviceable,
+              status: data?.status || data?.code || data?.data?.status,
+              message: data?.message || data?.detail || data?.error || data?.data?.message,
+              raw: data,
+            };
+          }
+          if (!resp.ok) {
+            return {
+              delivery_fee: Number.isFinite(fee) ? fee : null,
+              is_serviceable: data?.is_serviceable,
+              status: data?.status || data?.code || resp.status,
+              message: data?.message || data?.detail || data?.error || JSON.stringify(data),
+              raw: data,
+            };
+          }
         }
       }
       const resp2 = await fetchWithTimeout(`${base}/api/partner/v1/merchant/delivery_areas`, {
         headers: headersPartner(),
       });
       const areas = await safeJson(resp2);
-      if (Array.isArray(areas) && areas.length > 0) {
-        const fees = areas.map((a) => parseFloat(a.fee ?? a.delivery_fee ?? a.price ?? 0)).filter(Number.isFinite);
-        if (fees.length) return Math.min(...fees);
+      const list = Array.isArray(areas) ? areas : areas?.data;
+      if (Array.isArray(list) && list.length > 0) {
+        const fees = list.map((a) => parseFloat(a.fee ?? a.delivery_fee ?? a.price ?? 0)).filter(Number.isFinite);
+        if (fees.length) return { delivery_fee: Math.min(...fees), raw: list };
       }
       return null;
     } catch {

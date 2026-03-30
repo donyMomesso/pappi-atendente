@@ -116,23 +116,50 @@ async function enrichAddressObjectForDelivery(a, tenant, cw) {
 
 function extractDeliveryFeeFromResult(result) {
   if (Number.isFinite(result)) return Number(result);
+  if (typeof result === "string") {
+    const n = Number(String(result).replace(/[^\d,.-]/g, "").replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
   if (!result || typeof result !== "object") return null;
-  const candidates = [result.delivery_fee, result.fee, result.value, result.amount, result.total_fee];
-  const found = candidates.find((v) => Number.isFinite(v));
-  return Number.isFinite(found) ? Number(found) : null;
+  const nested = result.data && typeof result.data === "object" ? result.data : {};
+  const candidates = [
+    result.delivery_fee,
+    result.fee,
+    result.value,
+    result.amount,
+    result.total_fee,
+    result.price,
+    nested.delivery_fee,
+    nested.fee,
+    nested.value,
+    nested.amount,
+    nested.total_fee,
+    nested.price,
+  ];
+  for (const v of candidates) {
+    if (Number.isFinite(v)) return Number(v);
+    if (typeof v === "string") {
+      const n = Number(String(v).replace(/[^\d,.-]/g, "").replace(",", "."));
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
 }
 
 function indicatesOutOfRange(result) {
   if (!result || typeof result !== "object") return false;
-  const status = String(result.status || result.code || result.reason || "")
+  const nested = result.data && typeof result.data === "object" ? result.data : {};
+  const status = String(result.status || result.code || result.reason || nested.status || nested.code || "")
     .toLowerCase()
     .trim();
-  const msg = String(result.message || result.error || result.detail || "")
+  const msg = String(result.message || result.error || result.detail || nested.message || nested.error || nested.detail || "")
     .toLowerCase()
     .trim();
-  if (result.is_serviceable === false) return true;
-  if (status.includes("out_of_range") || status.includes("outside")) return true;
-  if (msg.includes("fora da area") || msg.includes("fora da área")) return true;
+  const errors = Array.isArray(result.errors) ? result.errors.join(" ").toLowerCase() : "";
+  if (result.is_serviceable === false || nested.is_serviceable === false) return true;
+  if (status.includes("out_of_range") || status.includes("outside") || status.includes("unserviceable")) return true;
+  if (msg.includes("fora da area") || msg.includes("fora da área") || msg.includes("nao atend") || msg.includes("não atend")) return true;
+  if (errors.includes("fora da area") || errors.includes("fora da área")) return true;
   return false;
 }
 

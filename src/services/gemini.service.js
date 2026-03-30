@@ -132,6 +132,9 @@ async function chatOrder({
   phone = null,
 }) {
   try {
+    const fastPath = _tryDeterministicOrderReply({ history, catalog, chosenSize, productType });
+    if (fastPath) return fastPath;
+
     const catalogText = _formatCatalog(catalog);
     const nameInfo = customerName ? `Nome do cliente: ${customerName}` : "";
     const mode = getMode({ customer, now: new Date() });
@@ -285,6 +288,147 @@ function _scanCatalog(customerText, catalog) {
   const unique = [...new Set(matches)];
   const sabores = unique.filter((m) => !isComplement(m));
   return (sabores.length ? sabores : unique).slice(0, 6);
+}
+
+function _tokenizeNorm(s) {
+  return _norm(s)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3);
+}
+
+function _extractCatalogCandidates(catalog) {
+  const out = new Map();
+  let cats = [];
+  if (Array.isArray(catalog)) cats = catalog;
+  else if (catalog?.categories) cats = catalog.categories;
+  else if (catalog?.data?.categories) cats = catalog.data.categories;
+  else if (catalog?.sections) cats = catalog.sections;
+  else if (catalog?.catalog?.categories) cats = catalog.catalog.categories;
+
+  const add = (name) => {
+    const raw = String(name || '').trim();
+    const n = _norm(raw);
+    if (!n) return;
+    if (_COMPLEMENT_KEYS.some((k) => n.includes(k))) return;
+    if (/(broto|media|grande|gigante|gigant|tamanho|peda|fatia|borda|litro|lata|ml|pizza|lasanha|refrigerante|suco|agua)/.test(n)) return;
+    out.set(n, raw);
+  };
+
+  for (const c of cats) {
+    for (const item of c.items || c.products || []) {
+      if (item.status === 'INACTIVE') continue;
+      add(item.name);
+      for (const g of item.option_groups || []) {
+        if (g.status === 'INACTIVE') continue;
+        for (const o of g.options || []) {
+          if (o.status === 'INACTIVE') continue;
+          add(o.name);
+        }
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+function _sizeFromHistory(history, chosenSize) {
+  if (chosenSize) return chosenSize;
+  const allText = (history || []).filter((m) => m.role === 'customer').map((m) => m.text).join(' ');
+  const txt = _norm(allText);
+  if (!txt) return null;
+  if (/(16|gigante|gigant[a-z]*|familia|fam[ií]lia)/.test(txt)) return 'Gigante';
+  if (/(8|grande)/.test(txt)) return 'Grande';
+  if (/(4|broto|pequena|pequeno|mini)/.test(txt)) return 'Broto';
+  return null;
+}
+
+function _pickFlavorsFromText(text, catalog, max = 2) {
+  const txt = _norm(text);
+  if (!txt) return [];
+  const candidates = _extractCatalogCandidates(catalog);
+  const ranked = [];
+  const aliases = {
+    calabresa: ['calabresa', 'calab'],
+    mussarela: ['mussarela', 'muzzarela', 'mozarela', 'mozzarella', 'mucarela'],
+    portuguesa: ['portuguesa'],
+    frango: ['frango'],
+    bacon: ['bacon'],
+    catupiry: ['catupiry', 'catupiri', 'cream cheese', 'crem cheese', 'cream', 'cremoso'],
+    margherita: ['marguerita', 'margherita', 'margarita'],
+  };
+
+  for (const cand of candidates) {
+    const cn = _norm(cand);
+    let score = 0;
+    if (txt.includes(cn)) score += 100;
+    const tokens = _tokenizeNorm(cand);
+    for (const t of tokens) if (txt.includes(t)) score += 20;
+    for (const vals of Object.values(aliases)) {
+      const inTxt = vals.some((v) => txt.includes(_norm(v)));
+      const inCand = vals.some((v) => cn.includes(_norm(v)));
+      if (inTxt && inCand) score += 35;
+    }
+    if (score > 0) ranked.push({ cand, score, len: cn.length });
+  }
+
+  ranked.sort((a, b) => b.score - a.score || b.len - a.len);
+  const unique = [];
+  for (const r of ranked) {
+    if (unique.some((u) => _norm(u) === _norm(r.cand))) continue;
+    if (unique.some((u) => _norm(u).includes(_norm(r.cand)) || _norm(r.cand).includes(_norm(u)))) continue;
+    unique.push(r.cand);
+    if (unique.length >= max) break;
+  }
+  return unique;
+}
+
+function _hasEnoughOrderSignals(text, history, chosenSize, flavors) {
+  const txt = _norm(text);
+  const userTurns = (history || []).filter((m) => m.role === 'customer').length;
+  return !!(flavors.length && (_sizeFromHistory(history, chosenSize) || /(pizza|meia|metade|calabresa|mussarela|portuguesa|frango|bacon)/.test(txt) || userTurns >= 2));
+}
+
+function _buildDeterministicReply({ size, flavors }) {
+  const sizeTxt = size ? `${size.toLowerCase()}${size.toLowerCase() === 'gigante' ? ' (16 pedaços)' : size.toLowerCase() === 'grande' ? ' (8 pedaços)' : ' (4 pedaços)'}` : 'do tamanho que você preferir';
+  if (flavors.length >= 2) {
+    return `Fechado 👍🍕
+Pizza ${sizeTxt}, meio a meio: ${flavors[0]} + ${flavors[1]}.
+Quer adicionar bebida ou seguimos pro pagamento?`;
+  }
+  return `Perfeito 👍🍕
+Pizza ${sizeTxt} de ${flavors[0]}.
+Quer adicionar bebida ou seguimos pro pagamento?`;
+}
+
+function _tryDeterministicOrderReply({ history, catalog, chosenSize, productType }) {
+  if (!Array.isArray(history) || !history.length || productType === 'lasanha') return null;
+  const lastUser = history.filter((m) => m.role === 'customer').slice(-3).map((m) => String(m.text || '').trim()).filter(Boolean);
+  if (!lastUser.length) return null;
+  const merged = lastUser.join(' ');
+  const size = _sizeFromHistory(history, chosenSize);
+  const flavors = _pickFlavorsFromText(merged, catalog, 2);
+  if (!_hasEnoughOrderSignals(merged, history, chosenSize, flavors)) return null;
+
+  if (!size && flavors.length) {
+    return {
+      reply: `Perfeito. Entendi os sabores ${flavors.join(' + ')} 🍕
+Me confirma só o tamanho: Broto, Grande ou Gigante (16 pedaços)?`,
+      items: [],
+      done: false,
+      notes: '',
+    };
+  }
+
+  if (size && flavors.length) {
+    const itemName = flavors.length >= 2 ? `½ ${flavors[0]} / ½ ${flavors[1]}` : flavors[0];
+    return {
+      reply: _buildDeterministicReply({ size, flavors }),
+      items: [{ name: itemName, quantity: 1, unit_price: 0, addons: [] }],
+      done: true,
+      notes: '',
+    };
+  }
+
+  return null;
 }
 
 function _norm(s) {
