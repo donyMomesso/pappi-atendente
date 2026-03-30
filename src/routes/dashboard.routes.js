@@ -21,19 +21,6 @@ const metaTelemetry = require("../lib/meta-telemetry");
 const chatMemory = require("../services/chat-memory.service");
 const socketService = require("../services/socket.service");
 const botLearning = require("../services/bot-learning.service");
-const auditLogService = require("../services/audit-log.service");
-
-const statsCache = new Map();
-const STATS_CACHE_TTL_MS = 15000;
-
-async function safeCount(factory) {
-  try {
-    return await factory();
-  } catch (err) {
-    return { __error: err };
-  }
-}
-
 const { generateCompensationCoupon, markCouponSent } = require("../services/coupon.service");
 const { createWithIdempotency, setCwOrderId } = require("../services/order.service");
 const { calculate, round2 } = require("../calculators/OrderCalculator");
@@ -478,16 +465,10 @@ router.get("/stats", authDash, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const cacheKey = `${tenantId}:${today.toISOString()}`;
-    const cached = statsCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < STATS_CACHE_TTL_MS) {
-      return res.json(cached.payload);
-    }
-
-    const ordersToday = await safeCount(() => prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }));
-    const handoffActive = await safeCount(() => prisma.customer.count({ where: { tenantId, handoff: true } }));
-    const cwFailed = await safeCount(() => prisma.order.count({ where: { tenantId, status: "cw_failed" } }));
-    const delayAlerts = await safeCount(() =>
+    const [ordersToday, handoffActive, cwFailed, delayAlerts] = await Promise.all([
+      prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }),
+      prisma.customer.count({ where: { tenantId, handoff: true } }),
+      prisma.order.count({ where: { tenantId, status: "cw_failed" } }),
       prisma.order.count({
         where: {
           tenantId,
@@ -495,21 +476,8 @@ router.get("/stats", authDash, async (req, res) => {
           status: { notIn: ["cancelled", "delivered", "lead"] },
         },
       }),
-    );
-
-    const payload = {
-      ordersToday: typeof ordersToday === "number" ? ordersToday : 0,
-      handoffActive: typeof handoffActive === "number" ? handoffActive : 0,
-      cwFailed: typeof cwFailed === "number" ? cwFailed : 0,
-      delayAlerts: typeof delayAlerts === "number" ? delayAlerts : 0,
-      degraded:
-        typeof ordersToday !== "number" ||
-        typeof handoffActive !== "number" ||
-        typeof cwFailed !== "number" ||
-        typeof delayAlerts !== "number",
-    };
-    statsCache.set(cacheKey, { at: Date.now(), payload });
-    res.json(payload);
+    ]);
+    res.json({ ordersToday, handoffActive, cwFailed, delayAlerts });
   } catch (err) {
     const log = logger.child({ route: "stats" });
     log.error({ err, tenantId: req.query.tenant }, "Erro em /dash/stats");
@@ -885,8 +853,25 @@ router.get("/audit-logs", authAdmin, async (req, res) => {
       return res.status(403).json({ error: "forbidden" });
     if (tenantId) where.tenantId = tenantId;
 
-    const logs = await auditLogService.listRecent({ tenantId, limit });
-    res.json(logs);
+    const logs = await prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    res.json(
+      logs.map((l) => ({
+        id: l.id,
+        tenantId: l.tenantId,
+        userId: l.userId,
+        action: l.action,
+        resourceType: l.resourceType,
+        resourceId: l.resourceId,
+        metadata: l.metadata ? JSON.parse(l.metadata) : null,
+        ip: l.ip,
+        userAgent: l.userAgent,
+        createdAt: l.createdAt,
+      })),
+    );
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2550,8 +2535,7 @@ router.get("/analysis", authAdmin, async (req, res) => {
 // ── GET /dash/learning — Aprendizados do bot ─────────────────
 router.get("/learning", authAdmin, async (req, res) => {
   try {
-    const tenantId = resolveTenant(req);
-    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    const tenantId = req.query.tenant || "tenant-pappi-001";
     const data = await botLearning.getAll(tenantId);
     res.json(data);
   } catch (err) {
@@ -2562,8 +2546,7 @@ router.get("/learning", authAdmin, async (req, res) => {
 // ── POST /dash/learning/faq — Adicionar FAQ manual ────────────
 router.post("/learning/faq", authAdmin, async (req, res) => {
   try {
-    const tenantId = resolveTenant(req) || req.body.tenantId;
-    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
+    const tenantId = req.query.tenant || req.body.tenantId || "tenant-pappi-001";
     const { question, answer } = req.body;
     if (!question || !answer) return res.status(400).json({ error: "question e answer obrigatórios" });
     await botLearning.addFaq(tenantId, question, answer);
@@ -2576,9 +2559,8 @@ router.post("/learning/faq", authAdmin, async (req, res) => {
 // ── DELETE /dash/learning/faq/:index ──────────────────────────
 router.delete("/learning/faq/:index", authAdmin, async (req, res) => {
   try {
-    const tenantId = resolveTenant(req);
-    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
-    await botLearning.deleteFaq(tenantId, parseInt(req.params.index, 10));
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    await botLearning.deleteFaq(tenantId, parseInt(req.params.index));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2588,9 +2570,8 @@ router.delete("/learning/faq/:index", authAdmin, async (req, res) => {
 // ── DELETE /dash/learning/correction/:index ───────────────────
 router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
   try {
-    const tenantId = resolveTenant(req);
-    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
-    await botLearning.deleteCorrection(tenantId, parseInt(req.params.index, 10));
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    await botLearning.deleteCorrection(tenantId, parseInt(req.params.index));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2600,9 +2581,8 @@ router.delete("/learning/correction/:index", authAdmin, async (req, res) => {
 // ── PATCH /dash/learning/complaint/:index — resolver reclamação ─
 router.patch("/learning/complaint/:index", authAdmin, async (req, res) => {
   try {
-    const tenantId = resolveTenant(req);
-    if (!tenantId) return res.status(400).json({ error: "tenant obrigatório" });
-    await botLearning.resolveComplaint(tenantId, parseInt(req.params.index, 10));
+    const tenantId = req.query.tenant || "tenant-pappi-001";
+    await botLearning.resolveComplaint(tenantId, parseInt(req.params.index));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

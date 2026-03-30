@@ -31,6 +31,7 @@ const { requireAdminKey } = require("../middleware/auth.middleware");
 const { checkWebhook } = require("../lib/rate-limiter");
 const { transcribeAudio } = require("../services/audio-transcribe.service");
 const prisma = require("../lib/db");
+const { requireValidMetaSignature } = require("../middleware/webhook-signature.middleware");
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ router.get("/webhook-log", requireAdminKey, (_req, res) => res.json(webhookLog))
 
 // ── Recebimento de Eventos (POST) ────────────────────────────
 
-router.post("/webhook", async (req, res) => {
+router.post("/webhook", requireValidMetaSignature, async (req, res) => {
   res.sendStatus(200);
 
   try {

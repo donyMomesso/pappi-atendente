@@ -12,9 +12,6 @@ let messagesTablePresent = null;
 let senderEmailColumnPresent = null;
 /** @type {boolean | null} */
 let originalTimestampColumnPresent = null;
-let probePromise = null;
-let lastProbeAt = 0;
-const PROBE_TTL_MS = 10 * 60 * 1000;
 
 const MESSAGE_ROW_SELECT_WITHOUT_EMAIL = {
   id: true,
@@ -34,13 +31,7 @@ const MESSAGE_ROW_SELECT_WITHOUT_EMAIL = {
  * Sonda information_schema: existência da tabela e da coluna senderEmail.
  * Export mantém o nome antigo (boot).
  */
-async function refreshMessageSenderEmailSupport(force = false) {
-  if (!force && probePromise) return probePromise;
-  if (!force && lastProbeAt && Date.now() - lastProbeAt < PROBE_TTL_MS) {
-    return { messagesTablePresent, senderEmailColumnPresent, originalTimestampColumnPresent };
-  }
-
-  probePromise = (async () => {
+async function refreshMessageSenderEmailSupport() {
   messagesTablePresent = false;
   senderEmailColumnPresent = false;
   originalTimestampColumnPresent = false;
@@ -111,15 +102,6 @@ async function refreshMessageSenderEmailSupport(force = false) {
     { messagesTablePresent, senderEmailColumnPresent, originalTimestampColumnPresent },
     "message-db-compat: sondagem public.messages",
   );
-  lastProbeAt = Date.now();
-  return { messagesTablePresent, senderEmailColumnPresent, originalTimestampColumnPresent };
-  })();
-
-  try {
-    return await probePromise;
-  } finally {
-    probePromise = null;
-  }
 }
 
 function isMessagesTableAvailable() {

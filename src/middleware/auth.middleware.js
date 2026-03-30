@@ -1,14 +1,14 @@
 // src/middleware/auth.middleware.js
-// Autenticação por API key (query, headers). Sessão Supabase opcional.
+// Autenticação por API key em header. Sessão Supabase opcional.
 
 const prisma = require("../lib/db");
 const ENV = require("../config/env");
 const authService = require("../services/auth.service");
 const attendantsConfig = require("../lib/attendants-config");
 
-/** Retorna true se a requisição traz API key explícita (query ou header de integração). */
+/** Retorna true se a requisição traz API key explícita em header. */
 function hasExplicitApiKey(req) {
-  return !!(req.query?.key || req.headers["x-api-key"] || req.headers["x-attendant-key"]);
+  return !!(req.headers["x-api-key"] || req.headers["x-attendant-key"] || getBearerToken(req));
 }
 
 function getBearerToken(req) {
@@ -61,11 +61,10 @@ async function authBySessionFallback(req) {
 
 async function authByApiKey(req) {
   const key =
-    req.query.key ||
     req.headers["x-api-key"] ||
     req.headers["x-attendant-key"] ||
     req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
-  const tenantId = req.headers["x-tenant-id"] || req.query.tenant;
+  const tenantId = req.headers["x-tenant-id"] || null;
 
   if (ENV.ADMIN_API_KEY && key === ENV.ADMIN_API_KEY) {
     req.role = "admin";
@@ -85,7 +84,8 @@ async function authByApiKey(req) {
     req.user = { role: "attendant", name: "Atendente" };
     return true;
   }
-  const tid = tenantId || "tenant-pappi-001";
+  if (!tenantId) return false;
+  const tid = tenantId;
   const cfg = await prisma.config.findUnique({ where: { key: `${tid}:attendants` } });
   if (cfg) {
     const attendants = attendantsConfig.normalizeAttendantsList(attendantsConfig.parseAttendantsJson(cfg.value));
@@ -145,7 +145,7 @@ async function authAdmin(req, res, next) {
 }
 
 async function requireAdminKey(req, res, next) {
-  const raw = req.query.key || req.headers["x-api-key"] || req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
+  const raw = req.headers["x-api-key"] || req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
   if (ENV.ADMIN_API_KEY && raw === ENV.ADMIN_API_KEY) return next();
   return res.status(401).json({ error: "unauthorized" });
 }

@@ -80,7 +80,14 @@ if (corsOrigins.length > 0) {
   });
 }
 
-app.use(express.json({ limit: "10mb" }));
+app.use(
+  express.json({
+    limit: "10mb",
+    verify: (req, _res, buf) => {
+      req.rawBody = Buffer.from(buf);
+    },
+  }),
+);
 app.use(express.static(path.join(__dirname, "../public")));
 
 // Saúde (público para load balancer)

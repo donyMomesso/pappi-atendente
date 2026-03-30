@@ -3,6 +3,7 @@
 const { withRetry } = require("../lib/retry");
 const { setMethods } = require("../mappers/PaymentMapper");
 const log = require("../lib/logger").child({ service: "cardapio" });
+const { validateOrderPayloadAgainstCardapio } = require("./cardapio-double-check.service");
 
 const TIMEOUT_MS = 15000;
 const catalogCache = new Map();
@@ -168,6 +169,20 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
   async function createOrder(payload) {
     if (!payload || typeof payload !== "object")
       throw Object.assign(new Error("createOrder: payload inválido"), { status: 400 });
+
+    // Duplo check: catálogo + meios de pagamento ativos antes do POST final.
+    const validation = await validateOrderPayloadAgainstCardapio({
+      tenantId,
+      payload,
+      getCatalog,
+      getPaymentMethods,
+    });
+    if (!validation.ok) {
+      const err = new Error(`CW double-check falhou: ${validation.errors.join(" | ")}`);
+      err.status = 422;
+      err.data = { errors: validation.errors, warnings: validation.warnings };
+      throw err;
+    }
 
     // Regra CW: payment_method_id deve estar ativo no estabelecimento.
     const paymentMethods = await getPaymentMethods();
