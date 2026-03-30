@@ -16,6 +16,9 @@ const diagRoutes = require("./routes/diag.routes");
 const dashRoutes = require("./routes/dashboard.routes");
 
 const ENV = require("./config/env");
+const { requestContextMiddleware } = require("./middleware/request-context.middleware");
+const { requestLoggerMiddleware } = require("./middleware/request-logger.middleware");
+const { connectRedisIfConfigured } = require("./lib/redis");
 const app = express();
 
 // Segurança: headers básicos (CSP desativado — app privado com Supabase/Google)
@@ -80,6 +83,8 @@ if (corsOrigins.length > 0) {
   });
 }
 
+app.use(requestContextMiddleware);
+app.use(requestLoggerMiddleware);
 app.use(
   express.json({
     limit: "10mb",
@@ -102,12 +107,15 @@ app.get("/health", async (req, res) => {
     env: env.NODE_ENV,
     messagesTable: messageDbCompat.isMessagesTableAvailable() ? "ok" : "missing",
     ordersPixColumns: orderPixDbCompat.getOrderPixColumnsHealth(),
+    enterpriseMode: !!env.ENTERPRISE_MODE,
+    redisConfigured: !!env.REDIS_URL,
   };
   if (!messageDbCompat.isMessagesTableAvailable() || orderPixDbCompat.shouldDegradeForMissingOrderPixColumns()) {
     status.degraded = true;
   }
   try {
     await prisma.$queryRaw`SELECT 1`;
+    await connectRedisIfConfigured();
   } catch {
     status.db = "error";
     status.ok = false;
@@ -123,6 +131,7 @@ app.get("/ready", async (req, res) => {
   }
   try {
     await prisma.$queryRaw`SELECT 1`;
+    await connectRedisIfConfigured();
     return res.json({ ok: true, db: "ok" });
   } catch {
     return res.status(503).json({ ok: false, db: "error" });
@@ -145,6 +154,7 @@ app.use("/admin", adminRoutes);
 app.use("/dash/staff-users", require("./routes/staff-users.routes"));
 app.use("/dash", dashRoutes);
 app.use("/", diagRoutes);
+app.use("/", require("./routes/enterprise.routes"));
 
 app.use((_req, res) => res.status(404).json({ error: "not_found" }));
 

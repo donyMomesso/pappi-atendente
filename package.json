@@ -1,7 +1,7 @@
 {
   "name": "pappi-atendente",
-  "version": "3.1.0",
-  "description": "Pappi Atendente — Produção: npm start (monólito: web+socket+jobs+Baileys). Secundário: npm run start:web / start:baileys / start:jobs (split).",
+  "version": "3.2.0-enterprise",
+  "description": "Pappi Atendente Enterprise — web, socket, jobs, Baileys, observabilidade, idempotência e base para filas Redis/BullMQ.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -24,7 +24,9 @@
     "format:check": "prettier --check \"src/**/*.js\" \"tests/**/*.js\" \"*.js\"",
     "test": "jest --forceExit --detectOpenHandles",
     "test:watch": "jest --watch --forceExit --detectOpenHandles",
-    "test:coverage": "jest --coverage --forceExit --detectOpenHandles"
+    "test:coverage": "jest --coverage --forceExit --detectOpenHandles",
+    "start:worker": "node src/bootstrap/worker.js",
+    "test:smoke": "node scripts/smoke-enterprise.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -32,15 +34,19 @@
     "@supabase/supabase-js": "^2.99.2",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.7.0",
+    "bullmq": "^5.71.1",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
     "form-data": "^4.0.5",
     "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
     "node-fetch": "^2.7.0",
     "pino": "^9.6.0",
     "postgres": "^3.4.8",
+    "prom-client": "^15.1.3",
     "qrcode": "^1.5.4",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "eslint": "^8.57.1",

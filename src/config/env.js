@@ -110,5 +110,7 @@ module.exports = {
   LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   HEALTHCHECK_TOKEN: process.env.HEALTHCHECK_TOKEN || "",
   REDIS_URL: process.env.REDIS_URL || "",
+  METRICS_TOKEN: process.env.METRICS_TOKEN || "",
+  ENTERPRISE_MODE: envFlag("ENTERPRISE_MODE", true),
   SENTRY_DSN: process.env.SENTRY_DSN || "",
 };

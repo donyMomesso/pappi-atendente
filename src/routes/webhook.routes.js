@@ -32,6 +32,8 @@ const { checkWebhook } = require("../lib/rate-limiter");
 const { transcribeAudio } = require("../services/audio-transcribe.service");
 const prisma = require("../lib/db");
 const { requireValidMetaSignature } = require("../middleware/webhook-signature.middleware");
+const idempotency = require("../services/idempotency.service");
+const metrics = require("../lib/metrics");
 
 const router = express.Router();
 
@@ -193,6 +195,13 @@ router.post("/webhook", requireValidMetaSignature, async (req, res) => {
         }
 
         for (const msg of value.messages || []) {
+          const claimKey = `webhook:${tenant.id}:${msg?.id || msg?.timestamp || "unknown"}`;
+          const firstSeen = await idempotency.claimOnce(claimKey, 60 * 60);
+          if (!firstSeen) {
+            metrics.recordWebhookMessage({ channel: "whatsapp_cloud", tenantId: tenant.id, result: "duplicate" });
+            continue;
+          }
+          metrics.recordWebhookMessage({ channel: "whatsapp_cloud", tenantId: tenant.id, result: "received" });
           await processMessage({ tenant, wa, msg, contacts: value.contacts || [] });
         }
         for (const status of value.statuses || []) {
@@ -201,6 +210,7 @@ router.post("/webhook", requireValidMetaSignature, async (req, res) => {
       }
     }
   } catch (err) {
+    metrics.recordWebhookMessage({ channel: "whatsapp_cloud", tenantId: "unknown", result: "error" });
     require("../lib/logger").child({ service: "webhook" }).error({ err }, "Erro no processamento do webhook");
   }
 });
