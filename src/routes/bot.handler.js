@@ -2352,7 +2352,7 @@ function buildCwPayload({ session, customer, calc }) {
 async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waMessageId = null, opts = {}) {
   try {
     const log = logger.child({ service: "bot.baileys-msg" });
-    const { customerId, mediaType, originalTimestamp } = opts || {};
+    const { customerId, mediaType, mediaUrl, originalTimestamp } = opts || {};
 
     let customer = null;
     if (customerId) {
@@ -2371,7 +2371,7 @@ async function saveBaileysMessage(phone, text, tenantId, role = "assistant", waM
         role,
         text,
         sender,
-        null,
+        mediaUrl || null,
         mediaType || "text",
         waMessageId,
         null,

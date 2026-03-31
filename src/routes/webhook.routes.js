@@ -30,6 +30,7 @@ const messageBuffer = require("../services/message-buffer.service");
 const { requireAdminKey } = require("../middleware/auth.middleware");
 const { checkWebhook } = require("../lib/rate-limiter");
 const { transcribeAudio } = require("../services/audio-transcribe.service");
+const { saveCloudMedia } = require("../services/media-storage.service");
 const prisma = require("../lib/db");
 const { requireValidMetaSignature } = require("../middleware/webhook-signature.middleware");
 const idempotency = require("../services/idempotency.service");
@@ -291,7 +292,7 @@ async function processMessage({ tenant, wa, msg, contacts }) {
   await touchInteraction(customer.id);
   baileys.setReplyChannel(customer.id, "cloud").catch(() => {});
 
-  const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken);
+  const { text, mediaUrl, mediaType } = await extractContent(wa, msg, tenant.waToken, tenant.id);
   const originalTimestamp = resolveCloudOriginalTimestamp(msg);
 
   function fallbackTextForCloudMsg(m) {
@@ -482,7 +483,7 @@ async function processStatus({ status }) {
 
 // ── extractContent — com transcrição de áudio ────────────────
 
-async function extractContent(wa, msg, waToken) {
+async function extractContent(wa, msg, waToken, tenantId = null) {
   let text = null,
     mediaUrl = null,
     mediaType = "text";
@@ -501,15 +502,39 @@ async function extractContent(wa, msg, waToken) {
     }
   } else if (msg.type === "image") {
     mediaType = "image";
-    mediaUrl = await wa.getMediaUrl(msg.image.id);
+    const remoteMediaUrl = await wa.getMediaUrl(msg.image.id);
     text = msg.image.caption || "📷 Imagem";
+    try {
+      mediaUrl = await saveCloudMedia({
+        mediaUrl: remoteMediaUrl,
+        token: waToken,
+        tenantId,
+        mediaType,
+        mimeType: msg.image?.mime_type || "image/jpeg",
+        filename: `image_${msg.image.id}` ,
+        mediaId: msg.image.id,
+      });
+    } catch {}
+    mediaUrl = mediaUrl || remoteMediaUrl;
   } else if (msg.type === "audio") {
     mediaType = "audio";
-    mediaUrl = await wa.getMediaUrl(msg.audio.id);
+    const remoteMediaUrl = await wa.getMediaUrl(msg.audio.id);
+    try {
+      mediaUrl = await saveCloudMedia({
+        mediaUrl: remoteMediaUrl,
+        token: waToken,
+        tenantId,
+        mediaType,
+        mimeType: msg.audio?.mime_type || "audio/ogg",
+        filename: `audio_${msg.audio.id}` ,
+        mediaId: msg.audio.id,
+      });
+    } catch {}
+    mediaUrl = mediaUrl || remoteMediaUrl;
 
     // MELHORIA: tenta transcrever o áudio antes de passar para o bot
-    if (mediaUrl && waToken) {
-      const transcription = await transcribeAudio(mediaUrl, waToken);
+    if (remoteMediaUrl && waToken) {
+      const transcription = await transcribeAudio(remoteMediaUrl, waToken);
       if (transcription) {
         text = transcription;
         console.log(`[Webhook] Áudio transcrito: "${transcription.slice(0, 60)}..."`);
@@ -522,11 +547,35 @@ async function extractContent(wa, msg, waToken) {
   } else if (msg.type === "document") {
     mediaType = "document";
     text = msg.document.filename || "📄 Documento";
-    mediaUrl = await wa.getMediaUrl(msg.document.id);
+    const remoteMediaUrl = await wa.getMediaUrl(msg.document.id);
+    try {
+      mediaUrl = await saveCloudMedia({
+        mediaUrl: remoteMediaUrl,
+        token: waToken,
+        tenantId,
+        mediaType,
+        mimeType: msg.document?.mime_type || "application/octet-stream",
+        filename: msg.document?.filename || `document_${msg.document.id}`,
+        mediaId: msg.document.id,
+      });
+    } catch {}
+    mediaUrl = mediaUrl || remoteMediaUrl;
   } else if (msg.type === "video") {
     mediaType = "video";
     text = msg.video.caption || "🎥 Vídeo";
-    mediaUrl = await wa.getMediaUrl(msg.video.id);
+    const remoteMediaUrl = await wa.getMediaUrl(msg.video.id);
+    try {
+      mediaUrl = await saveCloudMedia({
+        mediaUrl: remoteMediaUrl,
+        token: waToken,
+        tenantId,
+        mediaType,
+        mimeType: msg.video?.mime_type || "video/mp4",
+        filename: `video_${msg.video.id}`,
+        mediaId: msg.video.id,
+      });
+    } catch {}
+    mediaUrl = mediaUrl || remoteMediaUrl;
   } else if (msg.type === "location") {
     // Localização enviada pelo cliente — usada para endereço de entrega
     mediaType = "location";

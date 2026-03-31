@@ -2339,7 +2339,9 @@ async function loadChatHistory(customerId) {
       if (m.mediaType === 'image') {
         content = `<img src="${m.mediaUrl}" style="max-width:100%;border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="window.open('${m.mediaUrl}')">` + content;
       } else if (m.mediaType === 'audio') {
-        content = `<audio controls style="max-width:100%;margin-bottom:8px"><source src="${m.mediaUrl}" type="audio/mpeg"></audio>` + content;
+        content = `<audio controls preload="none" style="max-width:100%;margin-bottom:8px" src="${m.mediaUrl}"></audio>` + content;
+      } else if (m.mediaType === 'video') {
+        content = `<video controls preload="metadata" style="max-width:100%;border-radius:8px;margin-bottom:8px" src="${m.mediaUrl}"></video>` + content;
       } else if (m.mediaType === 'document') {
         content = `<a href="${m.mediaUrl}" target="_blank" style="display:flex;align-items:center;padding:8px;background:rgba(0,0,0,0.05);border-radius:6px;color:inherit;text-decoration:none;margin-bottom:8px">📄 Ver Documento</a>` + content;
       }

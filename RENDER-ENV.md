@@ -56,3 +56,7 @@ Troque para:
 ```
 npm install && npx prisma generate && npx prisma db push
 ```
+
+
+SUPABASE_STORAGE_BUCKET=pappi-media
+# bucket público recomendado para mídia inbound do WhatsApp

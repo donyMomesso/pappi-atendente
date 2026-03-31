@@ -12,6 +12,7 @@ const { useDbAuthState, clearDbAuth, listInstances } = require("./baileys-db-aut
 const baileysLock = require("./baileys-lock.service");
 const QRCode = require("qrcode");
 const prisma = require("../lib/db");
+const { saveBuffer } = require("./media-storage.service");
 const messageDbCompat = require("../lib/message-db-compat");
 const ENV = require("../config/env");
 const log = require("../lib/logger").child({ service: "baileys" });
@@ -33,6 +34,53 @@ function resolveAudioMessageNode(message, depth = 0) {
     return resolveAudioMessageNode(message.documentWithCaptionMessage.message, depth + 1);
   if (message.editedMessage?.message) return resolveAudioMessageNode(message.editedMessage.message, depth + 1);
   return null;
+}
+
+
+function resolveMediaNode(message, depth = 0) {
+  if (!message || depth > 12) return null;
+  if (message.imageMessage) return { kind: 'image', node: message.imageMessage };
+  if (message.videoMessage) return { kind: 'video', node: message.videoMessage };
+  if (message.audioMessage) return { kind: 'audio', node: message.audioMessage };
+  if (message.documentMessage) return { kind: 'document', node: message.documentMessage };
+  if (message.stickerMessage) return { kind: 'sticker', node: message.stickerMessage };
+  if (message.ephemeralMessage?.message) return resolveMediaNode(message.ephemeralMessage.message, depth + 1);
+  if (message.viewOnceMessage?.message) return resolveMediaNode(message.viewOnceMessage.message, depth + 1);
+  if (message.viewOnceMessageV2?.message) return resolveMediaNode(message.viewOnceMessageV2.message, depth + 1);
+  if (message.documentWithCaptionMessage?.message) return resolveMediaNode(message.documentWithCaptionMessage.message, depth + 1);
+  if (message.editedMessage?.message) return resolveMediaNode(message.editedMessage.message, depth + 1);
+  return null;
+}
+
+async function downloadMediaBufferFromBaileys(mediaNode, kind) {
+  if (!mediaNode || typeof downloadContentFromMessage !== 'function') return null;
+  const streamKind = kind === 'sticker' ? 'image' : kind;
+  const stream = await downloadContentFromMessage(mediaNode, streamKind);
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+async function persistInboundBaileysMedia(msg, tenantId, instanceId, waMessageId) {
+  try {
+    const resolved = resolveMediaNode(msg?.message);
+    if (!resolved) return null;
+    if (!['image', 'audio', 'video', 'document', 'sticker'].includes(resolved.kind)) return null;
+    const buffer = await downloadMediaBufferFromBaileys(resolved.node, resolved.kind);
+    if (!buffer?.length) return null;
+    return await saveBuffer({
+      buffer,
+      tenantId: tenantId || 'default',
+      channel: `baileys_${instanceId || 'default'}`,
+      mediaType: resolved.kind,
+      mimeType: resolved.node?.mimetype || '',
+      filename: resolved.node?.fileName || `${resolved.kind}_${waMessageId || Date.now()}`,
+      id: waMessageId || '',
+    });
+  } catch (err) {
+    log.warn({ instanceId, keyId: waMessageId, err: err?.message }, 'Falha ao persistir mídia recebida do Baileys');
+    return null;
+  }
 }
 
 async function downloadAudioBufferFromBaileys(audioNode) {
@@ -1323,6 +1371,7 @@ async function start(instanceId = "default", opts = {}) {
             );
 
             const botHandler = require("../routes/bot.handler");
+            const storedMediaUrl = await persistInboundBaileysMedia(msg, tenantId, instanceId, waId || null);
             await botHandler.saveBaileysMessage(
               customer.phone || sender.remoteJid,
               text,
@@ -1332,6 +1381,7 @@ async function start(instanceId = "default", opts = {}) {
               {
                 customerId: customer.id,
                 mediaType: parsed.mediaType,
+                mediaUrl: storedMediaUrl,
                 originalTimestamp: resolveBaileysOriginalTimestamp(msg),
               },
             );
