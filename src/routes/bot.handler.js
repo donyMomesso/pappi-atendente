@@ -26,6 +26,7 @@ const aviseAbertura = require("../services/avise-abertura.service");
 const { needsDeescalation, detectHumanRequest } = require("../services/deescalation.service");
 const inboxTriage = require("../services/inbox-triage.service");
 const orderIntake = require("../services/order-intake.service");
+const { parseOrderMessage } = require("../services/order-parser.service");
 const aiOrchestrator = require("../services/ai-orchestrator.service");
 const orderPixDbCompat = require("../lib/order-pix-db-compat");
 const cartPricing = require("../services/cart-pricing.service");
@@ -39,6 +40,49 @@ const GREETING_COOLDOWN_MS = 5 * 60 * 1000;
 const MENU_COOLDOWN_MS = 2 * 60 * 1000;
 const CW_ORDER_LINK = "https://app.cardapioweb.com/pappi_pizza?s=atende";
 const DELIVERY_SOFT_RADIUS_KM = Number(process.env.DELIVERY_SOFT_RADIUS_KM || 8);
+
+function normItemName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function reconcilePrefilledItems(aiItems = [], cwItems = []) {
+  const used = new Set();
+  return aiItems.map((ai) => {
+    const aiName = normItemName(ai.name);
+    let matchIndex = cwItems.findIndex((cw, idx) => {
+      if (used.has(idx)) return false;
+      const sameId = ai.id != null && cw.product_id != null && String(ai.id) === String(cw.product_id);
+      const sameName = normItemName(cw.name) === aiName;
+      return sameId || sameName;
+    });
+
+    if (matchIndex < 0) {
+      matchIndex = cwItems.findIndex((cw, idx) => {
+        if (used.has(idx)) return false;
+        const n = normItemName(cw.name);
+        return n.includes(aiName) || aiName.includes(n);
+      });
+    }
+
+    if (matchIndex < 0) return { ...ai, _pricedFromCW: false };
+
+    used.add(matchIndex);
+    const cw = cwItems[matchIndex];
+    return {
+      ...ai,
+      id: cw.product_id || cw.id || ai.id,
+      name: cw.name || ai.name,
+      quantity: Math.max(1, Number(cw.quantity || ai.quantity || 1)),
+      unit_price: round2(Number(cw.unit_price ?? cw.price ?? ai.unit_price ?? 0)),
+      _pricedFromCW: true,
+    };
+  });
+}
 
 function extractCepDigitsFromString(s) {
   const m = String(s || "").match(/\b(\d{5})-?(\d{3})\b/);
@@ -843,6 +887,26 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
       if (intakeResult?.productType && !session.productType) session.productType = intakeResult.productType;
       if (intakeResult?.fulfillment && !session.fulfillment) session.fulfillment = intakeResult.fulfillment;
       if (intakeResult?.size && !session.chosenSize) session.chosenSize = intakeResult.size;
+      if (Array.isArray(intakeResult?.items) && intakeResult.items.length) {
+        session.cartDraft = intakeResult.items.map((item) => ({ ...item, addons: item.addons || [] }));
+      }
+      if (Array.isArray(intakeResult?.notes) && intakeResult.notes.length) {
+        const cleanNotes = intakeResult.notes.filter((note) => typeof note === "string" && !/(_hint|_present)$/.test(note));
+        if (cleanNotes.length) {
+          session.notes = Array.from(new Set([...(session.notes ? [session.notes] : []), ...cleanNotes])).join(", ");
+        }
+      }
+      if (intakeResult?.isOrder && session.cartDraft?.length && session.chosenSize && !session.fulfillment) {
+        session.step = "FULFILLMENT";
+        const msg = "Perfeito. Vai ser entrega ou retirada?";
+        await wa.sendButtons(phone, msg, [
+          { id: "delivery", title: "🚚 Entrega" },
+          { id: "takeout", title: "🏪 Retirada" },
+        ]);
+        await chatMemory.push(customer.id, "bot", msg);
+        await saveSession(tenant.id, sessionKey, session);
+        return;
+      }
 
       // Fast-forward agressivo no início do funil:
       // mensagem completa (tipo+tamanho+fulfillment) não deve cair em "pizza ou lasanha" / "qual tamanho?".
@@ -1758,6 +1822,13 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     sizeHint,
     tenantId: tenant.id,
     phone: learningKeyFromCustomer(customer),
+    lockedDraft: {
+      items: Array.isArray(session.cartDraft) ? session.cartDraft : [],
+      fulfillment: session.fulfillment || null,
+      paymentMethodName: session.paymentMethodName || null,
+      notes: session.notes || "",
+      mode: session.cartDraft?.length || session.chosenSize || session.fulfillment ? "complete_missing_only" : "full_parse",
+    },
   });
   timer?.mark("chatOrder");
 
@@ -1780,7 +1851,10 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
   }
   await chatMemory.push(customer.id, "bot", result.reply);
 
-  if (result.done && result.items?.length > 0) {
+  const parsedNow = parseOrderMessage(text);
+  const aiItems = result.done && result.items?.length > 0 ? result.items : (parsedNow.items || []);
+
+  if ((result.done && result.items?.length > 0) || aiItems.length > 0) {
     if (result.notes) session.notes = result.notes;
 
     // ── Delega precificação ao CW via prefilled_order ─────────
@@ -1788,7 +1862,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     const log = logger.child({ service: "bot.ordering" });
     try {
       const prefilled = await cw.createPrefilledOrder({
-        items: result.items,
+        items: aiItems,
         fulfillment: session.fulfillment || null,
         address: session.address || null,
         customerPhone: customer.phone,
@@ -1797,20 +1871,9 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
       // Se o CW devolveu items detalhados com unit_price, atualiza o carrinho com eles.
       // Caso contrário, mantém os itens da IA (preço local 0) — o total oficial está em cwPrefilledTotal.
       if (Array.isArray(prefilled?.items) && prefilled.items.length > 0) {
-        session.cart = prefilled.items.map((cwItem, i) => {
-          const aiItem = result.items[i] || result.items[0] || {};
-          return {
-            ...aiItem,
-            id: cwItem.product_id || cwItem.id || aiItem.id,
-            name: cwItem.name || aiItem.name,
-            quantity: Math.max(1, parseInt(aiItem.quantity, 10) || 1),
-            unit_price: round2(parseFloat(cwItem.unit_price ?? cwItem.price ?? 0)),
-            _pricedFromCW: true,
-          };
-        });
+        session.cart = reconcilePrefilledItems(aiItems, prefilled.items);
       } else {
-        // CW confirmou o pedido mas não detalhou items — mantém os itens da IA
-        session.cart = result.items.map((i) => ({ ...i, _pricedFromCW: false }));
+        session.cart = aiItems.map((i) => ({ ...i, _pricedFromCW: false }));
       }
 
       // Total e taxa oficiais do CW
@@ -1829,7 +1892,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
         { tenantId: tenant.id, err: prefilledErr.message },
         "createPrefilledOrder falhou — fallback para catálogo local",
       );
-      const priced = cartPricing.enrichCartFromCatalog(result.items, catalog, {
+      const priced = cartPricing.enrichCartFromCatalog(aiItems, catalog, {
         chosenSize: session.chosenSize,
         productType: session.productType,
       });
