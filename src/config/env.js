@@ -18,6 +18,22 @@ function envFlag(name, defaultValue = true) {
 }
 
 // APP_ENV: prod | staging | dev | local — isolamento de sessão Baileys entre ambientes
+
+function resolveAppRuntime() {
+  const v = (process.env.APP_RUNTIME || "").trim().toLowerCase();
+  if (["monolith", "web", "baileys", "jobs", "worker"].includes(v)) return v;
+  return "monolith";
+}
+
+function shouldRunBaileysHere({ appRuntime, instanceMode, runBaileys, baileysEnabled }) {
+  if (!runBaileys || !baileysEnabled) return false;
+  const mode = String(instanceMode || "embedded").trim().toLowerCase();
+  const runtime = String(appRuntime || "monolith").trim().toLowerCase();
+  const isolated = ["worker", "isolated", "dedicated", "split"].includes(mode);
+  if (!isolated) return true;
+  return runtime === "baileys";
+}
+
 function resolveAppEnv() {
   const v = (process.env.APP_ENV || "").trim().toLowerCase();
   if (["prod", "production", "staging", "homolog", "dev", "development", "local"].includes(v)) {
@@ -32,6 +48,7 @@ function resolveAppEnv() {
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
   APP_ENV: resolveAppEnv(),
+  APP_RUNTIME: resolveAppRuntime(),
   PORT: toNumber(process.env.PORT, 10000),
   APP_URL: (process.env.APP_URL || "https://pappiatendente.com.br").replace(/\/$/, ""),
   WEBHOOK_VERIFY_TOKEN: process.env.WEBHOOK_VERIFY_TOKEN || "",
@@ -113,4 +130,10 @@ module.exports = {
   METRICS_TOKEN: process.env.METRICS_TOKEN || "",
   ENTERPRISE_MODE: envFlag("ENTERPRISE_MODE", true),
   SENTRY_DSN: process.env.SENTRY_DSN || "",
+  shouldRunBaileysHere: () => shouldRunBaileysHere({
+    appRuntime: resolveAppRuntime(),
+    instanceMode: process.env.BAILEYS_INSTANCE_MODE || "embedded",
+    runBaileys: envFlag("RUN_BAILEYS", true),
+    baileysEnabled: process.env.BAILEYS_ENABLED !== "false",
+  }),
 };

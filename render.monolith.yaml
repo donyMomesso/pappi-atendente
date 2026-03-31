@@ -1,0 +1,126 @@
+# Render — serviço único MONÓLITO: web + Socket.IO + jobs + Baileys
+# Desative no dashboard qualquer Worker "pappi-baileys" antigo para evitar conflito.
+
+services:
+  - type: web
+    name: pappi-atendente
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npx prisma generate && npx prisma db push
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_ENV
+        value: prod
+      - key: PORT
+        value: 10000
+      - key: RUN_BAILEYS
+        value: "true"
+      - key: RUN_JOBS
+        value: "true"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: BAILEYS_CLEAR_AUTH_ON_440
+        value: "true"
+
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+
+      - key: CARDAPIOWEB_BASE_URL
+        value: https://integracao.cardapioweb.com
+      - key: CARDAPIOWEB_API_KEY
+        sync: false
+      - key: CARDAPIOWEB_PARTNER_KEY
+        sync: false
+      - key: CARDAPIOWEB_STORE_ID
+        sync: false
+
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: AI_PROVIDER_SEQUENCE
+        value: "gemini,groq,openai"
+      - key: AI_TRANSCRIBE_SEQUENCE
+        value: "gemini,openai"
+
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+
+      - key: ATTENDANT_API_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      - key: USE_STAFF_AUTH
+        value: "true"
+      - key: ALLOW_API_KEY_FALLBACK
+        value: "false"
+
+      - key: API_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+
+      - key: STORE_LAT
+        value: "-22.9060"
+      - key: STORE_LNG
+        value: "-47.0616"
+
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_URL
+        value: https://app.pappiatendente.com.br
+      - key: SKIP_HOURS_CHECK
+        value: "false"
+
+      - key: INSTAGRAM_PAGE_ID
+        sync: false
+      - key: FACEBOOK_PAGE_ID
+        sync: false
+      - key: FACEBOOK_PAGE_TOKEN
+        sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: META_CAPI_TOKEN
+        sync: false
+
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false

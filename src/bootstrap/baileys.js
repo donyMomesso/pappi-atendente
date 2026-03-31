@@ -4,6 +4,7 @@
 
 require("dotenv").config();
 process.env.RUN_JOBS = "false";
+process.env.APP_RUNTIME = process.env.APP_RUNTIME || "baileys";
 process.env.RUN_BAILEYS = "true";
 
 console.log("\n  🍕 Pappi Atendente — processo Baileys\n");

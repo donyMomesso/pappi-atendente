@@ -5,6 +5,7 @@
 
 require("dotenv").config();
 process.env.RUN_BAILEYS = "false";
+process.env.APP_RUNTIME = process.env.APP_RUNTIME || "web";
 
 console.log("\n  🍕 Pappi — bootstrap Web (sem Baileys neste processo) — prefira `npm start` para monólito\n");
 

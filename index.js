@@ -28,6 +28,7 @@ console.log("  │  HTTP + Socket.IO + schedulers + Baileys → mesmo processo �
 console.log("  └────────────────────────────────────────────────────────────┘");
 console.log(`  NODE_ENV=${ENV.NODE_ENV}  RUN_BAILEYS=${ENV.RUN_BAILEYS}  RUN_JOBS=${ENV.RUN_JOBS}`);
 console.log(`  BAILEYS_ENABLED=${ENV.BAILEYS_ENABLED}  WEB_CONCURRENCY=${ENV.WEB_CONCURRENCY}`);
+console.log(`  APP_RUNTIME=${ENV.APP_RUNTIME}  BAILEYS_INSTANCE_MODE=${ENV.BAILEYS_INSTANCE_MODE}`);
 if (ENV.WEB_CONCURRENCY > 1) {
   console.warn("  ⚠️  WEB_CONCURRENCY>1 pode causar erro 440 no WhatsApp QR — use 1 neste serviço.");
 }

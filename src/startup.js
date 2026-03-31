@@ -14,6 +14,10 @@ function startBaileys() {
     log.info("Baileys: desligado (BAILEYS_ENABLED=false)");
     return;
   }
+  if (!ENV.shouldRunBaileysHere()) {
+    log.info({ appRuntime: ENV.APP_RUNTIME, instanceMode: ENV.BAILEYS_INSTANCE_MODE }, "Baileys: desligado neste processo por modo isolado/dedicado");
+    return;
+  }
   try {
     const baileys = require("./services/baileys.service");
     log.info({ WEB_CONCURRENCY: ENV.WEB_CONCURRENCY }, "Baileys: iniciando initAll (monólito)");
@@ -60,6 +64,8 @@ function runStartup() {
       runJobs: ENV.RUN_JOBS,
       baileysEnabled: ENV.BAILEYS_ENABLED,
       webConcurrency: ENV.WEB_CONCURRENCY,
+      appRuntime: ENV.APP_RUNTIME,
+      instanceMode: ENV.BAILEYS_INSTANCE_MODE,
     },
     "Startup: monólito (index.js) — ordem Baileys + jobs",
   );

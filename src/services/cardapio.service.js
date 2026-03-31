@@ -258,46 +258,49 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
 
   async function getDeliveryFee({ lat, lng } = {}) {
     try {
-      if (lat == null || lng == null) {
-        return {
-          delivery_fee: null,
-          is_serviceable: null,
-          status: "missing_coordinates",
-          message: "Coordenadas ausentes para calcular taxa real",
-          raw: null,
-        };
+      if (lat != null && lng != null) {
+        const resp = await fetchWithTimeout(`${base}/api/partner/v1/delivery_fee`, {
+          method: "POST",
+          headers: headersPartner(),
+          body: JSON.stringify({ latitude: lat, longitude: lng }),
+        });
+        const data = await safeJson(resp);
+        if (data != null) {
+          const fee = parseFloat(
+            data?.delivery_fee ?? data?.fee ?? data?.value ?? data?.amount ?? data?.data?.delivery_fee ?? data?.data?.fee,
+          );
+          if (resp.ok && Number.isFinite(fee)) {
+            return {
+              delivery_fee: fee,
+              is_serviceable: data?.is_serviceable,
+              status: data?.status || data?.code || data?.data?.status,
+              message: data?.message || data?.detail || data?.error || data?.data?.message,
+              raw: data,
+            };
+          }
+          if (!resp.ok) {
+            return {
+              delivery_fee: Number.isFinite(fee) ? fee : null,
+              is_serviceable: data?.is_serviceable,
+              status: data?.status || data?.code || resp.status,
+              message: data?.message || data?.detail || data?.error || JSON.stringify(data),
+              raw: data,
+            };
+          }
+        }
       }
-
-      const resp = await fetchWithTimeout(`${base}/api/partner/v1/delivery_fee`, {
-        method: "POST",
+      const resp2 = await fetchWithTimeout(`${base}/api/partner/v1/merchant/delivery_areas`, {
         headers: headersPartner(),
-        body: JSON.stringify({ latitude: lat, longitude: lng }),
       });
-      const data = await safeJson(resp);
-      const fee = parseFloat(
-        data?.delivery_fee ?? data?.fee ?? data?.value ?? data?.amount ?? data?.data?.delivery_fee ?? data?.data?.fee,
-      );
-
-      return {
-        delivery_fee: Number.isFinite(fee) ? fee : null,
-        is_serviceable:
-          typeof data?.is_serviceable === "boolean"
-            ? data.is_serviceable
-            : resp.ok
-              ? Number.isFinite(fee)
-              : false,
-        status: data?.status || data?.code || resp.status,
-        message: data?.message || data?.detail || data?.error || data?.data?.message || null,
-        raw: data,
-      };
-    } catch (err) {
-      return {
-        delivery_fee: null,
-        is_serviceable: null,
-        status: "fee_lookup_error",
-        message: err.message,
-        raw: null,
-      };
+      const areas = await safeJson(resp2);
+      const list = Array.isArray(areas) ? areas : areas?.data;
+      if (Array.isArray(list) && list.length > 0) {
+        const fees = list.map((a) => parseFloat(a.fee ?? a.delivery_fee ?? a.price ?? 0)).filter(Number.isFinite);
+        if (fees.length) return { delivery_fee: Math.min(...fees), raw: list };
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 
@@ -414,10 +417,6 @@ function createCardapioClient({ tenantId, baseUrl, apiKey, partnerKey, storeId: 
       // Tenta match exato primeiro, depois por prefixo de palavra
       const matched =
         allProducts.find((p) => normName(p.name) === linNorm) ||
-        allProducts.find((p) => {
-          const pn = normName(p.name);
-          return pn.includes(linNorm) || linNorm.includes(pn);
-        }) ||
         allProducts.find((p) => {
           const pn = normName(p.name);
           return linNorm.includes(pn.split(" ")[0]) || pn.includes(linNorm.split(" ")[0]);
