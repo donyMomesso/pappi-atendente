@@ -20,6 +20,13 @@ function configKey(customerId) {
 /**
  * Retorna o estado atual. Se não houver Config, deriva de handoff/claimedBy.
  */
+function stateFromCustomerRow(customer) {
+  if (customer.handoff) {
+    return customer.claimedBy ? STATES.HUMANO_ATIVO : STATES.AGUARDANDO_HUMANO;
+  }
+  return STATES.BOT_ATIVO;
+}
+
 async function getState(customer) {
   const key = configKey(customer.id);
   try {
@@ -34,10 +41,49 @@ async function getState(customer) {
     logger.error({ err, customerId: customer?.id, key }, "Falha ao ler estado da conversa (prisma.config)");
   }
 
-  if (customer.handoff) {
-    return customer.claimedBy ? STATES.HUMANO_ATIVO : STATES.AGUARDANDO_HUMANO;
+  return stateFromCustomerRow(customer);
+}
+
+/**
+ * Uma query para N clientes (painel /dash/conversations e /queue) — evita N× findUnique.
+ * @param {Array<{ id: string, handoff?: boolean, claimedBy?: string | null }>} customers
+ * @returns {Promise<Map<string, string>>} customerId → state
+ */
+async function getStatesForCustomers(customers) {
+  const map = new Map();
+  if (!Array.isArray(customers) || !customers.length) return map;
+
+  const ids = customers.map((c) => c?.id).filter(Boolean);
+  const keys = [...new Set(ids.map((id) => configKey(id)))];
+  let rows = [];
+  if (keys.length) {
+    try {
+      rows = await prisma.config.findMany({
+        where: { key: { in: keys } },
+        select: { key: true, value: true },
+      });
+    } catch (err) {
+      logger.error({ err }, "Falha em getStatesForCustomers (batch config)");
+    }
   }
-  return STATES.BOT_ATIVO;
+
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  for (const c of customers) {
+    if (!c?.id) continue;
+    const key = configKey(c.id);
+    let state = null;
+    const raw = byKey.get(key);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.state && Object.values(STATES).includes(parsed.state)) {
+          state = parsed.state;
+        }
+      } catch {}
+    }
+    map.set(c.id, state || stateFromCustomerRow(c));
+  }
+  return map;
 }
 
 /**
@@ -89,6 +135,7 @@ async function resetIfEncerradoAndShouldBotRespond(customer) {
 module.exports = {
   STATES,
   getState,
+  getStatesForCustomers,
   setState,
   shouldBotRespond,
   resetIfEncerrado,

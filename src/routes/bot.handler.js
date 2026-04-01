@@ -180,6 +180,12 @@ async function sendAddressReviewPrompt(wa, phone, customer, session) {
 async function sendOutOfRangePrompt(wa, phone, customer, session) {
   const m = "Infelizmente este endereço está fora da nossa área de entrega 😔. Deseja informar outro endereço ou trocar para Retirada na loja?";
   session.step = "DELIVERY_COVERAGE_DECISION";
+  if (ENV.BOT_IA_FIRST) {
+    const m2 = `${m}\n\nResponde *RETIRADA* pra buscar na loja ou manda *outro endereço* (CEP, rua e número) 📍`;
+    await wa.sendText(phone, m2);
+    await chatMemory.push(customer.id, "bot", m2);
+    return;
+  }
   await wa.sendButtons(phone, m, [
     { id: "oor_change_addr", title: "📍 Outro endereço" },
     { id: "oor_takeout", title: "🏪 Retirada" },
@@ -872,6 +878,18 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
       }
 
       if (!intakeLooksComplete && intakeResult?.productType && ["MENU", "CHOOSE_PRODUCT_TYPE"].includes(session.step)) {
+        if (ENV.BOT_IA_FIRST) {
+          session.mode = "ORDER";
+          session.step = "ORDERING";
+          session.orderHistory = session.orderHistory || [];
+          if (!session.orderHistory.length) session.orderHistory.push({ role: "customer", text });
+          if (session.catalog) {
+            session.filteredCatalog = session.catalog;
+          }
+          await handleOrdering(wa, cw, phone, text, session, customer, tenant, timer);
+          await saveSession(tenant.id, sessionKey, session);
+          return;
+        }
         session.step = "FULFILLMENT";
         const msg = "Perfeito. Vai ser entrega ou retirada?";
         await wa.sendButtons(phone, msg, [
@@ -1036,6 +1054,10 @@ async function _handle({ tenant, wa, customer, text, phone, sessionKey, timer, i
           session.catalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
           session.filteredCatalog = session.catalog;
         } catch {}
+      }
+      if (ENV.BOT_IA_FIRST && session.catalog) {
+        session.filteredCatalog = session.catalog;
+        session.mode = "ORDER";
       }
       session.step = "ORDERING";
       session.orderHistory = session.orderHistory || [];
@@ -1253,6 +1275,22 @@ ${impactPhrase}${urlLine}${leadLine}`;
   await wa.sendText(phone, greeting);
   await chatMemory.push(customer.id, "bot", greeting);
   session._lastGreetingAt = Date.now();
+
+  if (ENV.BOT_IA_FIRST) {
+    session.mode = "ORDER";
+    try {
+      const rawCatalog = await cw.getCatalog();
+      const fullCatalog = rawCatalog?.catalog || rawCatalog?.data || rawCatalog;
+      if (fullCatalog) {
+        session.catalog = fullCatalog;
+        session.filteredCatalog = fullCatalog;
+      }
+    } catch {}
+    session.step = "ORDERING";
+    session.orderHistory = [];
+    return;
+  }
+
   session.step = "MENU";
 }
 
@@ -1388,6 +1426,12 @@ async function handleFulfillment(wa, cw, phone, text, t, session, customer, tena
       session.address = addr;
       await enrichAddressObjectForDelivery(session.address, tenant, cw);
       const m = `🛵 Usar o mesmo endereço da última vez?\n📍 *${addr.formatted}*`;
+      if (ENV.BOT_IA_FIRST) {
+        const m2 = `${m}\n\nResponde *SIM* pra usar esse, ou manda o endereço novo.`;
+        await wa.sendText(phone, m2);
+        await chatMemory.push(customer.id, "bot", m2);
+        return;
+      }
       await wa.sendButtons(phone, m, [
         { id: "confirm_addr", title: "✅ Sim, usar esse" },
         { id: "change_addr", title: "✏️ Outro endereço" },
@@ -1592,6 +1636,12 @@ async function confirmAddress(wa, cw, phone, addr, session, customer, tenant) {
   session.step = "ADDRESS_CONFIRM";
 
   const m = `Confere o endereço? 📍\n*${addr.formatted}*${feeText}`;
+  if (ENV.BOT_IA_FIRST) {
+    const m2 = `${m}\n\nResponde *SIM* pra confirmar ou escreve o endereço correto.`;
+    await wa.sendText(phone, m2);
+    await chatMemory.push(customer.id, "bot", m2);
+    return;
+  }
   await wa.sendButtons(phone, m, [
     { id: "confirm_addr", title: "✅ Confirmar" },
     { id: "change_addr", title: "✏️ Corrigir" },
@@ -1758,6 +1808,7 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     sizeHint,
     tenantId: tenant.id,
     phone: learningKeyFromCustomer(customer),
+    iaFirst: ENV.BOT_IA_FIRST,
   });
   timer?.mark("chatOrder");
 
@@ -1852,6 +1903,12 @@ async function handleOrdering(wa, cw, phone, text, session, customer, tenant, ti
     if (!session.fulfillment) {
       session.step = "FULFILLMENT";
       const msg = "Perfeito. Vai ser entrega ou retirada?";
+      if (ENV.BOT_IA_FIRST) {
+        const msg2 = `${msg} Me fala *entrega* ou *retirada* (ou *buscar na loja*).`;
+        await wa.sendText(phone, msg2);
+        await chatMemory.push(customer.id, "bot", msg2);
+        return;
+      }
       await wa.sendButtons(phone, msg, [
         { id: "delivery", title: "🚚 Entrega" },
         { id: "takeout",  title: "🏪 Retirada" },
@@ -1925,6 +1982,12 @@ async function handlePayment(wa, phone, text, session, customer, tenant) {
   const totalLine = `💰 *Total: R$ ${calc.expectedTotal.toFixed(2)}*\n`;
 
   const m = `📋 *Resumo do pedido:*\n\n${cartSummary(session.cart, { omitTotal: true })}\n${feeLine}${addrLine}${totalLine}\n💳 *Pagamento:* ${mapped.name}\n\nConfirmar?`;
+  if (ENV.BOT_IA_FIRST) {
+    const m2 = `${m}\n\nResponde *SIM* ou *CONFIRMAR* pra fechar, ou *CANCELAR* pra desistir.`;
+    await wa.sendText(phone, m2);
+    await chatMemory.push(customer.id, "bot", m2);
+    return;
+  }
   await wa.sendButtons(phone, m, [
     { id: "CONFIRMAR", title: "✅ Confirmar" },
     { id: "CANCELAR", title: "❌ Cancelar" },
@@ -1938,6 +2001,28 @@ async function handleConfirm(wa, cw, phone, text, t, session, customer, tenant, 
     session._cleared = true;
     await wa.sendText(phone, "Pedido cancelado. Quando quiser, é só chamar! 😊");
     return;
+  }
+
+  if (ENV.BOT_IA_FIRST) {
+    const okConfirm =
+      text === "CONFIRMAR" ||
+      t === "sim" ||
+      t === "confirmar" ||
+      t === "confirmo" ||
+      t === "ok" ||
+      t === "pode ser" ||
+      t === "isso" ||
+      t === "fecha" ||
+      t.includes("pode confirmar") ||
+      t.includes("manda ver") ||
+      t.includes("fechou");
+    if (!okConfirm) {
+      await wa.sendText(
+        phone,
+        "Pra *enviar o pedido*, responde *SIM* ou *CONFIRMAR*. Se mudou de ideia, responde *CANCELAR*.",
+      );
+      return;
+    }
   }
 
   // Preços já foram validados pelo CW via createPrefilledOrder em handleOrdering.

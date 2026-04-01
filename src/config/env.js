@@ -129,6 +129,9 @@ module.exports = {
   REDIS_URL: process.env.REDIS_URL || "",
   METRICS_TOKEN: process.env.METRICS_TOKEN || "",
   ENTERPRISE_MODE: envFlag("ENTERPRISE_MODE", true),
+  // true (padrão) = funil conversacional: IA conduz; saudação abre pedido com catálogo; poucos botões (só onde o Zap exige, ex. loja fechada).
+  // false = fluxo legado com mais botões (pizza/lasanha, entrega/retirada, etc.).
+  BOT_IA_FIRST: envFlag("BOT_IA_FIRST", true),
   SENTRY_DSN: process.env.SENTRY_DSN || "",
   shouldRunBaileysHere: () => shouldRunBaileysHere({
     appRuntime: resolveAppRuntime(),

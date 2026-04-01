@@ -522,18 +522,16 @@ router.get("/conversations", authDash, async (req, res) => {
       take: 200,
       select: orderPixDbCompat.getCustomerWithLastOrderSelect(),
     });
-    const withState = await Promise.all(
-      customers.map(async (c) => {
-        const state = await convState.getState(c);
-        const fmt = formatCustomerDisplay(c);
-        return {
-          ...c,
-          ...fmt,
-          lastOrder: c.orders[0] || null,
-          conversationState: state,
-        };
-      }),
-    );
+    const stateById = await convState.getStatesForCustomers(customers);
+    const withState = customers.map((c) => {
+      const fmt = formatCustomerDisplay(c);
+      return {
+        ...c,
+        ...fmt,
+        lastOrder: c.orders[0] || null,
+        conversationState: stateById.get(c.id) ?? convState.STATES.BOT_ATIVO,
+      };
+    });
     res.json(withState);
   } catch (err) {
     const log = logger.child({ route: "conversations" });
@@ -552,20 +550,18 @@ router.get("/queue", authDash, async (req, res) => {
       orderBy: { queuedAt: "asc" },
       select: orderPixDbCompat.getCustomerWithLastOrderSelect(),
     });
-    const withState = await Promise.all(
-      customers.map(async (c) => {
-        const state = await convState.getState(c);
-        const isUnclaimed = !c.claimedBy;
-        const fmt = formatCustomerDisplay(c);
-        return {
-          ...c,
-          ...fmt,
-          lastOrder: c.orders[0] || null,
-          conversationState: state,
-          isUnclaimed,
-        };
-      }),
-    );
+    const stateById = await convState.getStatesForCustomers(customers);
+    const withState = customers.map((c) => {
+      const isUnclaimed = !c.claimedBy;
+      const fmt = formatCustomerDisplay(c);
+      return {
+        ...c,
+        ...fmt,
+        lastOrder: c.orders[0] || null,
+        conversationState: stateById.get(c.id) ?? convState.STATES.BOT_ATIVO,
+        isUnclaimed,
+      };
+    });
     res.json(withState);
   } catch (err) {
     res.status(500).json({ error: err.message });
