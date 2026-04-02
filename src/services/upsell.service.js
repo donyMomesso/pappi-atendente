@@ -1,4 +1,4 @@
-// src/services/upsell.service
+// src/services/upsell.service.js
 // Sugestões de upsell baseadas no contexto da conversa
 
 function getUpsellHint({ historyText = "", userText = "", catalog: _catalog }) {

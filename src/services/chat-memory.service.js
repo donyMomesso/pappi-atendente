@@ -190,6 +190,49 @@ async function get(customerId) {
   }
 }
 
+/** Paginação para o painel (/dash/messages) — ordem mais recente primeiro, cursor = ms de createdAt. */
+async function getPaginated(customerId, { cursor, limit = 30 } = {}) {
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
+
+  if (!messageDbCompat.isMessagesTableAvailable()) {
+    const entry = store.get(customerId);
+    const all = [...(entry?.msgs || [])].sort((a, b) => resolveMsgMillis(b) - resolveMsgMillis(a));
+    const filtered = cursor ? all.filter((m) => resolveMsgMillis(m) < Number(cursor)) : all;
+    const page = filtered.slice(0, safeLimit);
+    const nextCursor = page.length === safeLimit ? resolveMsgMillis(page[page.length - 1]) : null;
+    return { items: page.reverse(), nextCursor };
+  }
+
+  try {
+    const where = {
+      customerId,
+      ...(cursor ? { createdAt: { lt: new Date(Number(cursor)) } } : {}),
+    };
+
+    const rows = await prisma.message.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: safeLimit,
+      select: messageDbCompat.getMessageRowSelect(),
+    });
+
+    const items = rows
+      .map((r) => messageDbCompat.mapRowToClientMessage(r))
+      .sort((a, b) => resolveMsgMillis(a) - resolveMsgMillis(b));
+
+    const nextCursor = rows.length === safeLimit ? new Date(rows[rows.length - 1].createdAt).getTime() : null;
+
+    if (!cursor) {
+      const e = getEntry(customerId);
+      e.msgs = items.slice(-MAX_MEMORY);
+    }
+
+    return { items, nextCursor };
+  } catch {
+    return { items: [], nextCursor: null };
+  }
+}
+
 function clear(customerId) {
   store.delete(customerId);
 }
@@ -213,4 +256,4 @@ setInterval(
   30 * 60 * 1000,
 ); // roda a cada 30 min
 
-module.exports = { push, get, clear, updateStatus, shouldSkipOutboundEcho };
+module.exports = { push, get, getPaginated, clear, updateStatus, shouldSkipOutboundEcho };
