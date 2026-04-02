@@ -161,49 +161,32 @@ async function updateStatus(customerId, waMessageId, status) {
 }
 
 async function get(customerId) {
-  const page = await getPaginated(customerId, { limit: 100 });
-  return page.items;
-}
-
-async function getPaginated(customerId, { cursor, limit = 30 } = {}) {
-  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
-
-  if (!messageDbCompat.isMessagesTableAvailable()) {
-    const entry = store.get(customerId);
-    const all = [...(entry?.msgs || [])].sort((a, b) => resolveMsgMillis(b) - resolveMsgMillis(a));
-    const filtered = cursor ? all.filter((m) => resolveMsgMillis(m) < Number(cursor)) : all;
-    const page = filtered.slice(0, safeLimit);
-    const nextCursor = page.length === safeLimit ? resolveMsgMillis(page[page.length - 1]) : null;
-    return { items: page.reverse(), nextCursor };
+  const entry = store.get(customerId);
+  if (entry?.msgs?.length) {
+    entry.lastAccess = Date.now();
+    return [...entry.msgs].sort((a, b) => resolveMsgMillis(a) - resolveMsgMillis(b));
   }
 
   try {
-    const where = {
-      customerId,
-      ...(cursor ? { createdAt: { lt: new Date(Number(cursor)) } } : {}),
-    };
-
+    if (!messageDbCompat.isMessagesTableAvailable()) {
+      return [];
+    }
     const rows = await prisma.message.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: safeLimit,
+      where: { customerId },
+      orderBy: { createdAt: "asc" },
+      take: 100,
       select: messageDbCompat.getMessageRowSelect(),
     });
-
-    const items = rows
+    const msgs = rows
       .map((r) => messageDbCompat.mapRowToClientMessage(r))
       .sort((a, b) => resolveMsgMillis(a) - resolveMsgMillis(b));
 
-    const nextCursor = rows.length === safeLimit ? new Date(rows[rows.length - 1].createdAt).getTime() : null;
-
-    if (!cursor) {
-      const e = getEntry(customerId);
-      e.msgs = items.slice(-MAX_MEMORY);
-    }
-
-    return { items, nextCursor };
+    // Popula cache
+    const e = getEntry(customerId);
+    e.msgs = msgs;
+    return msgs;
   } catch {
-    return { items: [], nextCursor: null };
+    return [];
   }
 }
 
@@ -230,4 +213,4 @@ setInterval(
   30 * 60 * 1000,
 ); // roda a cada 30 min
 
-module.exports = { push, get, getPaginated, clear, updateStatus, shouldSkipOutboundEcho };
+module.exports = { push, get, clear, updateStatus, shouldSkipOutboundEcho };
