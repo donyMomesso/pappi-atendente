@@ -17,8 +17,11 @@ const FLAVOR_SYNONYMS = {
   mussarela: "mussarela",
   muzzarela: "mussarela",
   mucarela: "mussarela",
+  mozarela: "mussarela",
+  mozzarella: "mussarela",
   marguerita: "marguerita",
   margherita: "marguerita",
+  margarita: "marguerita",
   moda: "moda da casa",
   pepperoni: "pepperoni",
   peperoni: "pepperoni",
@@ -26,18 +29,21 @@ const FLAVOR_SYNONYMS = {
   "frango catupiry": "frango com catupiry",
   "frango com cream cheese": "frango com catupiry",
   "frango cream cheese": "frango com catupiry",
+  "frango c catupiry": "frango com catupiry",
   portuguesa: "portuguesa",
   bacon: "bacon",
   chocolate: "chocolate",
   "quatro queijos": "4 queijos",
   "4 queijos": "4 queijos",
+  "moda da casa": "moda da casa",
+  frango: "frango com catupiry",
 };
 
 const SIZE_ALIASES = [
-  { re: /\b(broto|brotinho|4 peda[cç]os?)\b/, value: "broto" },
-  { re: /\b(media|m[eé]dia|8 peda[cç]os?)\b/, value: "grande" },
-  { re: /\b(grande|8 fatias?)\b/, value: "grande" },
-  { re: /\b(gigante|16 peda[cç]os?|16 fatias?)\b/, value: "gigante" },
+  { re: /\b(broto|brotinho|pequena|mini|4 peda[cç]os?|4 fatias?)\b/, value: "broto" },
+  { re: /\b(media|m[eé]dia)\b/, value: "media" },
+  { re: /\b(grande|8 peda[cç]os?|8 fatias?)\b/, value: "grande" },
+  { re: /\b(gigante|16 peda[cç]os?|16 fatias?|familia|fam[ií]lia)\b/, value: "gigante" },
 ];
 
 const PAYMENT_ALIASES = [
@@ -47,7 +53,7 @@ const PAYMENT_ALIASES = [
 ];
 
 function detectFulfillment(t) {
-  if (/\b(retirada|retirar|buscar|vou buscar|pego ai|pegar ai)\b/.test(t)) return "takeout";
+  if (/\b(retirada|retirar|buscar|vou buscar|pego ai|pegar ai|balcao|balc[aã]o)\b/.test(t)) return "takeout";
   if (/\b(entrega|entregar|delivery|motoboy)\b/.test(t)) return "delivery";
   return null;
 }
@@ -66,28 +72,28 @@ function detectSize(t) {
   return null;
 }
 
-function detectQuantity(t) {
-  const m = t.match(/\b(\d{1,2})\s*(x|pizza|pizzas?)?\b/);
-  if (!m) return 1;
-  const n = Number(m[1]);
-  return Number.isFinite(n) && n > 0 ? n : 1;
-}
-
 function canonicalFlavor(raw) {
   const v = norm(raw);
   if (!v) return null;
   if (FLAVOR_SYNONYMS[v]) return FLAVOR_SYNONYMS[v];
-
   for (const [key, value] of Object.entries(FLAVOR_SYNONYMS)) {
     if (v.includes(key)) return value;
   }
   return raw.trim();
 }
 
+function detectQuantityNearFlavor(t) {
+  const explicit = t.match(/(?:^|\s)(\d{1,2})\s*x\s*(pizza|pizzas?)?\b/i);
+  if (explicit) return Math.max(1, Number(explicit[1]) || 1);
+  const start = t.match(/^\s*(\d{1,2})\s+(pizza|pizzas?)\b/i);
+  if (start) return Math.max(1, Number(start[1]) || 1);
+  return 1;
+}
+
 function extractHalfAndHalf(t) {
   const patterns = [
     /(?:meia|1\/2|½)\s+([a-z0-9\s]+?)\s+(?:meia|1\/2|½)\s+([a-z0-9\s]+)/i,
-    /([a-z0-9\s]+?)\s*\/\s*([a-z0-9\s]+)/i,
+    /(?:meia|1\/2|½)\s+([a-z0-9\s]+?)\s*\/\s*(?:meia|1\/2|½)?\s*([a-z0-9\s]+)/i,
   ];
 
   for (const re of patterns) {
@@ -111,14 +117,16 @@ function extractFlavors(t) {
 
 function extractNotes(t) {
   const notes = [];
-  const sem = t.match(/\bsem\s+([a-z0-9\s]+?)(?=\s+(com|e|mais|meia|pix|cartao|dinheiro|retirada|entrega)\b|$)/i);
+  const sem = t.match(/\bsem\s+([a-z0-9\s]+?)(?=\s+(com|e|mais|meia|pix|cartao|dinheiro|retirada|entrega|broto|media|grande|gigante)\b|$)/i);
   if (sem) notes.push(`sem ${sem[1].trim()}`);
   if (/\b(bem passada|assada mais|mais assada)\b/i.test(t)) notes.push("bem passada");
-  return notes;
+  const borda = t.match(/\b(borda\s+[a-z0-9\s]+)(?=\s+(com|e|mais|pix|cartao|dinheiro|retirada|entrega)\b|$)/i);
+  if (borda) notes.push(borda[1].trim());
+  return Array.from(new Set(notes));
 }
 
 function buildItems(t) {
-  const qty = detectQuantity(t);
+  const qty = detectQuantityNearFlavor(t);
   const half = extractHalfAndHalf(t);
 
   if (half) {
@@ -126,6 +134,7 @@ function buildItems(t) {
       name: `½ ${half[0]} / ½ ${half[1]}`,
       quantity: qty,
       notes: [],
+      addons: [],
     }];
   }
 
@@ -136,6 +145,7 @@ function buildItems(t) {
     name,
     quantity: qty,
     notes: [],
+    addons: [],
   }));
 }
 
@@ -146,7 +156,11 @@ function parseOrderMessage(text) {
   const paymentMethod = detectPayment(t);
   const notes = extractNotes(t);
   const items = buildItems(t);
-  const hasOrderSignal = items.length > 0 || !!size || !!fulfillment || /\b(quero|manda|me ve|me vê|vou querer|pedido|pizza)\b/.test(t);
+  const hasOrderSignal =
+    items.length > 0 ||
+    !!size ||
+    !!fulfillment ||
+    /\b(quero|manda|me ve|me vê|vou querer|pedido|pizza|pizzas?)\b/.test(t);
 
   return {
     isOrder: hasOrderSignal,

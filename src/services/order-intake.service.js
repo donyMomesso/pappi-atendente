@@ -1,6 +1,7 @@
 // src/services/order-intake.service.js
-// FASE 2: Intake heurístico (sem IA pesada) para extrair sinais de pedido a partir do texto consolidado.
-// Objetivo: pré-preencher sessão e evitar perguntas redundantes. A resolução final de itens continua no fluxo vencedor (AI chatOrder + catálogo CW).
+// Intake heurístico reforçado para reduzir repetição e pré-preencher o pedido.
+
+const { parseOrderMessage } = require("./order-parser.service");
 
 function norm(text) {
   return (text || "")
@@ -32,14 +33,13 @@ function extractAddressHint(t) {
 
 function pickSizeFromOptions(t, sizeOptions = []) {
   if (!Array.isArray(sizeOptions) || !sizeOptions.length) return null;
-  // match por inclusão (ex.: "grande", "media", "broto")
   const found = sizeOptions.find((s) => t.includes(norm(s)));
   if (found) return found;
-  // fallback por sinônimos comuns
   const synonyms = [
     { re: /\b(broto)\b/, key: "broto" },
     { re: /\b(media|m(e|é)dia)\b/, key: "media" },
-    { re: /\b(grande|gigante)\b/, key: "grande" },
+    { re: /\b(grande)\b/, key: "grande" },
+    { re: /\b(gigante)\b/, key: "gigante" },
   ];
   for (const syn of synonyms) {
     if (!syn.re.test(t)) continue;
@@ -71,23 +71,8 @@ function detectProductType(t) {
 }
 
 function detectOrderItemsSignal(t) {
-  // sinais de item: sabores comuns + padrões "meia a meia" + bebidas
-  const flavors = [
-    "calabresa",
-    "mussarela",
-    "muçarela",
-    "frango",
-    "portuguesa",
-    "marguerita",
-    "margherita",
-    "4 queijos",
-    "quatro queijos",
-    "pepperoni",
-    "bacon",
-    "catupiry",
-    "chocolate",
-  ];
-  const drinks = ["coca", "guarana", "guaraná", "fanta", "suco", "agua", "água", "refri", "refrigerante", "2l", "lata"];
+  const flavors = ["calabresa","mussarela","muçarela","frango","portuguesa","marguerita","margherita","4 queijos","quatro queijos","pepperoni","bacon","catupiry","chocolate"];
+  const drinks = ["coca","guarana","guaraná","fanta","suco","agua","água","refri","refrigerante","2l","lata"];
   const hasHalf = /\b(meia\s+\w+)\b/.test(t) || /\bmeia\s+a\s+meia\b/.test(t);
   const hasQty = /\b(\d+)\s*x?\b/.test(t);
   const hasFlavor = flavors.some((f) => t.includes(f));
@@ -110,28 +95,25 @@ function computeMissing({ fulfillment, addressHint, size, hasItems, paymentMetho
 
 function intake({ text, sizeOptions = [] } = {}) {
   const t = norm(text);
-  const fulfillment = detectFulfillment(t);
+  const parsed = parseOrderMessage(text);
+  const fulfillment = parsed.fulfillment || detectFulfillment(t);
   const productType = detectProductType(t);
-  const paymentMethod = detectPayment(t);
+  const paymentMethod = parsed.paymentMethod || detectPayment(t);
   const addressHint = extractAddressHint(t);
-  const size = pickSizeFromOptions(t, sizeOptions);
-  const hasItems = detectOrderItemsSignal(t);
+  const size = pickSizeFromOptions(t, sizeOptions) || parsed.size;
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  const notes = [...(parsed.notes || [])];
+  const hasItems = items.length > 0 || detectOrderItemsSignal(t);
 
-  const isOrder = hasItems || !!productType || !!size || !!fulfillment;
+  const isOrder = parsed.isOrder || hasItems || !!productType || !!size || !!fulfillment;
   const missing = computeMissing({ fulfillment, addressHint, size, hasItems, paymentMethod });
 
-  const completenessScore = Math.max(
-    0,
-    Math.min(
-      1,
-      (Number(hasItems) + Number(!!size) + Number(!!fulfillment) + Number(fulfillment !== "delivery" || !!addressHint) + Number(!!paymentMethod)) / 5,
-    ),
-  );
+  const completenessScore = Math.max(0, Math.min(1,
+    (Number(hasItems) + Number(!!size) + Number(!!fulfillment) + Number(fulfillment !== "delivery" || !!addressHint) + Number(!!paymentMethod)) / 5,
+  ));
   const hasCompleteOrder = isOrder && missing.length === 0;
-  const confidence = isOrder ? 0.75 + completenessScore * 0.2 : 0.3;
+  const confidence = isOrder ? 0.78 + completenessScore * 0.2 : 0.3;
 
-  const notes = [];
-  if (/\bsem\s+\w+/.test(t)) notes.push("removal_hint");
   if (/\bcom\s+\w+/.test(t)) notes.push("addon_hint");
   if (/\bobs\b|\bobserva(c|ç)(a|ã)o\b|\bobservacao\b/.test(t)) notes.push("notes_present");
 
@@ -140,16 +122,16 @@ function intake({ text, sizeOptions = [] } = {}) {
     confidence: Math.min(0.99, confidence),
     hasCompleteOrder,
     completenessScore,
-    items: [], // itens finais continuam resolvidos pelo fluxo vencedor (AI+catálogo CW)
+    items,
+    hasItems,
     productType,
     size,
     fulfillment,
     address: addressHint ? { ...addressHint, raw: text } : null,
     paymentMethod,
-    notes,
+    notes: Array.from(new Set(notes)),
     missing,
   };
 }
 
 module.exports = { intake };
-

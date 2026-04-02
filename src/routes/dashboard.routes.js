@@ -1303,8 +1303,10 @@ router.post("/send", authDash, async (req, res) => {
 // ── GET /dash/messages/:customerId ───────────────────────────
 router.get("/messages/:customerId", authDash, async (req, res) => {
   try {
-    const messages = await chatMemory.get(req.params.customerId);
-    res.json(Array.isArray(messages) ? messages : []);
+    const limit = Number(req.query.limit || 30);
+    const cursor = req.query.cursor ? Number(req.query.cursor) : null;
+    const result = await chatMemory.getPaginated(req.params.customerId, { limit, cursor });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1313,8 +1315,10 @@ router.get("/messages/:customerId", authDash, async (req, res) => {
 // ── GET /dash/customer/:id/messages ──────────────────────────
 router.get("/customer/:id/messages", authDash, async (req, res) => {
   try {
-    const messages = await chatMemory.get(req.params.id);
-    res.json(Array.isArray(messages) ? messages : []);
+    const limit = Number(req.query.limit || 30);
+    const cursor = req.query.cursor ? Number(req.query.cursor) : null;
+    const result = await chatMemory.getPaginated(req.params.id, { limit, cursor });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
