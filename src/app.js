@@ -115,10 +115,24 @@ app.get("/health", async (req, res) => {
   }
   try {
     await prisma.$queryRaw`SELECT 1`;
-    await connectRedisIfConfigured();
   } catch {
     status.db = "error";
     status.ok = false;
+  }
+  // Redis é opcional para API/painel; falha só de Redis não deve retornar 503 no Render.
+  if (!env.REDIS_URL) {
+    status.redis = "not_configured";
+  } else if (status.ok) {
+    try {
+      await connectRedisIfConfigured();
+      status.redis = "ok";
+    } catch (e) {
+      status.redis = "error";
+      status.redisMessage = e?.message || "ping failed";
+      status.degraded = true;
+    }
+  } else {
+    status.redis = "skipped";
   }
   res.status(status.ok ? 200 : 503).json(status);
 });
